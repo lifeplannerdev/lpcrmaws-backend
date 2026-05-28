@@ -18,7 +18,10 @@ from .views import (
     TodayFollowUpsAPIView,
     OverdueFollowUpsAPIView,
     LeadConversionDetailView,
+    ConvertWebhookToLeadAPIView,
+    WebhookLogListView,
 )
+from .webhooks import meta_webhook, voxbay_webhook
 
 urlpatterns = [
     # ── Leads ────────────────────────────────────────────────
@@ -46,4 +49,10 @@ urlpatterns = [
     path('followups/today/', TodayFollowUpsAPIView.as_view(), name='followups-today'),
     path('followups/overdue/', OverdueFollowUpsAPIView.as_view(), name='followups-overdue'),
     path('followups/<int:pk>/', FollowUpDetailAPIView.as_view(), name='followup-detail'),
+
+    # ── Webhooks ──────────────────────────────────────────────
+    path('webhooks/meta/', meta_webhook, name='meta-webhook'),
+    path('webhooks/voxbay/', voxbay_webhook, name='voxbay-webhook'),
+    path('webhooks/logs/', WebhookLogListView.as_view(), name='webhook-logs'),
+    path('webhooks/logs/<int:log_id>/convert/', ConvertWebhookToLeadAPIView.as_view(), name='convert-webhook-lead'),
 ]

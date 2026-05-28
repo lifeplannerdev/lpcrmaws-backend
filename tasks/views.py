@@ -162,6 +162,19 @@ class TaskListCreateAPIView(generics.ListCreateAPIView):
         if priority_filter and priority_filter != 'all':
             qs = qs.filter(priority=priority_filter)
 
+        date_filter = self.request.query_params.get('date_filter')
+        if date_filter and date_filter != 'all':
+            if date_filter == 'today':
+                qs = qs.filter(created_at__date=timezone.now().date())
+            elif date_filter == 'yesterday':
+                qs = qs.filter(created_at__date=timezone.now().date() - timezone.timedelta(days=1))
+            else:
+                # Assuming specific date format YYYY-MM-DD
+                try:
+                    qs = qs.filter(created_at__date=date_filter)
+                except ValueError:
+                    pass
+
         return qs
 
     def perform_create(self, serializer):

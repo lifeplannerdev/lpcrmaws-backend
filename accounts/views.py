@@ -189,7 +189,16 @@ class StaffListView(generics.ListAPIView):
     ordering = ['-date_joined']
 
     def get_queryset(self):
-        queryset = User.objects.filter(is_active=True)
+        queryset = User.objects.all()
+
+        status_param = self.request.query_params.get('status')
+        if status_param == 'inactive':
+            queryset = queryset.filter(is_active=False)
+        elif status_param == 'active':
+            queryset = queryset.filter(is_active=True)
+        # default or 'all' might not filter by is_active at all, but for now we default to active if not specified
+        elif not status_param:
+            queryset = queryset.filter(is_active=True)
 
         team = self.request.query_params.get('team')
         if team and team != "all":
@@ -212,6 +221,24 @@ class StaffCreateView(generics.CreateAPIView):
 
     def create(self, request, *args, **kwargs):
         response = super().create(request, *args, **kwargs)
+        
+        # If user is a trainer and a branch_id was provided, update the trainer profile
+        branch_id = request.data.get('branch_id')
+        role = request.data.get('role')
+        if role == 'TRAINER' and branch_id:
+            try:
+                # The user was created in super().create(), let's fetch it by email or username
+                # But we don't have the instance easily from response. So let's get it by username
+                username = request.data.get('username')
+                user = User.objects.get(username=username)
+                
+                # Signal has already created trainer_profile
+                if hasattr(user, 'trainer_profile'):
+                    user.trainer_profile.branch_id = branch_id
+                    user.trainer_profile.save()
+            except Exception as e:
+                print(f"Error setting branch for trainer: {e}")
+
         response.data = {"message": "Staff created successfully"}
         return response
 
@@ -229,6 +256,16 @@ class StaffUpdateView(generics.UpdateAPIView):
 
         serializer.is_valid(raise_exception=True)
         self.perform_update(serializer)
+
+        # Handle branch update for trainers
+        branch_id = request.data.get('branch_id')
+        if instance.role == 'TRAINER' and branch_id:
+            try:
+                if hasattr(instance, 'trainer_profile'):
+                    instance.trainer_profile.branch_id = branch_id
+                    instance.trainer_profile.save()
+            except Exception as e:
+                print(f"Error setting branch for trainer: {e}")
 
         return Response(
             {"message": "Staff updated successfully"},

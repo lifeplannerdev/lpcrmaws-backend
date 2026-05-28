@@ -427,3 +427,24 @@ class LeadConversionDetail(models.Model):
 
     def __str__(self):
         return f"Conversion detail for {self.lead.name}"
+
+
+class WebhookLog(models.Model):
+    SOURCE_CHOICES = [
+        ('VOXBAY', 'Voxbay'),
+        ('META', 'Meta Ads'),
+    ]
+
+    source = models.CharField(max_length=20, choices=SOURCE_CHOICES)
+    payload = models.JSONField(blank=True, null=True)
+    headers = models.JSONField(blank=True, null=True)
+    status_code = models.IntegerField(blank=True, null=True)
+    error_message = models.TextField(blank=True, null=True)
+    processed = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.get_source_display()} Webhook - {self.created_at}"

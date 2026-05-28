@@ -1,7 +1,7 @@
 import pandas as pd
 import math
 from datetime import date
-from .models import Lead, ProcessingUpdate, RemarkHistory, LeadAssignment,FollowUp,LeadConversionDetail
+from .models import Lead, ProcessingUpdate, RemarkHistory, LeadAssignment,FollowUp,LeadConversionDetail, WebhookLog
 from .email_utils import send_conversion_email
 from rest_framework import generics, filters, status
 from rest_framework.pagination import PageNumberPagination
@@ -44,6 +44,7 @@ from .serializers import (
     BulkLeadCreateSerializer,
     FollowUpSerializer,
     LeadConversionDetailSerializer,
+    WebhookLogSerializer,
 )
 
 
@@ -998,3 +999,72 @@ class LeadConversionDetailView(APIView):
         )
  
         return Response(LeadConversionDetailSerializer(updated).data)
+
+
+class WebhookLogListView(generics.ListAPIView):
+    """
+    Lists all webhook logs (for admin review or lead conversion).
+    """
+    queryset = WebhookLog.objects.all().order_by('-created_at')
+    serializer_class = WebhookLogSerializer
+    permission_classes = [CanAccessLeads]  # or more strict permission
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        source = self.request.query_params.get('source')
+        processed = self.request.query_params.get('processed')
+        if source:
+            qs = qs.filter(source=source.upper())
+        if processed is not None:
+            processed_bool = processed.lower() == 'true'
+            qs = qs.filter(processed=processed_bool)
+        return qs
+
+
+class ConvertWebhookToLeadAPIView(APIView):
+    """
+    Converts a Voxbay (or other) WebhookLog entry into a Lead (1-Click Lead Conversion).
+    """
+    permission_classes = [CanAccessLeads]
+
+    def post(self, request, log_id):
+        log = get_object_or_404(WebhookLog, id=log_id)
+        if log.processed:
+            return Response({'error': 'This webhook log has already been processed.'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        payload = log.payload or {}
+        
+        # Extract potential phone number
+        phone = payload.get('caller_number') or payload.get('phone') or payload.get('number')
+        if not phone:
+            return Response({'error': 'No phone number found in payload to convert.'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Check if lead already exists
+        if Lead.objects.filter(phone=phone).exists():
+            log.processed = True
+            log.save()
+            return Response({'error': 'Lead with this phone number already exists.'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        # Create lead
+        name = payload.get('name', f"Unknown Caller {phone}")
+        source = 'VOXBAY CALL' if log.source == 'VOXBAY' else 'ADS'
+        
+        lead = Lead.objects.create(
+            name=name,
+            phone=phone,
+            source=source,
+            created_by=request.user,
+            remarks=f"Auto-created from {log.source} Webhook Log ID: {log.id}",
+            assigned_to=request.user,
+            assigned_by=request.user,
+            assigned_date=timezone.now()
+        )
+        
+        # Mark processed
+        log.processed = True
+        log.save()
+        
+        return Response({
+            'message': 'Lead created successfully.',
+            'lead_id': lead.id
+        }, status=status.HTTP_201_CREATED)

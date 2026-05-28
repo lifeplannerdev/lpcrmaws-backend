@@ -1,17 +1,24 @@
 from rest_framework import serializers
-from .models import Trainer, Student, Attendance, AcademicBatch
+from .models import Trainer, Student, Attendance, AcademicBatch, Branch, ExamResult
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
+
+# Branch Serializer
+class BranchSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Branch
+        fields = ['id', 'name', 'location']
 
 # Trainer Serializer
 class TrainerSerializer(serializers.ModelSerializer):
     user_name = serializers.CharField(source='user.get_full_name', read_only=True)
     email = serializers.CharField(source='user.email', read_only=True)
+    branch_name = serializers.CharField(source='branch.name', read_only=True)
     
     class Meta:
         model = Trainer
-        fields = ['id', 'user', 'user_name', 'email', 'drive_link', 'status']
+        fields = ['id', 'user', 'user_name', 'email', 'drive_link', 'status', 'branch', 'branch_name']
 
 # Academic Batch Serializer
 class AcademicBatchSerializer(serializers.ModelSerializer):
@@ -23,12 +30,13 @@ class AcademicBatchSerializer(serializers.ModelSerializer):
 class StudentSerializer(serializers.ModelSerializer):
     trainer_name = serializers.CharField(source='trainer.user.get_full_name', read_only=True)
     academic_batch_details = AcademicBatchSerializer(source='academic_batch', read_only=True)
+    branch_name = serializers.CharField(source='branch.name', read_only=True)
     
     class Meta:
         model = Student
         fields = [
             'id', 'name', 'batch', 'academic_batch', 'academic_batch_details', 
-            'trainer', 'trainer_name',
+            'trainer', 'trainer_name', 'branch', 'branch_name',
             'status', 'admission_date', 'notes',
             'email', 'phone_number', 'drive_link', 'student_class'
         ]
@@ -68,3 +76,11 @@ class TrainerUserSerializer(serializers.ModelSerializer):
         elif obj.first_name:
             return obj.first_name
         return obj.username
+
+class ExamResultSerializer(serializers.ModelSerializer):
+    student_name = serializers.CharField(source='student.name', read_only=True)
+    academic_batch_name = serializers.CharField(source='academic_batch.name', read_only=True)
+
+    class Meta:
+        model = ExamResult
+        fields = ['id', 'student', 'student_name', 'academic_batch', 'academic_batch_name', 'exam_type', 'score', 'remarks', 'recorded_at']

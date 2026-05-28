@@ -9,13 +9,15 @@ from django.db.models import Count, Q
 from django.contrib.auth import get_user_model
 import csv
 
-from .models import Trainer, Student, Attendance
+from .models import Trainer, Student, Attendance, Branch, ExamResult
 from .serializers import (
     TrainerSerializer, 
     StudentSerializer, 
     AttendanceSerializer,
     TrainerUserSerializer,
-    AcademicBatchSerializer
+    AcademicBatchSerializer,
+    BranchSerializer,
+    ExamResultSerializer
 )
 from .permissions import IsTrainerOwnStudent
 
@@ -33,7 +35,11 @@ class TrainerListCreateAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        qs = Trainer.objects.select_related('user')
+        qs = Trainer.objects.select_related('user', 'branch')
+        branch_id = request.GET.get('branch_id')
+        if branch_id:
+            qs = qs.filter(branch_id=branch_id)
+        
         paginator = StandardResultsSetPagination()
         page = paginator.paginate_queryset(qs, request)
         serializer = TrainerSerializer(page, many=True)
@@ -94,7 +100,7 @@ class StudentListCreateAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        qs = Student.objects.select_related('trainer', 'trainer__user', 'academic_batch')
+        qs = Student.objects.select_related('trainer', 'trainer__user', 'academic_batch', 'branch')
 
         if hasattr(request.user, 'trainer_profile'):
             qs = qs.filter(trainer=request.user.trainer_profile)
@@ -103,6 +109,7 @@ class StudentListCreateAPIView(APIView):
         batch_filter = request.GET.get('batch')
         academic_batch = request.GET.get('academic_batch')
         trainer_filter = request.GET.get('trainer')
+        branch_id = request.GET.get('branch_id')
         search = request.GET.get('search')
 
         if status_filter:
@@ -113,6 +120,8 @@ class StudentListCreateAPIView(APIView):
             qs = qs.filter(academic_batch_id=academic_batch)
         if trainer_filter:
             qs = qs.filter(trainer_id=trainer_filter)
+        if branch_id:
+            qs = qs.filter(branch_id=branch_id)
         if search:
             qs = qs.filter(
                 Q(name__icontains=search) |
@@ -262,12 +271,15 @@ class AttendanceDetailAPIView(APIView):
 
         student_id = request.GET.get('student')
         trainer_id = request.GET.get('trainer')
+        branch_id = request.GET.get('branch_id')
         date = request.GET.get('date')
 
         if student_id:
             records = records.filter(student_id=student_id)
         if trainer_id:
             records = records.filter(trainer_id=trainer_id)
+        if branch_id:
+            records = records.filter(student__branch_id=branch_id)
         if date:
             records = records.filter(date=date)
 
@@ -406,6 +418,7 @@ class AttendanceStudentsAPIView(APIView):
         batch = request.GET.get('batch')
         student_class = request.GET.get('student_class')
         trainer_id = request.GET.get('trainer')
+        branch_id = request.GET.get('branch_id')
         location = request.GET.get('location')
         
         if batch:
@@ -414,6 +427,8 @@ class AttendanceStudentsAPIView(APIView):
             students = students.filter(student_class=student_class)
         if trainer_id and not hasattr(request.user, 'trainer_profile'):
             students = students.filter(trainer_id=trainer_id)
+        if branch_id:
+            students = students.filter(branch_id=branch_id)
         if location:
             students = students.filter(trainer__user__location=location)
 
@@ -447,3 +462,91 @@ class StudentStatsAPIView(APIView):
 
         stats["PAUSED_DROPPED"] = stats["PAUSED"] + stats["DROPPED"]
         return Response(stats)
+
+
+class BranchListCreateAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        qs = Branch.objects.all()
+        serializer = BranchSerializer(qs, many=True)
+        return Response(serializer.data)
+
+    def post(self, request):
+        serializer = BranchSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class BranchDetailAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        branch = get_object_or_404(Branch, pk=pk)
+        serializer = BranchSerializer(branch)
+        return Response(serializer.data)
+
+    def put(self, request, pk):
+        branch = get_object_or_404(Branch, pk=pk)
+        serializer = BranchSerializer(branch, data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request, pk):
+        branch = get_object_or_404(Branch, pk=pk)
+        branch.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ExamResultListCreateAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        qs = ExamResult.objects.select_related('student', 'academic_batch')
+        
+        student_id = request.GET.get('student_id')
+        academic_batch_id = request.GET.get('academic_batch_id')
+        exam_type = request.GET.get('exam_type')
+
+        if student_id:
+            qs = qs.filter(student_id=student_id)
+        if academic_batch_id:
+            qs = qs.filter(academic_batch_id=academic_batch_id)
+        if exam_type:
+            qs = qs.filter(exam_type=exam_type.upper())
+
+        serializer = ExamResultSerializer(qs, many=True)
+        return Response(serializer.data)
+
+    def post(self, request):
+        serializer = ExamResultSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ExamResultDetailAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        result = get_object_or_404(ExamResult, pk=pk)
+        serializer = ExamResultSerializer(result)
+        return Response(serializer.data)
+
+    def put(self, request, pk):
+        result = get_object_or_404(ExamResult, pk=pk)
+        serializer = ExamResultSerializer(result, data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request, pk):
+        result = get_object_or_404(ExamResult, pk=pk)
+        result.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)

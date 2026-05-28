@@ -5,6 +5,14 @@ from django.core.validators import MinLengthValidator
 User = get_user_model()
 
 
+class Branch(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+    location = models.CharField(max_length=200, blank=True, null=True)
+
+    def __str__(self):
+        return self.name
+
+
 class Trainer(models.Model):
     user = models.OneToOneField(
         User,
@@ -15,6 +23,14 @@ class Trainer(models.Model):
     drive_link = models.URLField(
         blank=True,
         help_text="Link to trainer's Google Drive folder"
+    )
+
+    branch = models.ForeignKey(
+        Branch,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='trainers'
     )
 
     STATUS_CHOICES = [
@@ -82,6 +98,14 @@ class Student(models.Model):
         choices=BATCH_CHOICES,
         blank=True,
         null=True
+    )
+    
+    branch = models.ForeignKey(
+        Branch,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='students'
     )
     
     academic_batch = models.ForeignKey(
@@ -199,3 +223,31 @@ class Attendance(models.Model):
 
     def __str__(self):
         return f"{self.student.name} - {self.date} - {self.status}"
+
+
+class ExamResult(models.Model):
+    EXAM_TYPE_CHOICES = [
+        ('MODEL', 'Model Exam'),
+        ('FINAL', 'Final Exam'),
+    ]
+
+    student = models.ForeignKey(
+        Student,
+        on_delete=models.CASCADE,
+        related_name='exam_results'
+    )
+    academic_batch = models.ForeignKey(
+        AcademicBatch,
+        on_delete=models.CASCADE,
+        related_name='exam_results'
+    )
+    exam_type = models.CharField(max_length=10, choices=EXAM_TYPE_CHOICES)
+    score = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    remarks = models.TextField(blank=True, null=True)
+    recorded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ['student', 'academic_batch', 'exam_type']
+
+    def __str__(self):
+        return f"{self.student.name} - {self.get_exam_type_display()} - {self.score}"

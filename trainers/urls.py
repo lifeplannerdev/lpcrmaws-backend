@@ -14,6 +14,10 @@ from .views import (
     StudentStatsAPIView,
     AcademicBatchListCreateAPIView,
     AcademicBatchDetailAPIView,
+    BranchListCreateAPIView,
+    BranchDetailAPIView,
+    ExamResultListCreateAPIView,
+    ExamResultDetailAPIView,
 )
 
 urlpatterns = [
@@ -31,4 +35,8 @@ urlpatterns = [
     path('attendance/student/<int:student_id>/', AttendanceRecordsAPIView.as_view(), name='attendance-student-records'),
     path('attendance/export/<int:student_id>/', ExportStudentAttendanceAPIView.as_view(), name='export-student-attendance'),
     path('stats/students/', StudentStatsAPIView.as_view(), name='student-stats'),
+    path('branches/', BranchListCreateAPIView.as_view(), name='branch-list-create'),
+    path('branches/<int:pk>/', BranchDetailAPIView.as_view(), name='branch-detail'),
+    path('exam-results/', ExamResultListCreateAPIView.as_view(), name='exam-result-list-create'),
+    path('exam-results/<int:pk>/', ExamResultDetailAPIView.as_view(), name='exam-result-detail'),
 ]

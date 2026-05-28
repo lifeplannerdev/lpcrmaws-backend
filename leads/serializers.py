@@ -9,8 +9,8 @@ from .models import (
     LeadAssignment,
     FollowUp, 
     FollowUpHistory,
-    LeadConversionDetail
-
+    LeadConversionDetail,
+    WebhookLog
 )
 
 # Shared user serializer
@@ -491,3 +491,9 @@ class LeadConversionDetailSerializer(serializers.ModelSerializer):
         model  = LeadConversionDetail
         exclude = ['student_name', 'enrollment_id', 'meeting_date']
         read_only_fields = ['lead', 'updated_by', 'created_at', 'updated_at']
+
+
+class WebhookLogSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = WebhookLog
+        fields = '__all__'
