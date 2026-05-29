@@ -51,7 +51,8 @@ class PenaltyListCreateAPI(APIView):
     def post(self, request):
         serializer = PenaltySerializer(data=request.data)
         if serializer.is_valid():
-            serializer.save()
+            user = serializer.validated_data.get('user')
+            serializer.save(company=user.company if user else 'LP')
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 

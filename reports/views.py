@@ -29,6 +29,7 @@ class DailyReportCreateView(generics.CreateAPIView):
         serializer.save(
             user=self.request.user,
             status="pending",
+            company=self.request.user.company,
         )
 
     def get_serializer_context(self):
