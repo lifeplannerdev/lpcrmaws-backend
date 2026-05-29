@@ -106,6 +106,15 @@ class TaskStatsAPIView(APIView):
         qs = _task_queryset_for_user(user)
         qs = CompanyFilterBackend().filter_queryset(request, qs, self)
 
+        # Apply month/year filters if provided
+        month = request.query_params.get('month')
+        year = request.query_params.get('year')
+        
+        if year and year != 'all':
+            qs = qs.filter(created_at__year=year)
+        if month and month != 'all':
+            qs = qs.filter(created_at__month=month)
+
         now_dt = timezone.now()
         overdue_count = qs.filter(
             Q(deadline__lt=now_dt) &
@@ -179,6 +188,14 @@ class TaskListCreateAPIView(generics.ListCreateAPIView):
                     qs = qs.filter(created_at__date=date_filter)
                 except ValueError:
                     pass
+
+        month_filter = self.request.query_params.get('month')
+        if month_filter and month_filter != 'all':
+            qs = qs.filter(created_at__month=month_filter)
+            
+        year_filter = self.request.query_params.get('year')
+        if year_filter and year_filter != 'all':
+            qs = qs.filter(created_at__year=year_filter)
 
         return qs
 
