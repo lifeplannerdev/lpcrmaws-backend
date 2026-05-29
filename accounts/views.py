@@ -168,12 +168,10 @@ class LogoutAPIView(APIView):
             {"message": "Logged out successfully"},
             status=status.HTTP_200_OK
         )
-        
         response.delete_cookie(
             key="refresh_token",
             path="/",
-            samesite="None",
-            secure=True
+            samesite="None"
         )
         
         return response
