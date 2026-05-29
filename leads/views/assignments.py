@@ -213,6 +213,7 @@ class BulkLeadAssignView(APIView):
         }, status=status.HTTP_200_OK)
 
 class LeadAssignmentHistoryView(generics.ListAPIView):
+    pagination_class   = None
     serializer_class   = LeadAssignmentSerializer
     permission_classes = [CanAccessLeads]
 

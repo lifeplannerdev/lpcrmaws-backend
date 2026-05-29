@@ -239,6 +239,7 @@ class LeadDetailView(generics.RetrieveUpdateDestroyAPIView):
         )
 
 class LeadProcessingTimelineView(generics.ListAPIView):
+    pagination_class = None
     serializer_class = ProcessingUpdateSerializer
     permission_classes = [CanAccessLeads]
 
