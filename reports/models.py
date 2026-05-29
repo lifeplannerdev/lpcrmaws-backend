@@ -19,6 +19,7 @@ class DailyReport(models.Model):
         related_name='daily_reports',
         db_index=True
     )
+    company = models.CharField(max_length=10, choices=[('LP', 'LP'), ('FLAG', 'FLAG')], default='LP', db_index=True)
     REPORT_TYPE_CHOICES = (
         ('MORNING', 'Morning Agenda'),
         ('EVENING', 'Evening Report'),

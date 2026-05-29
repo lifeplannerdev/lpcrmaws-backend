@@ -18,6 +18,7 @@ from .serializers import (
     UpcomingTaskSerializer,
 )
 from django.contrib.auth import get_user_model
+from accounts.filters import CompanyFilterBackend
 from .permissions import (
     IsTaskAssigner,
     TASK_ASSIGNERS,
@@ -101,6 +102,7 @@ class TaskStatsAPIView(APIView):
     def get(self, request):
         user = request.user
         qs = _task_queryset_for_user(user)
+        qs = CompanyFilterBackend().filter_queryset(request, qs, self)
 
         now_dt = timezone.now()
         overdue_count = qs.filter(
@@ -125,6 +127,7 @@ class TaskStatsAPIView(APIView):
 class EmployeeListAPIView(generics.ListAPIView):
     permission_classes = [IsTaskAssigner]
     serializer_class = EmployeeSerializer
+    filter_backends = [CompanyFilterBackend]
 
     def get_queryset(self):
         user = self.request.user
@@ -141,7 +144,7 @@ class EmployeeListAPIView(generics.ListAPIView):
 class TaskListCreateAPIView(generics.ListCreateAPIView):
     serializer_class = TaskSerializer
     pagination_class = TaskPagination
-    filter_backends = [filters.SearchFilter]
+    filter_backends = [filters.SearchFilter, CompanyFilterBackend]
     search_fields = ['title', 'description']
 
     def get_permissions(self):
@@ -188,7 +191,7 @@ class TaskListCreateAPIView(generics.ListCreateAPIView):
                     "OPS and CM can only assign tasks to execution-level employees."
                 )
 
-        task = serializer.save(assigned_by=user)
+        task = serializer.save(assigned_by=user, company=user.company)
 
         # 🔔 Notify the assignee about the new task
         notify_task_assigned(task=task, assigned_by=user)
@@ -309,10 +312,9 @@ class TasksAssignedByMeAPIView(generics.ListAPIView):
         user = self.request.user
         if user.role not in TASK_ASSIGNERS:
             return Task.objects.none()
-        return _apply_status_ordering(
-            Task.objects.filter(assigned_by=user)
-            .select_related('assigned_to', 'assigned_by')
-        )
+        qs = Task.objects.filter(assigned_by=user).select_related('assigned_to', 'assigned_by')
+        qs = CompanyFilterBackend().filter_queryset(self.request, qs, self)
+        return _apply_status_ordering(qs)
 
 
 # ── Task Status Update ────────────────────────────────────────────────────────
@@ -401,12 +403,11 @@ class PendingTasksAPIView(APIView):
 
     def get(self, request):
         user = request.user
-        qs = _task_queryset_for_user(
-            user,
-            base_qs=Task.objects.filter(
-                status__in=['PENDING', 'IN_PROGRESS']
-            ).select_related('assigned_to', 'assigned_by')
-        )
+        base_qs = Task.objects.filter(
+            status__in=['PENDING', 'IN_PROGRESS']
+        ).select_related('assigned_to', 'assigned_by')
+        qs = _task_queryset_for_user(user, base_qs=base_qs)
+        qs = CompanyFilterBackend().filter_queryset(request, qs, self)
         qs = _apply_priority_ordering(qs).order_by('priority_order', 'deadline')
         return Response(TaskSerializer(qs, many=True).data)
 
@@ -418,11 +419,8 @@ class UpcomingTasksAPIView(APIView):
 
     def get(self, request):
         user = request.user
-        qs = _task_queryset_for_user(
-            user,
-            base_qs=Task.objects.filter(deadline__gte=now())
-                                .exclude(status__in=['COMPLETED', 'CANCELLED'])
-                                .select_related('assigned_to', 'assigned_by')
-        )
+        base_qs = Task.objects.filter(deadline__gte=now()).exclude(status__in=['COMPLETED', 'CANCELLED']).select_related('assigned_to', 'assigned_by')
+        qs = _task_queryset_for_user(user, base_qs=base_qs)
+        qs = CompanyFilterBackend().filter_queryset(request, qs, self)
         qs = qs.order_by("deadline")[:5]
         return Response(UpcomingTaskSerializer(qs, many=True).data)

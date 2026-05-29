@@ -21,6 +21,7 @@ class Task(models.Model):
 
     title = models.CharField(max_length=200)
     description = models.TextField()
+    company = models.CharField(max_length=10, choices=[('LP', 'LP'), ('FLAG', 'FLAG')], default='LP', db_index=True)
 
     assigned_by = models.ForeignKey(
         User,

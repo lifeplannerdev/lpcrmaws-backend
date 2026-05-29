@@ -5,12 +5,13 @@ ROLE_PERMISSIONS = {
     'ADMIN': [
         'view_overview', 'view_leads', 'view_staff', 'view_all_tasks', 
         'view_students', 'view_staff_reports', 'view_voxbay',
-        'edit_tasks', 'edit_penalties', 'edit_candidates', 'edit_staff', 'delete_staff'
+        'edit_tasks', 'edit_penalties', 'edit_candidates', 'edit_staff', 'delete_staff',
+        'access_flag'
     ],
     'CEO': [
         'view_overview', 'view_leads', 'view_staff', 'view_all_tasks', 
         'view_students', 'view_my_reports', 'view_staff_reports', 'view_voxbay',
-        'edit_tasks'
+        'edit_tasks', 'access_flag'
     ],
     'BUSINESS_HEAD': [
         'view_overview', 'view_leads', 'view_staff', 'view_my_tasks', 
@@ -48,12 +49,13 @@ ROLE_PERMISSIONS = {
     'CM': [
         'view_overview', 'view_staff', 'view_leads', 'view_all_tasks', 
         'view_my_reports', 'view_staff_reports',
-        'edit_tasks'
+        'edit_tasks', 'access_flag'
     ],
     'HR': [
         'view_overview', 'view_staff', 'view_penalties', 'view_attendance_docs', 
         'view_candidates', 'view_all_tasks', 'view_my_reports', 'view_staff_reports',
-        'edit_tasks', 'edit_penalties', 'edit_candidates', 'edit_staff', 'delete_staff'
+        'edit_tasks', 'edit_penalties', 'edit_candidates', 'edit_staff', 'delete_staff',
+        'access_flag'
     ],
     'FOE': [
         'view_overview', 'view_leads', 'view_all_tasks', 'view_my_reports'

@@ -61,6 +61,7 @@ class Lead(models.Model):
     location = models.CharField(max_length=100, blank=True, null=True)
     source = models.CharField(max_length=20, choices=SOURCE_CHOICES, blank=True, null=True)
     custom_source = models.CharField(max_length=50, blank=True, null=True)
+    company = models.CharField(max_length=10, choices=[('LP', 'LP'), ('FLAG', 'FLAG')], default='LP', db_index=True)
     created_by = models.ForeignKey(User,on_delete=models.SET_NULL,null=True, blank=True,related_name='created_leads')
     # Processing workflow fields
     processing_status = models.CharField(max_length=20, choices=PROCESSING_STATUS_CHOICES, default='PENDING')

@@ -7,6 +7,7 @@ class AttendanceDocument(models.Model):
     name = models.CharField(max_length=255, verbose_name="Document Name")
     date = models.DateField(verbose_name="Date")
     month = models.CharField(max_length=100, verbose_name="Month")
+    company = models.CharField(max_length=10, choices=[('LP', 'LP'), ('FLAG', 'FLAG')], default='LP', db_index=True)
     document = CloudinaryField(
         resource_type='auto',
         folder='hr/attendance_documents/',
@@ -32,6 +33,7 @@ class Penalty(models.Model):
         on_delete=models.CASCADE,
         related_name="penalties",
     )
+    company = models.CharField(max_length=10, choices=[('LP', 'LP'), ('FLAG', 'FLAG')], default='LP', db_index=True)
     act = models.CharField(max_length=1000)
     amount = models.IntegerField(default=0, blank=True, verbose_name='Amount')
     month = models.CharField(max_length=100, verbose_name="Month")
@@ -59,6 +61,7 @@ class Candidate(models.Model):
     email = models.EmailField()
     phone = models.CharField(max_length=20, blank=True, null=True)
 
+    company = models.CharField(max_length=10, choices=[('LP', 'LP'), ('FLAG', 'FLAG')], default='LP', db_index=True)
     position_applied = models.CharField(max_length=255)
 
     resume = CloudinaryField(

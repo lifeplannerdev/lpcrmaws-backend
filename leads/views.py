@@ -20,7 +20,7 @@ from utils.pusher import pusher_client, trigger_pusher
 from utils import notify_lead_assigned
 from rest_framework import status
 from django.shortcuts import get_object_or_404
-
+from accounts.filters import CompanyFilterBackend
 
 from leads.permissions import (
     CanAccessLeads,
@@ -74,6 +74,7 @@ class LeadListView(generics.ListAPIView):
         DjangoFilterBackend,
         filters.SearchFilter,
         filters.OrderingFilter,
+        CompanyFilterBackend,
     ]
     filterset_fields = {
         'priority':          ['exact'],
@@ -131,7 +132,7 @@ class LeadCreateView(generics.CreateAPIView):
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        lead = serializer.save(created_by=request.user)
+        lead = serializer.save(created_by=request.user, company=request.user.company)
 
         ActivityLog.objects.create(
             user=request.user,

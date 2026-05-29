@@ -21,6 +21,7 @@ from .serializers import (
     LoginSerializer,
     ActivityLogSerializer
 )
+from .filters import CompanyFilterBackend
 
 # Pagination 
 class StaffPagination(PageNumberPagination):
@@ -182,7 +183,7 @@ class StaffListView(generics.ListAPIView):
     serializer_class = StaffListSerializer
     permission_classes = [IsManagement]
     pagination_class = StaffPagination
-    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter, CompanyFilterBackend]
     search_fields = [
         'username', 'first_name', 'last_name',
         'email', 'role', 'phone', 'location', 'team'
