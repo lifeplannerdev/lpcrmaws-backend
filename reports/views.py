@@ -44,7 +44,7 @@ class MyDailyReportsView(generics.ListAPIView):
     pagination_class = DailyReportPagination
 
     def get_queryset(self):
-        qs = DailyReport.objects.filter(user=self.request.user).prefetch_related("attachments")
+        qs = DailyReport.objects.filter(user=self.request.user).select_related("user", "reviewed_by").prefetch_related("attachments")
         
         company = self.request.query_params.get("company")
         if company:
@@ -196,7 +196,7 @@ class DailyReportDetailView(APIView):
 
     def get(self, request, pk):
         report = get_object_or_404(
-            DailyReport.objects.prefetch_related("attachments"), pk=pk
+            DailyReport.objects.select_related("user", "reviewed_by").prefetch_related("attachments"), pk=pk
         )
 
         if (

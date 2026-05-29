@@ -300,13 +300,13 @@ class TaskUpdateListCreateAPIView(generics.ListCreateAPIView):
         user = self.request.user
 
         if user.role in TOP_MANAGEMENT:
-            return TaskUpdate.objects.filter(task=task).order_by("-created_at")
+            return TaskUpdate.objects.filter(task=task).select_related('updated_by').order_by("-created_at")
 
         if user.role in OPERATIONS and task.assigned_by == user:
-            return TaskUpdate.objects.filter(task=task).order_by("-created_at")
+            return TaskUpdate.objects.filter(task=task).select_related('updated_by').order_by("-created_at")
 
         if task.assigned_to == user:
-            return TaskUpdate.objects.filter(task=task).order_by("-created_at")
+            return TaskUpdate.objects.filter(task=task).select_related('updated_by').order_by("-created_at")
 
         raise PermissionDenied("You do not have access to this task.")
 

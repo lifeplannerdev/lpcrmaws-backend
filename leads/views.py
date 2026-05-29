@@ -268,12 +268,12 @@ class LeadProcessingTimelineView(generics.ListAPIView):
         user    = self.request.user
 
         if user.role in FULL_ACCESS_ROLES:
-            return ProcessingUpdate.objects.filter(lead=lead).order_by('-timestamp')
+            return ProcessingUpdate.objects.filter(lead=lead).select_related('changed_by').order_by('-timestamp')
 
         if lead.assigned_to != user and lead.sub_assigned_to != user:
             return ProcessingUpdate.objects.none()
 
-        return ProcessingUpdate.objects.filter(lead=lead).order_by('-timestamp')
+        return ProcessingUpdate.objects.filter(lead=lead).select_related('changed_by').order_by('-timestamp')
 
 
 # ── Lead Assignment View
@@ -454,12 +454,12 @@ class LeadAssignmentHistoryView(generics.ListAPIView):
         user    = self.request.user
 
         if user.role in FULL_ACCESS_ROLES:
-            return LeadAssignment.objects.filter(lead=lead).order_by('-timestamp')
+            return RemarkHistory.objects.filter(lead=lead).select_related('user').order_by('-timestamp')
 
         if lead.assigned_to != user and lead.sub_assigned_to != user:
-            return LeadAssignment.objects.none()
+            return RemarkHistory.objects.none()
 
-        return LeadAssignment.objects.filter(lead=lead).order_by('-timestamp')
+        return RemarkHistory.objects.filter(lead=lead).select_related('user').order_by('-timestamp')
 
 
 # ── My Team Leads View
