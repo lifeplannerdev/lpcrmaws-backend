@@ -222,12 +222,12 @@ class LeadAssignmentHistoryView(generics.ListAPIView):
         user    = self.request.user
 
         if user.role in FULL_ACCESS_ROLES:
-            return RemarkHistory.objects.filter(lead=lead).select_related('user').order_by('-timestamp')
+            return LeadAssignment.objects.filter(lead=lead).select_related('assigned_to', 'assigned_by').order_by('-timestamp')
 
         if lead.assigned_to != user and lead.sub_assigned_to != user:
-            return RemarkHistory.objects.none()
+            return LeadAssignment.objects.none()
 
-        return RemarkHistory.objects.filter(lead=lead).select_related('user').order_by('-timestamp')
+        return LeadAssignment.objects.filter(lead=lead).select_related('assigned_to', 'assigned_by').order_by('-timestamp')
 
 class AvailableUsersForAssignmentView(APIView):
     permission_classes = [CanAssignLeads]
