@@ -86,15 +86,28 @@ class AllDailyReportsView(generics.ListAPIView):
         user = self.request.query_params.get("user")
         date = self.request.query_params.get("date")
         company = self.request.query_params.get("company")
+        search = self.request.query_params.get("search")
 
-        if status:
+        if status and status != 'all':
             qs = qs.filter(status=status)
-        if user:
+        if user and user != 'all':
             qs = qs.filter(user__id=user)
-        if date:
-            qs = qs.filter(report_date=date)
-        if company:
+        if date and date != 'all':
+            if date == 'today':
+                qs = qs.filter(report_date=now().date())
+            elif date == 'yesterday':
+                qs = qs.filter(report_date=(now() - timezone.timedelta(days=1)).date())
+            else:
+                qs = qs.filter(report_date=date)
+        if company and company != 'all':
             qs = qs.filter(user__company=company)
+        if search:
+            from django.db.models import Q
+            qs = qs.filter(
+                Q(name__icontains=search) | 
+                Q(heading__icontains=search) | 
+                Q(report_text__icontains=search)
+            )
 
         qs = qs.annotate(
             status_order=Case(
@@ -140,8 +153,28 @@ class AdminReportStatsView(APIView):
         qs = DailyReport.objects.all()
         
         company = request.query_params.get("company")
-        if company:
+        user = request.query_params.get("user")
+        date = request.query_params.get("date")
+        search = request.query_params.get("search")
+
+        if company and company != 'all':
             qs = qs.filter(user__company=company)
+        if user and user != 'all':
+            qs = qs.filter(user__id=user)
+        if date and date != 'all':
+            if date == 'today':
+                qs = qs.filter(report_date=now().date())
+            elif date == 'yesterday':
+                qs = qs.filter(report_date=(now() - timezone.timedelta(days=1)).date())
+            else:
+                qs = qs.filter(report_date=date)
+        if search:
+            from django.db.models import Q
+            qs = qs.filter(
+                Q(name__icontains=search) | 
+                Q(heading__icontains=search) | 
+                Q(report_text__icontains=search)
+            )
 
         return Response(
             {
