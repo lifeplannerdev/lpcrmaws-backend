@@ -117,6 +117,7 @@ class Lead(models.Model):
             models.Index(fields=['processing_status']),
             models.Index(fields=['assigned_to']),
             models.Index(fields=['sub_assigned_to']),
+            models.Index(fields=['assigned_to', 'status']),
         ]
 
     def __str__(self):
