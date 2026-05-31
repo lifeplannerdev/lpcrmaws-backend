@@ -67,8 +67,10 @@ class LeadListView(generics.ListAPIView):
         'processing_status': ['exact'],
         'assigned_to':       ['exact', 'isnull'],
         'sub_assigned_to':   ['exact'],
+        'campaign_name':     ['exact', 'icontains'],
+        'created_at':        ['date', 'gte', 'lte'],
     }
-    search_fields   = ['name', 'phone', 'email', 'program']
+    search_fields   = ['name', 'phone', 'email', 'program', 'campaign_name']
     ordering_fields = ['created_at', 'priority']
     ordering        = ['-created_at']
 
@@ -463,8 +465,45 @@ class ConvertWebhookToLeadAPIView(APIView):
         log.processed = True
         log.save()
         
+        
         return Response({
             'message': 'Lead created successfully.',
             'lead_id': lead.id
         }, status=status.HTTP_201_CREATED)
+
+class ExportLeadsExcelView(LeadListView):
+    """
+    Exports filtered leads to an Excel file.
+    Takes the same query parameters as LeadListView.
+    """
+    pagination_class = None
+
+    def get(self, request, *args, **kwargs):
+        import io
+        from django.http import HttpResponse
+        
+        queryset = self.filter_queryset(self.get_queryset())
+        
+        data = list(queryset.values(
+            'id', 'name', 'phone', 'email', 'status', 'source', 
+            'campaign_name', 'adset_name', 'ad_name', 'created_at', 'remarks'
+        ))
+        
+        df = pd.DataFrame(data)
+        if not df.empty:
+            # Remove timezone for Excel export
+            df['created_at'] = df['created_at'].dt.tz_localize(None)
+            
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, sheet_name='Leads', index=False)
+            
+        output.seek(0)
+        
+        response = HttpResponse(
+            output.read(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response['Content-Disposition'] = 'attachment; filename="leads_export.xlsx"'
+        return response
 

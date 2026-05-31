@@ -61,6 +61,14 @@ class Lead(models.Model):
     location = models.CharField(max_length=100, blank=True, null=True)
     source = models.CharField(max_length=20, choices=SOURCE_CHOICES, blank=True, null=True)
     custom_source = models.CharField(max_length=50, blank=True, null=True)
+    
+    # Marketing Tracking Fields
+    campaign_name = models.CharField(max_length=255, blank=True, null=True)
+    adset_name = models.CharField(max_length=255, blank=True, null=True)
+    ad_name = models.CharField(max_length=255, blank=True, null=True)
+    meta_lead_id = models.CharField(max_length=255, blank=True, null=True, db_index=True)
+    raw_form_data = models.JSONField(blank=True, null=True)
+
     company = models.CharField(max_length=10, choices=[('LP', 'LP'), ('FLAG', 'FLAG')], default='LP', db_index=True)
     created_by = models.ForeignKey(User,on_delete=models.SET_NULL,null=True, blank=True,related_name='created_leads')
     # Processing workflow fields

@@ -13,6 +13,7 @@ from .views import (
     UpdateLeadView,
     BulkLeadUploadView,
     TodayLeadsAPI,
+    ExportLeadsExcelView,
     FollowUpListCreateAPIView,
     FollowUpDetailAPIView,
     TodayFollowUpsAPIView,
@@ -21,11 +22,12 @@ from .views import (
     ConvertWebhookToLeadAPIView,
     WebhookLogListView,
 )
-from .webhooks import meta_webhook, voxbay_webhook
+from .webhooks import meta_webhook, voxbay_webhook, meta_process_webhook
 
 urlpatterns = [
     # ── Leads ────────────────────────────────────────────────
     path('leads/', LeadListView.as_view(), name='lead-list'),
+    path('leads/export/', ExportLeadsExcelView.as_view(), name='lead-export'),
     path('leads/create/', LeadCreateView.as_view(), name='lead-create'),
     path('leads/assign/', LeadAssignView.as_view(), name='lead-assign'),
     path('leads/bulk-upload/', BulkLeadUploadView.as_view(), name='lead-bulk-upload'),
@@ -52,6 +54,7 @@ urlpatterns = [
 
     # ── Webhooks ──────────────────────────────────────────────
     path('webhooks/meta/', meta_webhook, name='meta-webhook'),
+    path('api/meta/process/', meta_process_webhook, name='meta-process-webhook'),
     path('webhooks/voxbay/', voxbay_webhook, name='voxbay-webhook'),
     path('webhooks/logs/', WebhookLogListView.as_view(), name='webhook-logs'),
     path('webhooks/logs/<int:log_id>/convert/', ConvertWebhookToLeadAPIView.as_view(), name='convert-webhook-lead'),
