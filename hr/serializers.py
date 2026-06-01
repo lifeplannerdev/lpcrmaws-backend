@@ -26,11 +26,13 @@ class UserMinimalSerializer(serializers.ModelSerializer):
 class AssetSerializer(serializers.ModelSerializer):
     assigned_to_details = UserMinimalSerializer(source='assigned_to', read_only=True)
     attachment_url = serializers.SerializerMethodField(read_only=True)
+    attached_assets = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Asset
         fields = [
             'id', 'name', 'asset_type', 'serial_number', 'status', 'company',
+            'parent_asset', 'attached_assets',
             'assigned_to', 'assigned_to_details', 'attachment', 'attachment_url',
             'purchase_date', 'notes', 'created_at', 'updated_at'
         ]
@@ -39,6 +41,19 @@ class AssetSerializer(serializers.ModelSerializer):
         if obj.attachment:
             return obj.attachment.url
         return None
+
+    def get_attached_assets(self, obj):
+        children = obj.attached_assets.all()
+        return [
+            {
+                "id": child.id,
+                "name": child.name,
+                "asset_type": child.asset_type,
+                "serial_number": child.serial_number,
+                "status": child.status,
+                "attachment_url": child.attachment.url if child.attachment else None
+            } for child in children
+        ]
 
 class PenaltySerializer(serializers.ModelSerializer):
     user_name = serializers.SerializerMethodField(read_only=True)
@@ -129,7 +144,7 @@ class StaffSerializer(serializers.ModelSerializer):
         return obj.username
 
     def get_assets(self, obj):
-        assets = obj.assigned_assets.all()
+        assets = obj.assigned_assets.filter(parent_asset__isnull=True)
         return AssetSerializer(assets, many=True).data
 
 

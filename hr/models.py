@@ -108,12 +108,31 @@ class Asset(models.Model):
         ('LP', 'LP'),
         ('FLAG', 'FLAG'),
     ]
+    
+    ASSET_TYPE_CHOICES = [
+        ('Mobiles', 'Mobiles'),
+        ('Monitors', 'Monitors'),
+        ('PC', 'PC'),
+        ('Keyboard', 'Keyboard'),
+        ('Mouse', 'Mouse'),
+        ('Laptops', 'Laptops'),
+        ('SIM', 'SIM'),
+    ]
 
     name = models.CharField(max_length=255)
-    asset_type = models.CharField(max_length=100)
+    asset_type = models.CharField(max_length=100, choices=ASSET_TYPE_CHOICES)
     serial_number = models.CharField(max_length=100, blank=True, null=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='AVAILABLE')
     company = models.CharField(max_length=10, choices=COMPANY_CHOICES, default='LP', db_index=True)
+    
+    parent_asset = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='attached_assets',
+        help_text="Parent asset this is attached to (e.g. Mobile for a SIM)"
+    )
     
     assigned_to = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -145,3 +164,14 @@ class Asset(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.asset_type}) - {self.company}"
+        
+    def save(self, *args, **kwargs):
+        # Sync assigned_to with parent_asset if it exists
+        if self.parent_asset:
+            self.assigned_to = self.parent_asset.assigned_to
+
+        super().save(*args, **kwargs)
+
+        # Sync all attached assets when this asset's assigned_to changes
+        if self.pk:
+            self.attached_assets.all().update(assigned_to=self.assigned_to)
