@@ -1,7 +1,14 @@
 from django.db.models.signals import post_save, post_delete, pre_save
 from django.dispatch import receiver
-from .models import Lead, LeadAssignment, FollowUp
+from django.contrib.auth import get_user_model
+import re
+
+from .models import Lead, LeadAssignment, FollowUp, RemarkHistory
 from accounts.utils import log_activity
+from notifications.models import Notification
+from utils.pusher import trigger_pusher
+
+User = get_user_model()
  
  
 def _user_label(user):
@@ -200,3 +207,27 @@ def log_followup_deleted(sender, instance, **kwargs):
         user=instance.assigned_to,
         description=f'Follow-up for "{label}" was deleted.',
     )
+ 
+@receiver(post_save, sender=RemarkHistory)
+def parse_mentions_in_remarks(sender, instance, created, **kwargs):
+    if created and instance.new_remarks:
+        mentions = set(re.findall(r'@(\w+)', instance.new_remarks))
+        for username in mentions:
+            try:
+                user = User.objects.get(username__iexact=username)
+                if user != instance.changed_by:
+                    acting_name = instance.changed_by.get_full_name() if instance.changed_by else "System"
+                    msg = f"{acting_name} mentioned you in a remark on lead {instance.lead.name}"
+                    notif = Notification.objects.create(
+                        user=user,
+                        type='lead',
+                        message=msg,
+                        by=acting_name
+                    )
+                    trigger_pusher(f'private-user-{user.id}', 'new-notification', {
+                        'id': notif.id,
+                        'message': msg,
+                        'type': 'lead'
+                    })
+            except User.DoesNotExist:
+                pass

@@ -20,7 +20,8 @@ from utils import notify_lead_assigned
 from leads.email_utils import send_conversion_email
 from leads.models import (
     Lead, ProcessingUpdate, RemarkHistory, 
-    LeadAssignment, FollowUp, LeadConversionDetail, WebhookLog
+    LeadAssignment, FollowUp, LeadConversionDetail, WebhookLog,
+    LeadDocument
 )
 from leads.permissions import (
     CanAccessLeads, CanAssignLeads, CanViewAllLeads,
@@ -33,6 +34,7 @@ from leads.serializers import (
     LeadAssignmentSerializer, LeadUpdateSerializer,
     BulkLeadCreateSerializer, FollowUpSerializer,
     LeadConversionDetailSerializer, WebhookLogSerializer,
+    LeadDocumentSerializer,
 )
 
 # ── Helpers
@@ -506,4 +508,100 @@ class ExportLeadsExcelView(LeadListView):
         )
         response['Content-Disposition'] = 'attachment; filename="leads_export.xlsx"'
         return response
+
+class UnifiedTimelineAPIView(APIView):
+    """
+    Returns a chronologically sorted timeline of all events related to a lead.
+    """
+    permission_classes = [CanAccessLeads]
+
+    def get(self, request, pk):
+        lead = get_object_or_404(Lead, id=pk)
+        
+        events = []
+        
+        # 1. Processing Updates
+        for pu in lead.processing_updates.all():
+            events.append({
+                'type': 'processing_update',
+                'status': pu.status,
+                'notes': pu.notes,
+                'user': pu.changed_by.get_full_name() if pu.changed_by else 'System',
+                'timestamp': pu.timestamp
+            })
+            
+        # 2. Remark History
+        for rm in lead.remark_history.all():
+            events.append({
+                'type': 'remark_history',
+                'old_remarks': rm.previous_remarks,
+                'new_remarks': rm.new_remarks,
+                'user': rm.changed_by.get_full_name() if rm.changed_by else 'System',
+                'timestamp': rm.changed_at
+            })
+            
+        # 3. Assignments
+        for la in lead.assignment_history.all():
+            events.append({
+                'type': 'assignment',
+                'assigned_to': la.assigned_to.get_full_name() if la.assigned_to else None,
+                'assigned_by': la.assigned_by.get_full_name() if la.assigned_by else None,
+                'assignment_type': la.assignment_type,
+                'notes': la.notes,
+                'timestamp': la.timestamp
+            })
+            
+        # 4. Follow Ups
+        for fu in lead.followups.all():
+            events.append({
+                'type': 'followup_scheduled',
+                'followup_type': fu.followup_type,
+                'status': fu.status,
+                'notes': fu.notes,
+                'user': fu.assigned_to.get_full_name() if fu.assigned_to else 'System',
+                'timestamp': fu.created_at
+            })
+            for fhist in fu.history.all():
+                events.append({
+                    'type': 'followup_status_change',
+                    'old_status': fhist.old_status,
+                    'new_status': fhist.new_status,
+                    'notes': fhist.notes,
+                    'user': fhist.changed_by.get_full_name() if fhist.changed_by else 'System',
+                    'timestamp': fhist.changed_at
+                })
+
+        # Sort all events by timestamp descending
+        events.sort(key=lambda x: x['timestamp'], reverse=True)
+        
+        return Response({'timeline': events}, status=status.HTTP_200_OK)
+
+class LeadDocumentListCreateView(APIView):
+    permission_classes = [CanAccessLeads]
+    parser_classes = (MultiPartParser, FormParser)
+
+    def get(self, request, pk):
+        lead = get_object_or_404(Lead, id=pk)
+        docs = lead.documents.all()
+        serializer = LeadDocumentSerializer(docs, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def post(self, request, pk):
+        lead = get_object_or_404(Lead, id=pk)
+        
+        if (
+            lead.assigned_to != request.user
+            and lead.sub_assigned_to != request.user
+            and request.user.role not in FULL_ACCESS_ROLES
+        ):
+            return Response(
+                {'error': 'Permission denied'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = LeadDocumentSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save(lead=lead, uploaded_by=request.user)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 

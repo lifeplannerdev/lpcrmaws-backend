@@ -10,7 +10,8 @@ from .models import (
     FollowUp, 
     FollowUpHistory,
     LeadConversionDetail,
-    WebhookLog
+    WebhookLog,
+    LeadDocument
 )
 
 # Shared user serializer
@@ -497,3 +498,11 @@ class WebhookLogSerializer(serializers.ModelSerializer):
     class Meta:
         model = WebhookLog
         fields = '__all__'
+
+class LeadDocumentSerializer(serializers.ModelSerializer):
+    uploaded_by = UserSimpleSerializer(read_only=True)
+    
+    class Meta:
+        model = LeadDocument
+        fields = '__all__'
+        read_only_fields = ['uploaded_by', 'uploaded_at', 'lead']

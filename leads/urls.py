@@ -21,6 +21,8 @@ from .views import (
     LeadConversionDetailView,
     ConvertWebhookToLeadAPIView,
     WebhookLogListView,
+    UnifiedTimelineAPIView,
+    LeadDocumentListCreateView,
 )
 from .webhooks import meta_webhook, voxbay_webhook, meta_process_webhook
 
@@ -40,6 +42,8 @@ urlpatterns = [
     path('leads/<int:pk>/', LeadDetailView.as_view(), name='lead-detail'),
     path('leads/<int:pk>/update/', UpdateLeadView.as_view(), name='lead-update'),
     path('leads/<int:lead_id>/timeline/', LeadProcessingTimelineView.as_view(), name='lead-timeline'),
+    path('leads/<int:pk>/unified-timeline/', UnifiedTimelineAPIView.as_view(), name='lead-unified-timeline'),
+    path('leads/<int:pk>/documents/', LeadDocumentListCreateView.as_view(), name='lead-documents'),
     path('leads/<int:lead_id>/assignment-history/', LeadAssignmentHistoryView.as_view(), name='lead-assignment-history'),
     path('leads/<int:lead_id>/conversion/', LeadConversionDetailView.as_view(), name='lead-conversion'),
 

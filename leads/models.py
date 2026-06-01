@@ -458,3 +458,17 @@ class WebhookLog(models.Model):
 
     def __str__(self):
         return f"{self.get_source_display()} Webhook - {self.created_at}"
+
+class LeadDocument(models.Model):
+    """Model to store file attachments related to a lead."""
+    lead = models.ForeignKey(Lead, on_delete=models.CASCADE, related_name='documents')
+    file = models.FileField(upload_to='lead_documents/')
+    uploaded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    description = models.CharField(max_length=255, blank=True, null=True)
+
+    class Meta:
+        ordering = ['-uploaded_at']
+
+    def __str__(self):
+        return f"Document for {self.lead.name} uploaded at {self.uploaded_at}"
