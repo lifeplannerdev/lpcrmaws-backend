@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Penalty, AttendanceDocument,Candidate
+from .models import Penalty, AttendanceDocument, Candidate, Asset
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
@@ -22,6 +22,23 @@ class UserMinimalSerializer(serializers.ModelSerializer):
         elif obj.first_name:
             return obj.first_name
         return obj.username
+
+class AssetSerializer(serializers.ModelSerializer):
+    assigned_to_details = UserMinimalSerializer(source='assigned_to', read_only=True)
+    attachment_url = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = Asset
+        fields = [
+            'id', 'name', 'asset_type', 'serial_number', 'status', 'company',
+            'assigned_to', 'assigned_to_details', 'attachment', 'attachment_url',
+            'purchase_date', 'notes', 'created_at', 'updated_at'
+        ]
+
+    def get_attachment_url(self, obj):
+        if obj.attachment:
+            return obj.attachment.url
+        return None
 
 class PenaltySerializer(serializers.ModelSerializer):
     user_name = serializers.SerializerMethodField(read_only=True)
@@ -79,6 +96,7 @@ class AttendanceDocumentSerializer(serializers.ModelSerializer):
 class StaffSerializer(serializers.ModelSerializer):
     role_display = serializers.CharField(source="get_role_display", read_only=True)
     full_name = serializers.SerializerMethodField()
+    assets = serializers.SerializerMethodField()
     
     class Meta:
         model = User
@@ -100,6 +118,7 @@ class StaffSerializer(serializers.ModelSerializer):
             "join_date",
             "is_active",
             "company",
+            "assets",
         ]
     
     def get_full_name(self, obj):
@@ -108,6 +127,10 @@ class StaffSerializer(serializers.ModelSerializer):
         elif obj.first_name:
             return obj.first_name
         return obj.username
+
+    def get_assets(self, obj):
+        assets = obj.assigned_assets.all()
+        return AssetSerializer(assets, many=True).data
 
 
 class CandidateSerializer(serializers.ModelSerializer):

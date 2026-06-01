@@ -94,3 +94,54 @@ class Candidate(models.Model):
 
     def __str__(self):
         return f"{self.name} - {self.position_applied} ({self.status})"
+
+
+class Asset(models.Model):
+    STATUS_CHOICES = [
+        ('AVAILABLE', 'Available'),
+        ('ASSIGNED', 'Assigned'),
+        ('MAINTENANCE', 'In Maintenance'),
+        ('RETIRED', 'Retired')
+    ]
+
+    COMPANY_CHOICES = [
+        ('LP', 'LP'),
+        ('FLAG', 'FLAG'),
+    ]
+
+    name = models.CharField(max_length=255)
+    asset_type = models.CharField(max_length=100)
+    serial_number = models.CharField(max_length=100, blank=True, null=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='AVAILABLE')
+    company = models.CharField(max_length=10, choices=COMPANY_CHOICES, default='LP', db_index=True)
+    
+    assigned_to = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='assigned_assets',
+        help_text="Staff member currently holding this asset"
+    )
+    
+    attachment = CloudinaryField(
+        resource_type='auto',
+        folder='hr/assets/',
+        null=True,
+        blank=True,
+        verbose_name="Asset Photo/Invoice"
+    )
+    
+    purchase_date = models.DateField(null=True, blank=True)
+    notes = models.TextField(blank=True, null=True)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Asset'
+        verbose_name_plural = 'Assets'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.name} ({self.asset_type}) - {self.company}"

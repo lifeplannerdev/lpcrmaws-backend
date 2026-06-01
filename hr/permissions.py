@@ -28,6 +28,7 @@ class IsHROrAccountsOrAdmin(BasePermission):
         )
 
 
+
 class IsAdminOnly(BasePermission):
     def has_permission(self, request, view):
         return (
@@ -35,4 +36,15 @@ class IsAdminOnly(BasePermission):
             request.user.is_authenticated and 
             'view_staff' in request.user.permissions
         )
+
+
+class HasAssetPermission(BasePermission):
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+            
+        if request.method in ['GET', 'HEAD', 'OPTIONS']:
+            return 'view_asset' in request.user.permissions
+        return 'manage_asset' in request.user.permissions
+
 

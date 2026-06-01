@@ -78,9 +78,17 @@ class StaffDetailSerializer(serializers.ModelSerializer):
             'location', 
             'salary',
             'join_date',
-            'permissions'
+            'permissions',
+            'assets'
         ]
         read_only_fields = ['date_joined', 'last_login']
+
+    assets = serializers.SerializerMethodField()
+
+    def get_assets(self, obj):
+        from hr.serializers import AssetSerializer
+        assets = obj.assigned_assets.all()
+        return AssetSerializer(assets, many=True).data
 
 
 #  Staff Create/Update Serializer 

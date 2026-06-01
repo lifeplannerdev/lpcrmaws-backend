@@ -8,6 +8,8 @@ from .views import (
     StaffDetailAPI,
     CandidateListCreateAPI,
     CandidateDetailAPI,
+    AssetListCreateAPI,
+    AssetDetailAPI,
 )
 
 urlpatterns = [
@@ -19,4 +21,6 @@ urlpatterns = [
     path("staffs/<int:pk>/", StaffDetailAPI.as_view(), name="staff-detail"),
     path('candidates/', CandidateListCreateAPI.as_view(), name='candidate-list-create'),
     path('candidates/<int:pk>/', CandidateDetailAPI.as_view(), name='candidate-detail'),
+    path('assets/', AssetListCreateAPI.as_view(), name='asset-list-create'),
+    path('assets/<int:pk>/', AssetDetailAPI.as_view(), name='asset-detail'),
 ]
