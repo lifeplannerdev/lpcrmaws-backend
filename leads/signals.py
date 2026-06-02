@@ -196,18 +196,35 @@ def log_followup_activity(sender, instance, created, **kwargs):
         )
  
  
+def recalculate_lead_status(lead):
+    """Recalculate lead status based on its follow-ups. Prevent downgrading advanced states."""
+    if not lead:
+        return
+    
+    # Do not regress leads that have advanced beyond these states
+    if lead.status not in ['ENQUIRY', 'CONTACTED', 'NOT_INTERESTED']:
+        return
+
+    from .models import FollowUp
+    followups = FollowUp.objects.filter(lead=lead)
+    has_contacted = followups.filter(status='contacted').exists()
+    has_not_interested = followups.filter(status='not_interested').exists()
+
+    new_status = 'ENQUIRY'
+    if has_contacted:
+        new_status = 'CONTACTED'
+    elif has_not_interested:
+        new_status = 'NOT_INTERESTED'
+
+    if lead.status != new_status:
+        lead.status = new_status
+        lead.save(update_fields=['status'])
+
+
 @receiver(post_save, sender=FollowUp)
 def sync_lead_status_from_followup(sender, instance, created, **kwargs):
-    """Automatically update the parent Lead status when a follow-up is marked as contacted/not_interested."""
-    if not instance.lead:
-        return
-        
-    if instance.status == 'contacted' and instance.lead.status == 'ENQUIRY':
-        instance.lead.status = 'CONTACTED'
-        instance.lead.save(update_fields=['status'])
-    elif instance.status == 'not_interested' and instance.lead.status == 'ENQUIRY':
-        instance.lead.status = 'NOT_INTERESTED'
-        instance.lead.save(update_fields=['status'])
+    """Automatically update the parent Lead status when a follow-up is modified."""
+    recalculate_lead_status(instance.lead)
  
  
 @receiver(post_delete, sender=FollowUp)
@@ -221,6 +238,7 @@ def log_followup_deleted(sender, instance, **kwargs):
         user=instance.assigned_to,
         description=f'Follow-up for "{label}" was deleted.',
     )
+    recalculate_lead_status(instance.lead)
  
 @receiver(post_save, sender=RemarkHistory)
 def parse_mentions_in_remarks(sender, instance, created, **kwargs):
