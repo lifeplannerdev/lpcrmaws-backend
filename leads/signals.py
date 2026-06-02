@@ -196,6 +196,20 @@ def log_followup_activity(sender, instance, created, **kwargs):
         )
  
  
+@receiver(post_save, sender=FollowUp)
+def sync_lead_status_from_followup(sender, instance, created, **kwargs):
+    """Automatically update the parent Lead status when a follow-up is marked as contacted/not_interested."""
+    if not instance.lead:
+        return
+        
+    if instance.status == 'contacted' and instance.lead.status == 'ENQUIRY':
+        instance.lead.status = 'CONTACTED'
+        instance.lead.save(update_fields=['status'])
+    elif instance.status == 'not_interested' and instance.lead.status == 'ENQUIRY':
+        instance.lead.status = 'NOT_INTERESTED'
+        instance.lead.save(update_fields=['status'])
+ 
+ 
 @receiver(post_delete, sender=FollowUp)
 def log_followup_deleted(sender, instance, **kwargs):
     label = instance.name or instance.phone_number

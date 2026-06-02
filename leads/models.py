@@ -44,6 +44,7 @@ class Lead(models.Model):
     ]
     STATUS_CHOICES = [
     ('ENQUIRY', 'Enquiry'),
+    ('CONTACTED', 'Contacted'),
     ('QUALIFIED', 'Qualified'),
     ('NOT_INTERESTED', 'Not Interested'),
     ('CONVERTED', 'Converted'),
