@@ -158,6 +158,13 @@ class ActivityLog(models.Model):
         # ── HR / Attendance Document ───────────────────────────
         ('ATTENDANCE_DOC_UPLOADED', 'Attendance Document Uploaded'),
         ('ATTENDANCE_DOC_DELETED',  'Attendance Document Deleted'),
+
+        # ── HR / Asset ─────────────────────────────────────────
+        ('ASSET_CREATED',           'Asset Created'),
+        ('ASSET_UPDATED',           'Asset Updated'),
+        ('ASSET_ASSIGNED',          'Asset Assigned'),
+        ('ASSET_UNASSIGNED',        'Asset Unassigned'),
+        ('ASSET_DELETED',           'Asset Deleted'),
     ]
  
     user        = models.ForeignKey(settings.AUTH_USER_MODEL,on_delete=models.SET_NULL,null=True, blank=True,related_name='activity_logs')

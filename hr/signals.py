@@ -1,7 +1,7 @@
 from django.db.models.signals import post_save, post_delete, pre_save
 from django.dispatch import receiver
 
-from .models import Penalty, AttendanceDocument
+from .models import Penalty, AttendanceDocument, Asset
 from accounts.utils import log_activity
 
 
@@ -101,3 +101,119 @@ def log_attendance_doc_deleted(sender, instance, **kwargs):
         entity_name=instance.name,
         description=f'Attendance document "{instance.name}" for {instance.month} was deleted.',
     )
+
+
+# ── Asset Signals ─────────────────────────────────────────────────────────────
+
+@receiver(pre_save, sender=Asset)
+def capture_asset_old_state(sender, instance, **kwargs):
+    if instance.pk:
+        try:
+            old = Asset.objects.get(pk=instance.pk)
+            instance._old_assigned_to = old.assigned_to
+            instance._old_status = old.status
+            instance._old_company_phone = None  # placeholder if asset impacts staff
+        except Asset.DoesNotExist:
+            instance._old_assigned_to = None
+            instance._old_status = None
+    else:
+        instance._old_assigned_to = None
+        instance._old_status = None
+
+
+@receiver(post_save, sender=Asset)
+def log_asset_activity(sender, instance, created, **kwargs):
+    staff_name = _user_label(instance.assigned_to) if instance.assigned_to else 'None'
+    metadata = {
+        'asset_type': instance.asset_type,
+        'status': instance.status,
+        'staff_id': instance.assigned_to.pk if instance.assigned_to else None,
+    }
+
+    if created:
+        action = 'ASSET_ASSIGNED' if instance.assigned_to else 'ASSET_CREATED'
+        desc = f'Asset "{instance.name}" ({instance.asset_type}) created.'
+        if instance.assigned_to:
+            desc = f'Asset "{instance.name}" ({instance.asset_type}) assigned to {staff_name}.'
+
+        log_activity(
+            action=action,
+            entity_type='Asset',
+            entity_id=instance.pk,
+            entity_name=instance.name,
+            description=desc,
+            metadata=metadata
+        )
+    else:
+        old_assigned = getattr(instance, '_old_assigned_to', None)
+        old_status = getattr(instance, '_old_status', None)
+
+        if old_assigned != instance.assigned_to:
+            if instance.assigned_to:
+                log_activity(
+                    action='ASSET_ASSIGNED',
+                    entity_type='Asset',
+                    entity_id=instance.pk,
+                    entity_name=instance.name,
+                    description=f'Asset "{instance.name}" assigned to {staff_name}.',
+                    metadata=metadata
+                )
+            elif old_assigned:
+                log_activity(
+                    action='ASSET_UNASSIGNED',
+                    entity_type='Asset',
+                    entity_id=instance.pk,
+                    entity_name=instance.name,
+                    description=f'Asset "{instance.name}" unassigned from {_user_label(old_assigned)}.',
+                    metadata={'staff_id': old_assigned.pk}
+                )
+        elif old_status != instance.status:
+            log_activity(
+                action='ASSET_UPDATED',
+                entity_type='Asset',
+                entity_id=instance.pk,
+                entity_name=instance.name,
+                description=f'Asset "{instance.name}" status changed to {instance.status}.',
+                metadata=metadata
+            )
+        else:
+            log_activity(
+                action='ASSET_UPDATED',
+                entity_type='Asset',
+                entity_id=instance.pk,
+                entity_name=instance.name,
+                description=f'Asset "{instance.name}" updated.',
+                metadata=metadata
+            )
+
+
+@receiver(post_delete, sender=Asset)
+def log_asset_deleted(sender, instance, **kwargs):
+    log_activity(
+        action='ASSET_DELETED',
+        entity_type='Asset',
+        entity_id=instance.pk,
+        entity_name=instance.name,
+        description=f'Asset "{instance.name}" ({instance.asset_type}) was deleted.',
+    )
+
+
+@receiver(post_save, sender=Asset)
+def sync_staff_contact_from_asset(sender, instance, **kwargs):
+    """
+    If a SIM asset is assigned/unassigned, update the user's office_phone.
+    We assume the asset 'name' or 'serial_number' holds the phone number.
+    """
+    if instance.asset_type == 'SIM':
+        # If assigned, update the staff's office_phone
+        if instance.assigned_to:
+            user = instance.assigned_to
+            # Assuming 'name' holds the phone number for SIM
+            user.office_phone = instance.name
+            user.save(update_fields=['office_phone'])
+        else:
+            # If unassigned, we might want to clear it from the OLD user.
+            old_assigned = getattr(instance, '_old_assigned_to', None)
+            if old_assigned:
+                old_assigned.office_phone = None
+                old_assigned.save(update_fields=['office_phone'])

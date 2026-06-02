@@ -279,6 +279,22 @@ class StaffUpdateView(generics.UpdateAPIView):
 
 
 
+# Staff Asset Timeline View
+class StaffAssetTimelineView(generics.ListAPIView):
+    serializer_class = ActivityLogSerializer
+    permission_classes = [IsManagement]
+    pagination_class = StaffPagination
+
+    def get_queryset(self):
+        staff_id = self.kwargs.get('pk')
+        # We find activity logs related to assets where metadata contains staff_id=staff_id
+        # In Django, JSONField can be queried directly: metadata__staff_id=staff_id
+        return ActivityLog.objects.filter(
+            entity_type='Asset',
+            metadata__staff_id=int(staff_id)
+        ).order_by('-created_at')
+
+
 class EmployeeListAPI(APIView):
     def get(self, request):
         employees = User.objects.filter(
