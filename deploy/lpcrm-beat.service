@@ -1,0 +1,14 @@
+[Unit]
+Description=Celery Beat Service for lpcrm
+After=network.target
+
+[Service]
+User=lpcrm
+Group=www-data
+WorkingDirectory=/home/lpcrm/lpcrmaws-backend
+Environment="PATH=/home/lpcrm/lpcrmaws-backend/venv/bin"
+EnvironmentFile=/home/lpcrm/lpcrmaws-backend/.env
+ExecStart=/home/lpcrm/lpcrmaws-backend/venv/bin/celery -A lpcrm beat -l info
+
+[Install]
+WantedBy=multi-user.target

@@ -12,9 +12,6 @@ from pathlib import Path
 from datetime import timedelta
 import dj_database_url
 from decouple import config, Csv
-import cloudinary
-import cloudinary.uploader
-import cloudinary.api
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -37,7 +34,7 @@ INSTALLED_APPS = [
     'tasks.apps.TasksConfig',
     'trainers.apps.TrainersConfig',
     'hr.apps.HrConfig',
-    'cloudinary_storage', 
+    'storages', 
     'corsheaders',
     'rest_framework',
     'rest_framework_simplejwt',
@@ -45,7 +42,6 @@ INSTALLED_APPS = [
     'django_filters',
     'widget_tweaks',
     'django_crontab',
-    'cloudinary',
     'reports',
     'telephony',
     'chats',
@@ -264,15 +260,19 @@ if not DEBUG:
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
 
-# Cloudinary configuration
-cloudinary.config(
-    cloud_name=config('CLOUD_NAME'),
-    api_key=config('CLOUD_KEY'),
-    api_secret=config('CLOUD_SECRET'),
-    secure=True
-)
+# AWS S3 Settings
+AWS_ACCESS_KEY_ID = config('AWS_ACCESS_KEY_ID', default='')
+AWS_SECRET_ACCESS_KEY = config('AWS_SECRET_ACCESS_KEY', default='')
+AWS_STORAGE_BUCKET_NAME = config('AWS_STORAGE_BUCKET_NAME', default='')
+AWS_S3_REGION_NAME = config('AWS_S3_REGION_NAME', default='us-east-1')
+AWS_S3_SIGNATURE_VERSION = 's3v4'
+AWS_S3_FILE_OVERWRITE = False
+AWS_DEFAULT_ACL = None
 
-DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
+if AWS_STORAGE_BUCKET_NAME:
+    DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
+else:
+    DEFAULT_FILE_STORAGE = 'django.core.files.storage.FileSystemStorage'
 
 # Cron jobs
 CRONJOBS = [

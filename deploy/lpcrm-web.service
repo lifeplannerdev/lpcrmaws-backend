@@ -1,0 +1,14 @@
+[Unit]
+Description=Gunicorn daemon for lpcrm
+After=network.target
+
+[Service]
+User=lpcrm
+Group=www-data
+WorkingDirectory=/home/lpcrm/lpcrmaws-backend
+Environment="PATH=/home/lpcrm/lpcrmaws-backend/venv/bin"
+EnvironmentFile=/home/lpcrm/lpcrmaws-backend/.env
+ExecStart=/home/lpcrm/lpcrmaws-backend/venv/bin/gunicorn --access-logfile - --workers 3 --bind unix:/home/lpcrm/lpcrmaws-backend/lpcrm.sock lpcrm.wsgi:application
+
+[Install]
+WantedBy=multi-user.target

@@ -3,11 +3,11 @@ cachetools==4.2.4
 certifi==2026.2.25
 cffi==2.0.0
 charset-normalizer==3.4.4
-cloudinary==1.44.1
 cryptography==46.0.6
 dj-database-url==2.1.0
 Django==5.2.4
-django-cloudinary-storage==0.3.0
+boto3==1.36.21
+django-storages==1.14.5
 django-cors-headers==4.9.0
 django-crontab==0.7.1
 django-filter==25.2
