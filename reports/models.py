@@ -1,7 +1,6 @@
 from django.contrib.auth import get_user_model
 from django.db import models
 from django.utils import timezone
-from cloudinary.models import CloudinaryField
 import urllib.parse
 
 User = get_user_model()
@@ -86,35 +85,17 @@ class DailyReportAttachment(models.Model):
         on_delete=models.CASCADE,
         related_name='attachments'
     )
-    attached_file = CloudinaryField(
-        resource_type='auto',
-        folder='daily_reports/attachments',
+    attached_file = models.FileField(
+        upload_to='daily_reports/attachments/',
+        null=True, blank=True
     )
     original_filename = models.CharField(max_length=255, null=True, blank=True)
     uploaded_at = models.DateTimeField(auto_now_add=True)
 
     def get_download_url(self):
-        
         if not self.attached_file:
             return None
-
-        url = self.attached_file.url
-        if url.startswith('http://'):
-            url = url.replace('http://', 'https://')
-
-        filename = self.original_filename or "download"
-
-        safe_filename = filename.replace(' ', '_')
-
-        encoded_name = urllib.parse.quote(
-            safe_filename,
-            safe='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-'
-        )
-
-        if '/upload/' in url:
-            url = url.replace('/upload/', f'/upload/fl_attachment:{encoded_name}/', 1)
-
-        return url
+        return self.attached_file.url
 
     def __str__(self):
         return f"Attachment for {self.report.name}"

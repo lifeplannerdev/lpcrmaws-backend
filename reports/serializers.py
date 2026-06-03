@@ -20,10 +20,7 @@ class DailyReportAttachmentSerializer(serializers.ModelSerializer):
 
     def get_view_url(self, obj):
         if obj.attached_file:
-            url = obj.attached_file.url
-            if url.startswith("http://"):
-                url = url.replace("http://", "https://")
-            return url
+            return obj.attached_file.url
         return None
 
     def get_download_url(self, obj):
@@ -62,8 +59,7 @@ class DailyReportSerializer(serializers.ModelSerializer):
     def get_view_url(self, obj):
         first = obj.attachments.first()
         if first and first.attached_file:
-            url = first.attached_file.url
-            return url.replace("http://", "https://") if url.startswith("http://") else url
+            return first.attached_file.url
         return None
 
     def _save_attachments(self, report, files):

@@ -1,5 +1,5 @@
 from django.db import models
-from cloudinary.models import CloudinaryField
+
 from django.conf import settings
 
 
@@ -8,13 +8,12 @@ class AttendanceDocument(models.Model):
     date = models.DateField(verbose_name="Date")
     month = models.CharField(max_length=100, verbose_name="Month")
     company = models.CharField(max_length=10, choices=[('LP', 'LP'), ('FLAG', 'FLAG')], default='LP', db_index=True)
-    document = CloudinaryField(
-        resource_type='auto',
-        folder='hr/attendance_documents/',
-        null=True,
-        blank=True,
+    document = models.FileField(
+        upload_to='attendance_documents/',
         verbose_name="Attendance Document",
-        help_text="Upload attendance document (PDF, Excel, Image, etc.)"
+        help_text="Upload attendance document (PDF, Excel, Image, etc.)",
+        blank=True,
+        null=True
     )
     uploaded_at = models.DateTimeField(auto_now_add=True)
     
@@ -64,9 +63,8 @@ class Candidate(models.Model):
     company = models.CharField(max_length=10, choices=[('LP', 'LP'), ('FLAG', 'FLAG')], default='LP', db_index=True)
     position_applied = models.CharField(max_length=255)
 
-    resume = CloudinaryField(
-        resource_type="auto",
-        folder="hr/candidate_resumes/",
+    resume = models.FileField(
+        upload_to="hr/candidate_resumes/",
         null=True,
         blank=True,
     )
@@ -143,9 +141,8 @@ class Asset(models.Model):
         help_text="Staff member currently holding this asset"
     )
     
-    attachment = CloudinaryField(
-        resource_type='auto',
-        folder='hr/assets/',
+    attachment = models.FileField(
+        upload_to='hr/assets/',
         null=True,
         blank=True,
         verbose_name="Asset Photo/Invoice"

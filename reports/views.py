@@ -276,16 +276,13 @@ class DownloadAttachmentView(APIView):
         if not attachment.attached_file:
             return Response({"error": "No file found"}, status=404)
 
-        cloudinary_url = attachment.attached_file.url
-        if cloudinary_url.startswith("http://"):
-            cloudinary_url = cloudinary_url.replace("http://", "https://")
+        file_url = attachment.attached_file.url
 
         original_filename = attachment.original_filename or "download"
 
-
         try:
             req = urllib.request.Request(
-                cloudinary_url,
+                file_url,
                 headers={"User-Agent": "Mozilla/5.0"},
             )
             remote = urllib.request.urlopen(req, timeout=30)

@@ -3,7 +3,7 @@ from django.contrib.auth import get_user_model
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
-from cloudinary.models import CloudinaryField
+
 import os
 
 

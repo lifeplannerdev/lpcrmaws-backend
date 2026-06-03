@@ -41,7 +41,6 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt.token_blacklist',  
     'django_filters',
     'widget_tweaks',
-    'django_crontab',
     'reports',
     'telephony',
     'chats',
@@ -274,10 +273,21 @@ if AWS_STORAGE_BUCKET_NAME:
 else:
     DEFAULT_FILE_STORAGE = 'django.core.files.storage.FileSystemStorage'
 
-# Cron jobs
-CRONJOBS = [
-    ('0 * * * *', 'tasks.cron.update_overdue_tasks', '>> /tmp/overdue_tasks.log 2>&1'),
-]
+# Celery Configuration
+CELERY_BROKER_URL = config('CELERY_BROKER_URL', default='redis://localhost:6379/0')
+CELERY_RESULT_BACKEND = config('CELERY_RESULT_BACKEND', default='redis://localhost:6379/0')
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = TIME_ZONE
+
+from celery.schedules import crontab
+CELERY_BEAT_SCHEDULE = {
+    'update_overdue_tasks_hourly': {
+        'task': 'tasks.tasks.update_overdue_tasks',
+        'schedule': crontab(minute=0),
+    },
+}
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

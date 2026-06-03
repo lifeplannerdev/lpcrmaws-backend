@@ -1,6 +1,7 @@
 # utils/pusher.py
 import pusher
 from django.conf import settings
+from celery import shared_task
 
 def get_pusher_client():
     try:
@@ -17,6 +18,7 @@ def get_pusher_client():
 
 pusher_client = get_pusher_client()
 
+@shared_task
 def trigger_pusher(channel: str, event: str, data: dict):
     if not pusher_client:
         return
@@ -25,6 +27,7 @@ def trigger_pusher(channel: str, event: str, data: dict):
     except Exception as e:
         print(f"[Pusher] Trigger error: {e}")
 
+@shared_task
 def save_notification(user_id, type, message, by=None):
     """Save notification to DB — import inside function to avoid circular imports"""
     try:
@@ -43,14 +46,14 @@ def notify_task_assigned(task, assigned_by):
     by_name = assigned_by.get_full_name() or assigned_by.username
     message = f"New task assigned to you: \"{task.title}\" by {by_name}"
 
-    save_notification(
+    save_notification.delay(
         user_id=task.assigned_to.id,
         type='task',
         message=message,
         by=by_name,
     )
 
-    trigger_pusher(
+    trigger_pusher.delay(
         channel=f"private-user-{task.assigned_to.id}",
         event="task.assigned",
         data={
@@ -68,14 +71,14 @@ def notify_task_status_updated(task, updated_by, old_status, new_status, notes):
     by_name = updated_by.get_full_name() or updated_by.username
     message = f"\"{task.title}\" marked as {new_status} by {by_name}"
 
-    save_notification(
+    save_notification.delay(
         user_id=task.assigned_by.id,
         type='task',
         message=message,
         by=by_name,
     )
 
-    trigger_pusher(
+    trigger_pusher.delay(
         channel=f"private-user-{task.assigned_by.id}",
         event="task.status_updated",
         data={
@@ -100,14 +103,14 @@ def notify_lead_assigned(assignee, assigned_by, lead, assignment_type):
         f"assigned to you: {lead.name} by {by_name}"
     )
 
-    save_notification(
+    save_notification.delay(
         user_id=assignee.id,
         type='lead',
         message=message,
         by=by_name,
     )
 
-    trigger_pusher(
+    trigger_pusher.delay(
         channel=f"private-user-{assignee.id}",
         event="lead.assigned",
         data={
@@ -127,7 +130,7 @@ def notify_lead_assigned(assignee, assigned_by, lead, assignment_type):
 # ── Chat helpers ──────────────────────────────────────
 
 def notify_new_message(conversation_id, message_data):
-    trigger_pusher(
+    trigger_pusher.delay(
         channel=f"private-chat-{conversation_id}",
         event="new-message",
         data=message_data
@@ -139,7 +142,7 @@ def notify_new_conversation(user_id, conversation_id, conversation_type, name=No
         else "New direct message conversation"
     )
 
-    save_notification(
+    save_notification.delay(
         user_id=user_id,
         type='chat',
         message=message,
@@ -148,7 +151,7 @@ def notify_new_conversation(user_id, conversation_id, conversation_type, name=No
     data = {"conversation_id": conversation_id, "type": conversation_type}
     if name:
         data["name"] = name
-    trigger_pusher(
+    trigger_pusher.delay(
         channel=f"private-user-{user_id}",
         event="new-conversation",
         data=data

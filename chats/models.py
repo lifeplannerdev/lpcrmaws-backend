@@ -1,6 +1,6 @@
 from django.db import models
 from django.conf import settings
-from cloudinary.models import CloudinaryField  # ← add this
+
 
 User = settings.AUTH_USER_MODEL
 
@@ -29,7 +29,7 @@ class Message(models.Model):
     sender = models.ForeignKey(User, on_delete=models.CASCADE)
     text = models.TextField(blank=True, null=True)
 
-    file = CloudinaryField('file', blank=True, null=True, resource_type='auto')
+    file = models.FileField(upload_to='chats/messages/', blank=True, null=True, verbose_name='file')
 
     created_at = models.DateTimeField(auto_now_add=True)
 
