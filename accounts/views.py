@@ -13,6 +13,8 @@ from rest_framework.exceptions import PermissionDenied
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Q
 
+from .services import PermissionService
+
 from .serializers import (
     StaffListSerializer,
     StaffDetailSerializer,
@@ -96,7 +98,7 @@ class CurrentUserAPIView(APIView):
             "last_name": user.last_name,
             "role": user.role,
             "company": user.company,
-            "permissions": user.permissions,
+            "permissions": PermissionService.get_user_permissions(user),
             "phone": user.phone if hasattr(user, 'phone') else None,
             "location": user.location if hasattr(user, 'location') else None,
         })
@@ -125,7 +127,7 @@ class LoginAPIView(APIView):
                 "last_name": user.last_name,
                 "role": user.role,
                 "company": user.company,
-                "permissions": user.permissions
+                "permissions": PermissionService.get_user_permissions(user)
             }
         }, status=status.HTTP_200_OK)
 
