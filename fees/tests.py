@@ -115,3 +115,42 @@ class FeeAccessTests(APITestCase):
         self.assertEqual(str(self.account.total_paid), '200.00')
         self.assertEqual(str(self.account.balance_due), '21040.00')
         self.assertEqual(str(self.installment.paid_amount), '200.00')
+
+    def test_fee_catalog_is_readable_for_trainer_visibility(self):
+        self.client.force_authenticate(user=self.trainer_user)
+        response = self.client.get(reverse('fee-catalog-list-create'), {'company': 'FLAG', 'active': 'true'})
+        self.assertEqual(response.status_code, 200)
+        codes = [item['code'] for item in response.data]
+        self.assertIn(self.template.code, codes)
+
+    def test_fee_account_create_autofills_template_defaults_and_snapshot(self):
+        self.client.force_authenticate(user=self.accounts_user)
+
+        second_student = Student.objects.create(
+            name='Template Student',
+            batch='B1',
+            branch=self.branch,
+            trainer=self.trainer,
+            status='ACTIVE',
+            admission_date=date(2026, 1, 1),
+            company='FLAG',
+        )
+
+        response = self.client.post(
+            reverse('fee-account-list-create'),
+            {
+                'student': second_student.id,
+                'template': self.template.id,
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        account = StudentFeeAccount.objects.get(student=second_student)
+        self.assertEqual(account.plan_code, self.template.code)
+        self.assertEqual(account.plan_name, self.template.name)
+        self.assertEqual(account.plan_type, self.template.plan_type)
+        self.assertEqual(str(account.total_due), str(self.template.total_amount))
+        self.assertEqual(account.registration_amount, self.template.registration_amount)
+        self.assertEqual(account.due_day, self.template.due_day)
+        self.assertEqual(account.plan_snapshot['template']['code'], self.template.code)

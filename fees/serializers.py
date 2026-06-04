@@ -4,10 +4,28 @@ from django.db import transaction
 from django.utils import timezone
 from rest_framework import serializers
 
-from accounts.models import ActivityLog
+from accounts.models import ActivityLog, User
+from notifications.models import Notification
 from trainers.models import Student, AcademicBatch
 
 from .models import FeePlanTemplate, StudentFeeAccount, FeeInstallment, FeePayment, FeeAdjustment
+
+
+def _notify_fee_stakeholders(account, message, by='System'):
+    recipients = [
+        user for user in User.objects.filter(is_active=True, company=account.company)
+        if 'manage_fees' in (user.permissions or [])
+    ]
+    trainer_user = getattr(getattr(account.student, 'trainer', None), 'user', None)
+    if trainer_user and trainer_user.is_active:
+        recipients.append(trainer_user)
+
+    seen = set()
+    for user in recipients:
+        if user.id in seen:
+            continue
+        seen.add(user.id)
+        Notification.objects.create(user=user, type='fee', message=message, by=by)
 
 
 class FeePlanTemplateSerializer(serializers.ModelSerializer):
@@ -60,6 +78,7 @@ class FeePaymentSerializer(serializers.ModelSerializer):
         installment = validated_data.get('installment')
 
         with transaction.atomic():
+            previous_status = account.status
             if not validated_data.get('receipt_number'):
                 validated_data['receipt_number'] = self._generate_receipt_number(account)
             validated_data['created_by'] = request.user
@@ -93,6 +112,13 @@ class FeePaymentSerializer(serializers.ModelSerializer):
                     'payment_method': payment.payment_method,
                 },
             )
+
+            if previous_status != account.status or previous_status == 'OVERDUE' or account.status in ('OVERDUE', 'SETTLED', 'PARTIAL'):
+                _notify_fee_stakeholders(
+                    account,
+                    f"Fee status updated for {account.student.name}: {previous_status} -> {account.status}",
+                    by=request.user.get_full_name() or request.user.username,
+                )
 
         return payment
 
@@ -164,12 +190,51 @@ class StudentFeeAccountCreateSerializer(serializers.ModelSerializer):
             'student', 'template', 'plan_code', 'plan_name', 'plan_type', 'total_due',
             'registration_amount', 'due_day', 'start_date', 'next_due_date', 'notes',
             'plan_snapshot', 'source_label'
-        ]
+    ]
+
+    def _template_snapshot(self, template):
+        if not template:
+            return None
+
+        return {
+            'id': template.id,
+            'company': template.company,
+            'code': template.code,
+            'name': template.name,
+            'course_label': template.course_label,
+            'plan_type': template.plan_type,
+            'total_amount': str(template.total_amount),
+            'registration_amount': str(template.registration_amount),
+            'installment_count': template.installment_count,
+            'installment_amount': str(template.installment_amount) if template.installment_amount is not None else None,
+            'monthly_amount': str(template.monthly_amount) if template.monthly_amount is not None else None,
+            'duration_months': template.duration_months,
+            'due_day': template.due_day,
+            'is_active': template.is_active,
+        }
+
+    def _apply_template_defaults(self, validated_data, template):
+        if not template:
+            return validated_data
+
+        defaults = {
+            'plan_code': template.code,
+            'plan_name': template.name,
+            'plan_type': template.plan_type,
+            'total_due': template.total_amount,
+            'registration_amount': template.registration_amount,
+            'due_day': template.due_day,
+        }
+        defaults.update(validated_data)
+        defaults['plan_snapshot'] = defaults.get('plan_snapshot') or {}
+        defaults['plan_snapshot'].setdefault('template', self._template_snapshot(template))
+        return defaults
 
     def create(self, validated_data):
         request = self.context['request']
         student = validated_data['student']
         template = validated_data.get('template')
+        validated_data = self._apply_template_defaults(validated_data, template)
         account, created = StudentFeeAccount.objects.get_or_create(student=student, defaults={
             'company': student.company,
             'created_by': request.user,
@@ -178,6 +243,7 @@ class StudentFeeAccountCreateSerializer(serializers.ModelSerializer):
         })
 
         if not created:
+            validated_data = self._apply_template_defaults(validated_data, template)
             for key, value in validated_data.items():
                 setattr(account, key, value)
             account.updated_by = request.user
@@ -186,7 +252,7 @@ class StudentFeeAccountCreateSerializer(serializers.ModelSerializer):
         else:
             account.plan_snapshot = account.plan_snapshot or {}
             if template:
-                account.plan_snapshot.setdefault('template', FeePlanTemplateSerializer(template).data)
+                account.plan_snapshot.setdefault('template', self._template_snapshot(template))
             account.save()
 
         return account

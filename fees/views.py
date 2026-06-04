@@ -33,10 +33,10 @@ def _notify_users(users, notif_type, message, by='System'):
 
 
 def _finance_recipients(company=None):
-    qs = User.objects.filter(is_active=True, permissions__contains=['manage_fees'])
+    qs = User.objects.filter(is_active=True)
     if company:
         qs = qs.filter(company=company)
-    return qs
+    return [user for user in qs if 'manage_fees' in (user.permissions or [])]
 
 
 def _perm_list(user):

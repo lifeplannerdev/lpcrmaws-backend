@@ -1,8 +1,10 @@
 from rest_framework import serializers
 from .models import Trainer, Student, Attendance, AcademicBatch, Branch, ExamResult
 from django.contrib.auth import get_user_model
+from django.db import transaction
 from django.db.models import Count
 from decimal import Decimal
+from notifications.models import Notification
 
 User = get_user_model()
 
@@ -35,6 +37,8 @@ class StudentSerializer(serializers.ModelSerializer):
     branch_name = serializers.CharField(source='branch.name', read_only=True)
     fee_summary = serializers.SerializerMethodField()
     attendance_summary = serializers.SerializerMethodField()
+    fee_setup_status = serializers.SerializerMethodField()
+    fee_template = serializers.IntegerField(write_only=True, required=False, allow_null=True)
     
     class Meta:
         model = Student
@@ -43,8 +47,11 @@ class StudentSerializer(serializers.ModelSerializer):
             'trainer', 'trainer_name', 'branch', 'branch_name',
             'status', 'admission_date', 'notes',
             'email', 'phone_number', 'drive_link', 'student_class', 'company',
-            'fee_summary', 'attendance_summary'
+            'fee_summary', 'attendance_summary', 'fee_setup_status', 'fee_template'
         ]
+        extra_kwargs = {
+            'fee_template': {'write_only': True},
+        }
 
     def get_fee_summary(self, obj):
         try:
@@ -67,6 +74,14 @@ class StudentSerializer(serializers.ModelSerializer):
             'version': account.version,
         }
 
+    def get_fee_setup_status(self, obj):
+        try:
+            account = obj.fee_account
+        except Exception:
+            return 'PENDING_FEE_SETUP'
+
+        return account.status
+
     def get_attendance_summary(self, obj):
         qs = obj.attendance_records.all()
         stats = qs.values('status').annotate(count=Count('id'))
@@ -74,6 +89,109 @@ class StudentSerializer(serializers.ModelSerializer):
         for item in stats:
             summary[item['status']] = item['count']
         return summary
+
+    def _resolve_fee_template(self, student, template_id):
+        if not template_id:
+            return None
+
+        from fees.models import FeePlanTemplate
+
+        template = FeePlanTemplate.objects.filter(
+            pk=template_id,
+            company=student.company,
+            is_active=True,
+        ).first()
+        if not template:
+            raise serializers.ValidationError({'fee_template': 'Selected fee template is not available for this company.'})
+        return template
+
+    def _create_fee_account_from_template(self, student, template, request_user):
+        from fees.models import StudentFeeAccount
+
+        account = StudentFeeAccount.objects.create(
+            student=student,
+            company=student.company,
+            template=template,
+            plan_code=template.code,
+            plan_name=template.name,
+            plan_type=template.plan_type,
+            total_due=template.total_amount,
+            registration_amount=template.registration_amount,
+            due_day=template.due_day,
+            source_label='student-enrollment',
+            plan_snapshot={
+                'template': {
+                    'id': template.id,
+                    'company': template.company,
+                    'code': template.code,
+                    'name': template.name,
+                    'course_label': template.course_label,
+                    'plan_type': template.plan_type,
+                    'total_amount': str(template.total_amount),
+                    'registration_amount': str(template.registration_amount),
+                    'installment_count': template.installment_count,
+                    'installment_amount': str(template.installment_amount) if template.installment_amount is not None else None,
+                    'monthly_amount': str(template.monthly_amount) if template.monthly_amount is not None else None,
+                    'duration_months': template.duration_months,
+                    'due_day': template.due_day,
+                }
+            },
+            created_by=request_user,
+            updated_by=request_user,
+        )
+
+        recipients = [
+            user for user in User.objects.filter(is_active=True, company=student.company)
+            if 'manage_fees' in (user.permissions or [])
+        ]
+        trainer_user = getattr(getattr(student, 'trainer', None), 'user', None)
+        if trainer_user and trainer_user.is_active:
+            recipients.append(trainer_user)
+
+        seen = set()
+        if request_user:
+            by = request_user.get_full_name() or request_user.username
+        else:
+            by = 'System'
+        for user in recipients:
+            if user.id in seen:
+                continue
+            seen.add(user.id)
+            Notification.objects.create(
+                user=user,
+                type='fee',
+                message=f"Fee plan assigned for {student.name}",
+                by=by,
+            )
+
+        return account
+
+    def create(self, validated_data):
+        fee_template_id = validated_data.pop('fee_template', None)
+        request = self.context.get('request')
+        with transaction.atomic():
+            student = Student.objects.create(**validated_data)
+
+            template = self._resolve_fee_template(student, fee_template_id)
+            if template:
+                self._create_fee_account_from_template(student, template, request.user if request else None)
+
+        return student
+
+    def update(self, instance, validated_data):
+        fee_template_id = validated_data.pop('fee_template', None)
+        with transaction.atomic():
+            student = super().update(instance, validated_data)
+
+            if fee_template_id:
+                template = self._resolve_fee_template(student, fee_template_id)
+                try:
+                    _ = student.fee_account
+                except Exception:
+                    request = self.context.get('request')
+                    self._create_fee_account_from_template(student, template, request.user if request else None)
+
+        return student
 
 # Attendance Serializer
 class AttendanceSerializer(serializers.ModelSerializer):

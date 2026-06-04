@@ -5,6 +5,7 @@ from django.urls import reverse
 from rest_framework.test import APITestCase
 
 from accounts.permission_templates import get_permissions_for_role
+from fees.models import FeePlanTemplate
 from trainers.models import Branch, Trainer, Student
 
 
@@ -80,3 +81,70 @@ class StudentAccessTests(APITestCase):
             format='json',
         )
         self.assertEqual(response.status_code, 403)
+
+
+class StudentEnrollmentFeeSyncTests(APITestCase):
+    def setUp(self):
+        self.branch = Branch.objects.create(name='FLAG Branch', location='Kochi')
+        self.template = FeePlanTemplate.objects.create(
+            company='FLAG',
+            code='FLAG-B1',
+            name='FLAG B1 Level',
+            course_label='B1',
+            plan_type='PACKAGE',
+            total_amount='29500.00',
+            registration_amount='0.00',
+            due_day=10,
+        )
+        self.enroller = User.objects.create_user(
+            username='enroller',
+            password='pass12345',
+            role='TRAINER',
+            company='FLAG',
+            permissions=['edit_students', 'view_students', 'view_fees'],
+        )
+        self.trainer = self.enroller.trainer_profile
+        self.trainer.branch = self.branch
+        self.trainer.save(update_fields=['branch'])
+
+    def _student_payload(self, fee_template=None):
+        payload = {
+            'name': 'Enrollment Student',
+            'batch': 'B1',
+            'branch': self.branch.id,
+            'trainer': self.trainer.id,
+            'status': 'ACTIVE',
+            'admission_date': '2026-01-01',
+            'company': 'FLAG',
+        }
+        if fee_template:
+            payload['fee_template'] = fee_template.id
+        return payload
+
+    def test_student_creation_with_fee_template_creates_fee_account(self):
+        self.client.force_authenticate(user=self.enroller)
+        response = self.client.post(
+            reverse('student-list-create'),
+            self._student_payload(self.template),
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data['fee_setup_status'], 'ACTIVE')
+        self.assertIsNotNone(response.data['fee_summary'])
+        student = Student.objects.get(name='Enrollment Student')
+        self.assertTrue(hasattr(student, 'fee_account'))
+        self.assertEqual(student.fee_account.plan_code, self.template.code)
+        self.assertEqual(student.fee_account.plan_name, self.template.name)
+
+    def test_student_creation_without_fee_template_stays_pending(self):
+        self.client.force_authenticate(user=self.enroller)
+        response = self.client.post(
+            reverse('student-list-create'),
+            self._student_payload(),
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data['fee_setup_status'], 'PENDING_FEE_SETUP')
+        self.assertIsNone(response.data['fee_summary'])
