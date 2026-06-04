@@ -11,6 +11,7 @@ from .views import (
     FeeRestructureAPIView,
     FeeSummaryAPIView,
     FeeCatalogSeedAPIView,
+    FeeStudentsAPIView,
 )
 
 
@@ -25,4 +26,5 @@ urlpatterns = [
     path('fees/accounts/<int:account_pk>/adjustments/', FeeAdjustmentListCreateAPIView.as_view(), name='fee-adjustment-list-create'),
     path('fees/accounts/<int:pk>/restructure/', FeeRestructureAPIView.as_view(), name='fee-restructure'),
     path('fees/summary/', FeeSummaryAPIView.as_view(), name='fee-summary'),
+    path('fees/students/', FeeStudentsAPIView.as_view(), name='fee-students'),
 ]

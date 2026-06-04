@@ -426,3 +426,26 @@ class FeeCatalogSeedAPIView(APIView):
             obj, _ = FeePlanTemplate.objects.update_or_create(code=item['code'], defaults=item)
             created.append(obj)
         return Response(FeePlanTemplateSerializer(created, many=True).data, status=status.HTTP_201_CREATED)
+
+
+class FeeStudentsAPIView(APIView):
+    permission_classes = [IsAuthenticated, CanViewFees]
+
+    def get(self, request):
+        qs = Student.objects.exclude(status__in=['COMPLETED', 'DROPPED']).select_related('branch')
+        if hasattr(request.user, 'trainer_profile') and 'view_fees' not in _perm_list(request.user) and 'manage_fees' not in _perm_list(request.user) and 'view_fee_reports' not in _perm_list(request.user):
+            qs = qs.filter(trainer=request.user.trainer_profile)
+
+        search = request.GET.get('search')
+        if search:
+            qs = qs.filter(Q(name__icontains=search) | Q(phone_number__icontains=search) | Q(email__icontains=search))
+
+        data = []
+        for s in qs.order_by('name')[:500]:
+            data.append({
+                'id': s.id,
+                'name': s.name,
+                'branch_name': s.branch.name if s.branch else '',
+                'phone': s.phone_number,
+            })
+        return Response(data)
