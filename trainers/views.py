@@ -24,6 +24,10 @@ from .permissions import IsTrainerOwnStudent
 User = get_user_model()
 
 
+def _has_perm(user, perm):
+    return user.is_authenticated and perm in (user.permissions or [])
+
+
 class StandardResultsSetPagination(PageNumberPagination):
     page_size = 50
     page_size_query_param = 'page_size'
@@ -100,7 +104,11 @@ class StudentListCreateAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        if not (_has_perm(request.user, 'view_students') or _has_perm(request.user, 'manage_students') or hasattr(request.user, 'trainer_profile')):
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+
         qs = Student.objects.select_related('trainer', 'trainer__user', 'academic_batch', 'branch')
+        qs = qs.select_related('fee_account')
 
         if hasattr(request.user, 'trainer_profile'):
             qs = qs.filter(trainer=request.user.trainer_profile)
@@ -135,6 +143,9 @@ class StudentListCreateAPIView(APIView):
         return paginator.get_paginated_response(serializer.data)
 
     def post(self, request):
+        if not _has_perm(request.user, 'edit_students'):
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+
         serializer = StudentSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save()
@@ -146,6 +157,9 @@ class AcademicBatchListCreateAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        if not (_has_perm(request.user, 'view_students') or _has_perm(request.user, 'manage_students') or hasattr(request.user, 'trainer_profile')):
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+
         qs = AcademicBatch.objects.all()
         academic_year = request.GET.get('academic_year')
         if academic_year:
@@ -189,16 +203,20 @@ class StudentDetailAPIView(APIView):
     permission_classes = [IsAuthenticated, IsTrainerOwnStudent]
 
     def get_object(self, request, pk):
-        qs = Student.objects.select_related('trainer', 'trainer__user')
+        qs = Student.objects.select_related('trainer', 'trainer__user', 'fee_account')
         if hasattr(request.user, 'trainer_profile'):
             qs = qs.filter(trainer=request.user.trainer_profile)
         return get_object_or_404(qs, pk=pk)
 
     def get(self, request, pk):
+        if not (_has_perm(request.user, 'view_students') or _has_perm(request.user, 'manage_students') or hasattr(request.user, 'trainer_profile')):
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
         student = self.get_object(request, pk)
         return Response(StudentSerializer(student).data)
 
     def put(self, request, pk):
+        if not _has_perm(request.user, 'edit_students'):
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
         student = self.get_object(request, pk)
         serializer = StudentSerializer(student, data=request.data)
         if serializer.is_valid():
@@ -207,6 +225,8 @@ class StudentDetailAPIView(APIView):
         return Response(serializer.errors, status=400)
 
     def delete(self, request, pk):
+        if not _has_perm(request.user, 'edit_students'):
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
         student = self.get_object(request, pk)
         student.delete()
         return Response(
@@ -220,6 +240,8 @@ class AttendanceListCreateAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        if not (_has_perm(request.user, 'view_students') or _has_perm(request.user, 'mark_attendance') or hasattr(request.user, 'trainer_profile')):
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
         qs = Attendance.objects.select_related(
             'student', 'trainer', 'trainer__user'
         ).order_by('-date')
@@ -232,7 +254,7 @@ class AttendanceListCreateAPIView(APIView):
         return paginator.get_paginated_response(serializer.data)
 
     def post(self, request):  
-        if not hasattr(request.user, 'trainer_profile'):
+        if not _has_perm(request.user, 'mark_attendance'):
             return Response(
                 {"detail": "Only trainers can mark attendance"},
                 status=403
@@ -262,6 +284,8 @@ class AttendanceDetailAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        if not (_has_perm(request.user, 'view_students') or _has_perm(request.user, 'mark_attendance') or hasattr(request.user, 'trainer_profile')):
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
         records = Attendance.objects.select_related(
             'student', 'trainer', 'trainer__user'
         ).order_by('-date')
@@ -300,10 +324,7 @@ class QuickMarkAttendanceAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        is_trainer = hasattr(request.user, 'trainer_profile')
-        is_admin = hasattr(request.user, 'role') and request.user.role in ['ADMIN', 'HR', 'MANAGER']
-
-        if not is_trainer and not is_admin:
+        if not _has_perm(request.user, 'mark_attendance'):
             return Response({"error": "Unauthorized"}, status=403)
 
         date = request.data.get('date')
@@ -323,8 +344,8 @@ class QuickMarkAttendanceAPIView(APIView):
                 if not student:
                     continue
 
-                # Ensure only the assigned trainer or an admin can mark attendance
-                if is_trainer and student.trainer != request.user.trainer_profile:
+                # Ensure only the assigned trainer or an authorized role can mark attendance
+                if hasattr(request.user, 'trainer_profile') and student.trainer != request.user.trainer_profile:
                     continue
 
                 trainer_to_assign = student.trainer
@@ -363,6 +384,8 @@ class AttendanceRecordsAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, student_id):
+        if not (_has_perm(request.user, 'view_students') or _has_perm(request.user, 'mark_attendance') or hasattr(request.user, 'trainer_profile')):
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
         qs = Attendance.objects.filter(student_id=student_id).order_by('-date')
 
         if hasattr(request.user, 'trainer_profile'):
@@ -378,6 +401,8 @@ class ExportStudentAttendanceAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, student_id):
+        if not (_has_perm(request.user, 'view_students') or _has_perm(request.user, 'mark_attendance') or hasattr(request.user, 'trainer_profile')):
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
         qs = Attendance.objects.filter(student_id=student_id).order_by('date')
 
         if hasattr(request.user, 'trainer_profile'):
@@ -405,15 +430,14 @@ class AttendanceStudentsAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        if not (_has_perm(request.user, 'view_students') or _has_perm(request.user, 'mark_attendance') or hasattr(request.user, 'trainer_profile')):
+            return Response({"error": "Only authorized users can access this endpoint"}, status=403)
         students = Student.objects.exclude(
             status__in=['COMPLETED', 'DROPPED']
         ).select_related('trainer', 'trainer__user').order_by('name')
 
         if hasattr(request.user, 'trainer_profile'):
             students = students.filter(trainer=request.user.trainer_profile)
-        elif hasattr(request.user, 'role') and request.user.role not in ['ADMIN', 'HR', 'MANAGER']:
-            # Normal users who aren't trainers and aren't admin/hr/manager
-            return Response({"error": "Only authorized users can access this endpoint"}, status=403)
         
         batch = request.GET.get('batch')
         student_class = request.GET.get('student_class')

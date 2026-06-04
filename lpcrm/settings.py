@@ -34,6 +34,7 @@ INSTALLED_APPS = [
     'tasks.apps.TasksConfig',
     'trainers.apps.TrainersConfig',
     'hr.apps.HrConfig',
+    'fees.apps.FeesConfig',
     'storages', 
     'corsheaders',
     'rest_framework',

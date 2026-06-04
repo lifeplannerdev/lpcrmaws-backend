@@ -4,13 +4,16 @@
 ROLE_PERMISSIONS = {
     'ADMIN': [
         'view_overview', 'view_leads', 'view_staff', 'view_all_tasks', 
-        'view_students', 'view_staff_reports', 'view_voxbay',
+        'view_students', 'edit_students', 'view_fees', 'manage_fees', 'restructure_fees',
+        'record_partial_payment', 'issue_fee_notice', 'view_fee_reports',
+        'view_staff_reports', 'view_voxbay',
         'edit_tasks', 'edit_penalties', 'edit_candidates', 'edit_staff', 'delete_staff',
         'access_flag', 'view_asset', 'manage_asset', 'view_staff_assets', 'edit_staff_contact_logic'
     ],
     'CEO': [
         'view_overview', 'view_leads', 'view_staff', 'view_all_tasks', 
-        'view_students', 'view_my_reports', 'view_staff_reports', 'view_voxbay',
+        'view_students', 'edit_students', 'view_fees', 'manage_fees', 'view_fee_reports',
+        'view_my_reports', 'view_staff_reports', 'view_voxbay',
         'edit_tasks', 'access_flag'
     ],
     'BUSINESS_HEAD': [
@@ -39,7 +42,7 @@ ROLE_PERMISSIONS = {
         'view_overview', 'view_all_tasks', 'view_my_reports'
     ],
     'TRAINER': [
-        'view_overview', 'view_students', 'mark_attendance', 
+        'view_overview', 'view_students', 'view_fees', 'mark_attendance', 
         'view_all_tasks', 'view_my_reports'
     ],
     'BDM': [
@@ -52,7 +55,7 @@ ROLE_PERMISSIONS = {
         'edit_tasks', 'access_flag'
     ],
     'HR': [
-        'view_overview', 'view_staff', 'view_penalties', 'view_attendance_docs', 
+        'view_overview', 'view_staff', 'view_penalties', 'view_attendance_docs', 'view_fees',
         'view_candidates', 'view_all_tasks', 'view_my_reports', 'view_staff_reports',
         'edit_tasks', 'edit_penalties', 'edit_candidates', 'edit_staff', 'delete_staff',
         'access_flag', 'view_asset', 'manage_asset', 'view_staff_assets', 'edit_staff_contact_logic'
@@ -65,7 +68,8 @@ ROLE_PERMISSIONS = {
     ],
     'ACCOUNTS': [
         'view_overview', 'view_penalties', 'view_all_tasks', 'view_my_reports',
-        'edit_penalties'
+        'view_fees', 'manage_fees', 'restructure_fees', 'record_partial_payment',
+        'issue_fee_notice', 'view_fee_reports', 'edit_penalties'
     ],
 }
 

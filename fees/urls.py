@@ -1,0 +1,28 @@
+from django.urls import path
+
+from .views import (
+    FeePlanTemplateListCreateAPIView,
+    FeePlanTemplateDetailAPIView,
+    FeeAccountListCreateAPIView,
+    FeeAccountDetailAPIView,
+    FeeInstallmentListCreateAPIView,
+    FeePaymentListCreateAPIView,
+    FeeAdjustmentListCreateAPIView,
+    FeeRestructureAPIView,
+    FeeSummaryAPIView,
+    FeeCatalogSeedAPIView,
+)
+
+
+urlpatterns = [
+    path('fees/catalog/', FeePlanTemplateListCreateAPIView.as_view(), name='fee-catalog-list-create'),
+    path('fees/catalog/<int:pk>/', FeePlanTemplateDetailAPIView.as_view(), name='fee-catalog-detail'),
+    path('fees/catalog/seed/', FeeCatalogSeedAPIView.as_view(), name='fee-catalog-seed'),
+    path('fees/accounts/', FeeAccountListCreateAPIView.as_view(), name='fee-account-list-create'),
+    path('fees/accounts/<int:pk>/', FeeAccountDetailAPIView.as_view(), name='fee-account-detail'),
+    path('fees/accounts/<int:account_pk>/installments/', FeeInstallmentListCreateAPIView.as_view(), name='fee-installment-list-create'),
+    path('fees/accounts/<int:account_pk>/payments/', FeePaymentListCreateAPIView.as_view(), name='fee-payment-list-create'),
+    path('fees/accounts/<int:account_pk>/adjustments/', FeeAdjustmentListCreateAPIView.as_view(), name='fee-adjustment-list-create'),
+    path('fees/accounts/<int:pk>/restructure/', FeeRestructureAPIView.as_view(), name='fee-restructure'),
+    path('fees/summary/', FeeSummaryAPIView.as_view(), name='fee-summary'),
+]
