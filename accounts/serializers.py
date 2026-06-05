@@ -1,6 +1,6 @@
 from django.contrib.auth import authenticate
 from rest_framework import serializers
-from .models import User,ActivityLog
+from .models import User, ActivityLog, Role, AppPermission
 
 
 # Login Serializer
@@ -199,7 +199,7 @@ class ActivityLogSerializer(serializers.ModelSerializer):
             return obj.user.get_full_name() or obj.user.username
         return 'System'
 
-from .models import Role, AppPermission
+
 
 class AppPermissionSerializer(serializers.ModelSerializer):
     class Meta:
