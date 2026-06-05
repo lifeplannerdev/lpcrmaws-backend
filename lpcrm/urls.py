@@ -34,6 +34,7 @@ urlpatterns = [
     path('api/',include('chats.urls')),
     path('api/',include('telephony.urls')),
     path('api/', include('notifications.urls')),
+    path('api/', include('credentials.urls')),
 ]
 
 if settings.DEBUG:

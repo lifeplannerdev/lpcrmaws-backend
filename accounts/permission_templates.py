@@ -8,13 +8,15 @@ ROLE_PERMISSIONS = {
         'record_partial_payment', 'issue_fee_notice', 'view_fee_reports',
         'view_staff_reports', 'view_voxbay',
         'edit_tasks', 'edit_penalties', 'edit_candidates', 'edit_staff', 'delete_staff',
-        'access_flag', 'view_asset', 'manage_asset', 'view_staff_assets', 'edit_staff_contact_logic'
+        'access_flag', 'view_asset', 'manage_asset', 'view_staff_assets', 'edit_staff_contact_logic',
+        'credentials:view', 'credentials:manage', 'credentials:share'
     ],
     'CEO': [
         'view_overview', 'view_leads', 'view_staff', 'view_all_tasks', 
         'view_students', 'edit_students', 'view_fees', 'manage_fees', 'view_fee_reports',
         'view_my_reports', 'view_staff_reports', 'view_voxbay',
-        'edit_tasks', 'access_flag'
+        'edit_tasks', 'access_flag',
+        'credentials:view', 'credentials:manage', 'credentials:share'
     ],
     'BUSINESS_HEAD': [
         'view_overview', 'view_leads', 'view_staff', 'view_my_tasks', 

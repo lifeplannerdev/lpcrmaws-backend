@@ -20,6 +20,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = config('SECRET_KEY')
 DEBUG = config('DEBUG', default=False, cast=bool)
 ALLOWED_HOSTS = ["*"]
+FERNET_KEY = config('FERNET_KEY', default='')
 
 # Application definition
 INSTALLED_APPS = [
@@ -46,6 +47,7 @@ INSTALLED_APPS = [
     'telephony',
     'chats',
     'notifications',
+    'credentials',
 ]
 
 MIDDLEWARE = [
