@@ -6,12 +6,50 @@ from accounts.services import PermissionService
 
 User = get_user_model()
 
-class DummyUser:
-    def __init__(self, role_name):
-        self.is_authenticated = True
-        self.is_superuser = False
-        self.role = role_name
-        self.company = 'LP'
+def get_legacy_permissions(role):
+    permissions = {
+        "profile": ["read", "edit_own"],
+        "dashboard": ["read"],
+    }
+    if role in ['ADMIN', 'CEO']:
+        permissions.update({
+            "leads": ["read", "create", "edit_any", "delete_any"],
+            "staff": ["read", "create", "edit_any", "delete_any"],
+            "attendance": ["read_any", "create_any", "edit_any"],
+            "penalties": ["read_any", "create", "edit_any", "delete_any"],
+            "assets": ["read_any", "create", "edit_any", "delete_any"],
+        })
+    elif role in ['ADM_MANAGER', 'OPS', 'CM', 'BUSINESS_HEAD']:
+        permissions.update({
+            "leads": ["read_tenant", "create", "edit_tenant", "delete_tenant"],
+            "staff": ["read_tenant", "edit_tenant"],
+            "attendance": ["read_tenant", "create"],
+            "penalties": ["read_tenant"],
+            "assets": ["read_tenant"],
+        })
+    elif role in ['ADM_COUNSELLOR', 'ADM_EXEC', 'PROCESSING', 'FOE', 'BDM']:
+        permissions.update({
+            "leads": ["read_own", "create", "edit_own"],
+            "staff": ["read_own"],
+            "attendance": ["read_own", "create_own"],
+            "penalties": ["read_own"],
+            "assets": ["read_own"],
+        })
+    elif role == 'HR':
+        permissions.update({
+            "leads": ["read_tenant"],
+            "staff": ["read_tenant", "create", "edit_tenant", "delete_tenant"],
+            "attendance": ["read_tenant", "create", "edit_tenant"],
+            "penalties": ["read_tenant", "create", "edit_tenant", "delete_tenant"],
+            "assets": ["read_tenant", "create", "edit_tenant", "delete_tenant"],
+        })
+    else:
+        permissions.update({
+            "leads": ["read_own"],
+            "staff": ["read_own"],
+            "attendance": ["read_own", "create_own"],
+        })
+    return permissions
 
 class Command(BaseCommand):
     help = 'Seeds the database with dynamic roles and permissions'
@@ -41,7 +79,7 @@ class Command(BaseCommand):
             role_obj, _ = Role.objects.get_or_create(name=role_name)
             
             # Combine backend string permissions (view_leads) with scope permissions (leads:read_all)
-            payload = PermissionService.get_user_permissions(DummyUser(role_name))
+            payload = get_legacy_permissions(role_name)
             
             # Convert payload to strings like "leads:read", "leads:create"
             frontend_perms = []
