@@ -12,7 +12,10 @@ from .views import (
     StaffCreateView,
     StaffUpdateView,
     EmployeeListAPI,
-    StaffAssetTimelineView
+    StaffAssetTimelineView,
+    AppPermissionListView,
+    RoleListCreateView,
+    RoleDetailView
 )
 
 urlpatterns = [
@@ -28,5 +31,7 @@ urlpatterns = [
     path('staff/<int:pk>/update/', StaffUpdateView.as_view(), name='staff_update'),
     path('staff/<int:pk>/asset-timeline/', StaffAssetTimelineView.as_view(), name='staff_asset_timeline'),
     path('employees/', EmployeeListAPI.as_view()),
-
+    path('permissions/', AppPermissionListView.as_view(), name='permission_list'),
+    path('roles/', RoleListCreateView.as_view(), name='role_list_create'),
+    path('roles/<int:pk>/', RoleDetailView.as_view(), name='role_detail'),
 ]

@@ -97,6 +97,7 @@ class CurrentUserAPIView(APIView):
             "first_name": user.first_name,
             "last_name": user.last_name,
             "role": user.role,
+            "role_names": list(user.db_roles.values_list('name', flat=True)),
             "company": user.company,
             "permissions": PermissionService.get_user_permissions(user),
             "phone": user.phone if hasattr(user, 'phone') else None,
@@ -126,6 +127,7 @@ class LoginAPIView(APIView):
                 "first_name": user.first_name,
                 "last_name": user.last_name,
                 "role": user.role,
+                "role_names": list(user.db_roles.values_list('name', flat=True)),
                 "company": user.company,
                 "permissions": PermissionService.get_user_permissions(user)
             }
@@ -319,3 +321,21 @@ class EmployeeListAPI(APIView):
             })
 
         return Response(data)
+
+from .models import Role, AppPermission
+from .serializers import RoleSerializer, AppPermissionSerializer
+
+class AppPermissionListView(generics.ListAPIView):
+    queryset = AppPermission.objects.all().order_by('name')
+    serializer_class = AppPermissionSerializer
+    permission_classes = [IsManagement]
+
+class RoleListCreateView(generics.ListCreateAPIView):
+    queryset = Role.objects.all().order_by('name')
+    serializer_class = RoleSerializer
+    permission_classes = [IsManagement]
+
+class RoleDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = Role.objects.all()
+    serializer_class = RoleSerializer
+    permission_classes = [IsManagement]

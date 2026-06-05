@@ -1,4 +1,16 @@
 from rest_framework.permissions import BasePermission
+from accounts.models import AppPermission
+
+def has_dynamic_permission(user, perm_name):
+    if not user.is_authenticated:
+        return False
+    if user.is_superuser:
+        return True
+    if not hasattr(user, '_dynamic_perms_cache'):
+        user._dynamic_perms_cache = set(
+            AppPermission.objects.filter(roles__users=user).values_list('name', flat=True)
+        )
+    return perm_name in user._dynamic_perms_cache
 
 
 class IsManagement(BasePermission):
@@ -6,10 +18,7 @@ class IsManagement(BasePermission):
     Management-level users who can view staff lists and details
     """
     def has_permission(self, request, view):
-        return (
-            request.user.is_authenticated and
-            'view_staff' in request.user.permissions
-        )
+        return has_dynamic_permission(request.user, 'view_staff')
 
 
 class IsSuperAdmin(BasePermission):
@@ -17,26 +26,16 @@ class IsSuperAdmin(BasePermission):
     Very restricted actions like deleting staff
     """
     def has_permission(self, request, view):
-        return (
-            request.user.is_authenticated and
-            'view_staff' in request.user.permissions and 
-            'edit_tasks' in request.user.permissions
-        )
+        return has_dynamic_permission(request.user, 'view_staff') and has_dynamic_permission(request.user, 'edit_tasks')
 
 
 def HasPermission(required_permission):
     """
     Factory function returning a BasePermission class that checks
-    if the user's permissions JSONField contains the required string.
+    if the user's DB roles grant the required permission string.
     """
     class _HasPermission(BasePermission):
         def has_permission(self, request, view):
-            if not request.user.is_authenticated:
-                return False
-            
-            # If the user is an admin or CEO, maybe they have blanket access, 
-            # but for now we strictly check the permissions list.
-            perms = request.user.permissions or []
-            return required_permission in perms
+            return has_dynamic_permission(request.user, required_permission)
 
     return _HasPermission

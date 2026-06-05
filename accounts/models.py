@@ -7,6 +7,29 @@ from django.utils import timezone
 import os
 
 
+class AppPermission(models.Model):
+    name = models.CharField(max_length=100, unique=True, help_text="e.g. leads:read_all, leads:edit_tenant")
+    description = models.TextField(blank=True)
+
+    class Meta:
+        db_table = 'permissions'
+
+    def __str__(self):
+        return self.name
+
+
+class Role(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+    description = models.TextField(blank=True)
+    permissions = models.ManyToManyField(AppPermission, related_name='roles', blank=True, db_table='role_permissions')
+
+    class Meta:
+        db_table = 'roles'
+
+    def __str__(self):
+        return self.name
+
+
 class User(AbstractUser):
     ROLE_CHOICES = [
         ('ADMIN', 'General Manager'),
@@ -52,6 +75,8 @@ class User(AbstractUser):
     salary = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
     join_date = models.DateField(blank=True, null=True)
     permissions = models.JSONField(default=list, blank=True)
+    extra_permissions = models.TextField(default='[]', blank=True)
+    db_roles = models.ManyToManyField(Role, related_name='users', blank=True, db_table='user_roles')
 
     # Resolve auth clashes
     groups = models.ManyToManyField(

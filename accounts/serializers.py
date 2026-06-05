@@ -51,9 +51,21 @@ class StaffListSerializer(serializers.ModelSerializer):
             'team',
             'salary',
             'join_date',
-            'permissions'
+            'permissions',
+            'db_roles',
+            'role_names'
         ]
         read_only_fields = fields
+
+    permissions = serializers.SerializerMethodField()
+    role_names = serializers.SerializerMethodField()
+
+    def get_permissions(self, obj):
+        from .services import PermissionService
+        return PermissionService.get_user_permissions(obj)
+
+    def get_role_names(self, obj):
+        return list(obj.db_roles.values_list('name', flat=True))
 
 
 #  Staff Detail Serializer 
@@ -79,21 +91,33 @@ class StaffDetailSerializer(serializers.ModelSerializer):
             'salary',
             'join_date',
             'permissions',
-            'assets'
+            'assets',
+            'db_roles',
+            'role_names'
         ]
         read_only_fields = ['date_joined', 'last_login']
 
     assets = serializers.SerializerMethodField()
+    permissions = serializers.SerializerMethodField()
+    role_names = serializers.SerializerMethodField()
 
     def get_assets(self, obj):
         from hr.serializers import AssetSerializer
         assets = obj.assigned_assets.all()
         return AssetSerializer(assets, many=True).data
 
+    def get_permissions(self, obj):
+        from .services import PermissionService
+        return PermissionService.get_user_permissions(obj)
+
+    def get_role_names(self, obj):
+        return list(obj.db_roles.values_list('name', flat=True))
+
 
 #  Staff Create/Update Serializer 
 class StaffCreateSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=True)
+    db_roles = serializers.PrimaryKeyRelatedField(many=True, queryset=Role.objects.all(), required=False)
     
     class Meta:
         model = User
@@ -112,19 +136,25 @@ class StaffCreateSerializer(serializers.ModelSerializer):
             'office_phone',
             'location',
             'salary',
-            'join_date'
+            'join_date',
+            'db_roles'
         ]
     
     def create(self, validated_data):
         password = validated_data.pop('password')
+        db_roles = validated_data.pop('db_roles', [])
         user = User(**validated_data)
         user.set_password(password)
         user.save()
+        if db_roles:
+            user.db_roles.set(db_roles)
         return user
 
 
 #  Staff Update Serializer
 class StaffUpdateSerializer(serializers.ModelSerializer):
+    db_roles = serializers.PrimaryKeyRelatedField(many=True, queryset=Role.objects.all(), required=False)
+
     class Meta:
         model = User
         fields = [
@@ -142,7 +172,8 @@ class StaffUpdateSerializer(serializers.ModelSerializer):
             'location',
             'salary',
             'join_date',
-            'permissions'
+            'permissions',
+            'db_roles'
         ]
 
 
@@ -167,3 +198,36 @@ class ActivityLogSerializer(serializers.ModelSerializer):
         if obj.user:
             return obj.user.get_full_name() or obj.user.username
         return 'System'
+
+from .models import Role, AppPermission
+
+class AppPermissionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AppPermission
+        fields = ['id', 'name', 'description']
+
+class RoleSerializer(serializers.ModelSerializer):
+    permissions = AppPermissionSerializer(many=True, read_only=True)
+    permission_ids = serializers.ListField(
+        child=serializers.IntegerField(), write_only=True, required=False
+    )
+
+    class Meta:
+        model = Role
+        fields = ['id', 'name', 'description', 'permissions', 'permission_ids']
+
+    def create(self, validated_data):
+        permission_ids = validated_data.pop('permission_ids', [])
+        role = Role.objects.create(**validated_data)
+        if permission_ids:
+            role.permissions.set(permission_ids)
+        return role
+
+    def update(self, instance, validated_data):
+        permission_ids = validated_data.pop('permission_ids', None)
+        instance.name = validated_data.get('name', instance.name)
+        instance.description = validated_data.get('description', instance.description)
+        instance.save()
+        if permission_ids is not None:
+            instance.permissions.set(permission_ids)
+        return instance
