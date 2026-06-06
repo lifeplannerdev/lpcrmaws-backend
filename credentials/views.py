@@ -3,11 +3,26 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.db.models import Q
 from django.utils import timezone
-from .models import Credential, CredentialHistory, CredentialUpdateRequest
+from .models import Credential, CredentialHistory, CredentialUpdateRequest, CredentialCategory
 from .serializers import (
     CredentialSerializer, CredentialDetailSerializer, 
-    CredentialHistorySerializer, CredentialUpdateRequestSerializer
+    CredentialHistorySerializer, CredentialUpdateRequestSerializer,
+    CredentialCategorySerializer
 )
+
+class CredentialCategoryPermission(permissions.BasePermission):
+    def has_permission(self, request, view):
+        if request.user.is_superuser:
+            return True
+        perms = request.user.permissions if request.user.permissions else []
+        if view.action in ['list', 'retrieve']:
+            return True
+        return 'credentials:manage' in perms
+
+class CredentialCategoryViewSet(viewsets.ModelViewSet):
+    queryset = CredentialCategory.objects.all().order_by('name')
+    serializer_class = CredentialCategorySerializer
+    permission_classes = [permissions.IsAuthenticated, CredentialCategoryPermission]
 
 class CredentialPermission(permissions.BasePermission):
     def has_permission(self, request, view):

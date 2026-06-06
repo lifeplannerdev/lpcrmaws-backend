@@ -1,17 +1,23 @@
 from rest_framework import serializers
-from .models import Credential, CredentialHistory, CredentialUpdateRequest
+from .models import Credential, CredentialHistory, CredentialUpdateRequest, CredentialCategory
 from accounts.serializers import StaffListSerializer, RoleSerializer
+
+class CredentialCategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CredentialCategory
+        fields = ['id', 'name', 'color', 'icon_name', 'created_at']
 
 class CredentialSerializer(serializers.ModelSerializer):
     created_by_name = serializers.CharField(source='created_by.get_full_name', read_only=True)
     shared_users_list = StaffListSerializer(source='shared_users', many=True, read_only=True)
     shared_roles_list = RoleSerializer(source='shared_roles', many=True, read_only=True)
     password = serializers.CharField(write_only=True) # Used for writing only
+    category_detail = CredentialCategorySerializer(source='category', read_only=True)
 
     class Meta:
         model = Credential
         fields = [
-            'id', 'title', 'username', 'url', 'notes',
+            'id', 'title', 'username', 'url', 'notes', 'category', 'category_detail',
             'created_by', 'created_by_name', 'created_at', 'updated_at',
             'shared_users', 'shared_roles', 'shared_users_list', 'shared_roles_list',
             'password'

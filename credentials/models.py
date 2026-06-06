@@ -9,6 +9,17 @@ def get_fernet():
         raise ValueError("FERNET_KEY is not set in Django settings")
     return Fernet(key.encode())
 
+class CredentialCategory(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=100)
+    color = models.CharField(max_length=20, default="#6B7280")
+    icon_name = models.CharField(max_length=50, default="Folder")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.name
+
 class Credential(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     title = models.CharField(max_length=255)
@@ -16,6 +27,7 @@ class Credential(models.Model):
     encrypted_password = models.TextField()
     url = models.URLField(blank=True, null=True)
     notes = models.TextField(blank=True, null=True)
+    category = models.ForeignKey(CredentialCategory, on_delete=models.SET_NULL, null=True, blank=True, related_name='credentials')
     
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='created_credentials')
     created_at = models.DateTimeField(auto_now_add=True)
