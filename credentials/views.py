@@ -49,7 +49,7 @@ class CredentialPermission(permissions.BasePermission):
         # Object-level checks
         is_creator = obj.created_by == request.user
         is_shared_user = obj.shared_users.filter(id=request.user.id).exists()
-        is_shared_role = obj.shared_roles.filter(id=request.user.role.id).exists() if getattr(request.user, 'role', None) else False
+        is_shared_role = obj.shared_roles.filter(id__in=request.user.db_roles.all()).exists()
         
         has_read_access = is_creator or is_shared_user or is_shared_role
 
@@ -76,8 +76,8 @@ class CredentialViewSet(viewsets.ModelViewSet):
             
         # Filter for only credentials user has access to
         q = Q(created_by=user) | Q(shared_users=user)
-        if getattr(user, 'role', None):
-            q |= Q(shared_roles=user.role)
+        if user.db_roles.exists():
+            q |= Q(shared_roles__in=user.db_roles.all())
             
         return Credential.objects.filter(q).distinct().order_by('-created_at')
 

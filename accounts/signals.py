@@ -18,22 +18,15 @@ def _user_label(user):
 
 @receiver(pre_save, sender=User)
 def capture_user_old_state(sender, instance, **kwargs):
-    """Snapshot old state and handle granular permission templates."""
-    from .permission_templates import get_permissions_for_role
+    """Snapshot old state."""
     if instance.pk:
         try:
             orig = User.objects.get(pk=instance.pk)
             instance._old_is_active = orig.is_active
-            if orig.role != instance.role:
-                instance.permissions = get_permissions_for_role(instance.role)
         except User.DoesNotExist:
             instance._old_is_active = None
-            if not instance.permissions:
-                instance.permissions = get_permissions_for_role(instance.role)
     else:
         instance._old_is_active = None
-        if not instance.permissions:
-            instance.permissions = get_permissions_for_role(instance.role)
 
 
 @receiver(post_save, sender=User)
@@ -46,8 +39,8 @@ def log_user_activity(sender, instance, created, **kwargs):
             entity_type='Staff',
             entity_id=instance.pk,
             entity_name=name,
-            description=f'New staff member "{name}" was created with role {instance.get_role_display()}.',
-            metadata={'role': instance.role, 'username': instance.username},
+            description=f'New staff member "{name}" was created.',
+            metadata={'username': instance.username},
         )
     else:
         old_active = getattr(instance, '_old_is_active', None)
@@ -76,7 +69,6 @@ def log_user_activity(sender, instance, created, **kwargs):
                 entity_id=instance.pk,
                 entity_name=name,
                 description=f'Staff member "{name}" profile was updated.',
-                metadata={'role': instance.role},
             )
 
 

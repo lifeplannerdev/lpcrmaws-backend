@@ -201,7 +201,7 @@ class DailyReportDetailView(APIView):
 
         if (
             report.user != request.user
-            and request.user.role not in REPORT_REVIEWERS
+            and not request.user.db_roles.filter(name__in=REPORT_REVIEWERS).exists()
         ):
             return Response({"error": "Permission denied"}, status=403)
 
@@ -221,7 +221,7 @@ class ViewReportFileView(APIView):
 
         if (
             report.user != request.user
-            and request.user.role not in REPORT_REVIEWERS
+            and not request.user.db_roles.filter(name__in=REPORT_REVIEWERS).exists()
         ):
             return Response({"error": "Permission denied"}, status=403)
 
@@ -269,7 +269,7 @@ class DownloadAttachmentView(APIView):
         )
 
         is_owner    = attachment.report.user == request.user
-        is_reviewer = request.user.role in REPORT_REVIEWERS
+        is_reviewer = request.user.db_roles.filter(name__in=REPORT_REVIEWERS).exists()
         if not (is_owner or is_reviewer):
             return Response({"error": "Permission denied"}, status=403)
 

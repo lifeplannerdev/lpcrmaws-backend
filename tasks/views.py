@@ -42,10 +42,10 @@ def _task_queryset_for_user(user, base_qs=None):
 
     user_perms = getattr(user, 'permissions', []) or []
 
-    if 'view_all_tasks' in user_perms or user.role in TOP_MANAGEMENT:
+    if 'view_all_tasks' in user_perms or user.db_roles.filter(name__in=TOP_MANAGEMENT).exists():
         return base_qs
 
-    if 'edit_tasks' in user_perms or user.role in OPERATIONS:
+    if 'edit_tasks' in user_perms or user.db_roles.filter(name__in=OPERATIONS).exists():
         return base_qs.filter(
             Q(assigned_to=user) | Q(assigned_by=user)
         ).distinct()
@@ -146,11 +146,11 @@ class EmployeeListAPIView(generics.ListAPIView):
 
     def get_queryset(self):
         user = self.request.user
-        if user.role in TOP_MANAGEMENT:
+        if user.db_roles.filter(name__in=TOP_MANAGEMENT).exists():
             return User.objects.filter(is_active=True).exclude(id=user.id)
         return User.objects.filter(
             is_active=True,
-            role__in=TASK_ASSIGNEES
+            db_roles__name__in=TASK_ASSIGNEES
         ).exclude(id=user.id)
 
 
@@ -212,8 +212,8 @@ class TaskListCreateAPIView(generics.ListCreateAPIView):
         assigned_to = serializer.validated_data.get('assigned_to')
 
         # OPS / CM cannot assign tasks to ADMIN or CEO
-        if user.role in OPERATIONS and assigned_to:
-            if assigned_to.role in TOP_MANAGEMENT:
+        if user.db_roles.filter(name__in=OPERATIONS).exists() and assigned_to:
+            if assigned_to.db_roles.filter(name__in=TOP_MANAGEMENT).exists():
                 raise ValidationError(
                     "OPS and CM can only assign tasks to execution-level employees."
                 )
@@ -237,10 +237,10 @@ class TaskDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
         user = self.request.user
         user_perms = getattr(user, 'permissions', []) or []
         
-        if 'edit_tasks' in user_perms or user.role in TOP_MANAGEMENT:
+        if 'edit_tasks' in user_perms or user.db_roles.filter(name__in=TOP_MANAGEMENT).exists():
             return
             
-        if user.role in OPERATIONS and task.assigned_by == user:
+        if user.db_roles.filter(name__in=OPERATIONS).exists() and task.assigned_by == user:
             return
             
         raise PermissionDenied(
@@ -299,10 +299,10 @@ class TaskUpdateListCreateAPIView(generics.ListCreateAPIView):
         task = self._get_task()
         user = self.request.user
 
-        if user.role in TOP_MANAGEMENT:
+        if user.db_roles.filter(name__in=TOP_MANAGEMENT).exists():
             return TaskUpdate.objects.filter(task=task).select_related('updated_by').order_by("-created_at")
 
-        if user.role in OPERATIONS and task.assigned_by == user:
+        if user.db_roles.filter(name__in=OPERATIONS).exists() and task.assigned_by == user:
             return TaskUpdate.objects.filter(task=task).select_related('updated_by').order_by("-created_at")
 
         if task.assigned_to == user:
@@ -341,7 +341,7 @@ class TasksAssignedByMeAPIView(generics.ListAPIView):
 
     def get_queryset(self):
         user = self.request.user
-        if user.role not in TASK_ASSIGNERS:
+        if not user.db_roles.filter(name__in=TASK_ASSIGNERS).exists():
             return Task.objects.none()
         qs = Task.objects.filter(assigned_by=user).select_related('assigned_to', 'assigned_by')
         qs = CompanyFilterBackend().filter_queryset(self.request, qs, self)

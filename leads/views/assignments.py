@@ -222,7 +222,7 @@ class LeadAssignmentHistoryView(generics.ListAPIView):
         lead    = get_object_or_404(Lead, id=lead_id)
         user    = self.request.user
 
-        if user.role in FULL_ACCESS_ROLES:
+        if user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists():
             return LeadAssignment.objects.filter(lead=lead).select_related('assigned_to', 'assigned_by').order_by('-timestamp')
 
         if lead.assigned_to != user and lead.sub_assigned_to != user:
@@ -239,8 +239,10 @@ class AvailableUsersForAssignmentView(APIView):
             'CM', 'BDM', 'FOE', 'ADM_COUNSELLOR',
         ]
         users = User.objects.filter(
-            role__in=ASSIGNABLE_ROLES,
+            db_roles__name__in=ASSIGNABLE_ROLES,
             is_active=True,
+        ).annotate(
+            role=models.F('db_roles__name')
         ).values(
             'id', 'username', 'email', 'role', 'first_name', 'last_name'
         ).order_by('role', 'first_name', 'last_name')
@@ -270,13 +272,13 @@ class UnassignLeadView(APIView):
 
         user = request.user
 
-        if user.role == 'ADM_EXEC':
+        if user.db_roles.filter(name='ADM_EXEC').exists():
             return Response(
                 {'error': 'Admission Executives cannot unassign leads'},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        if user.role in FULL_ACCESS_ROLES:
+        if user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists():
             if unassign_type == 'PRIMARY':
                 lead.assigned_to       = None
                 lead.assigned_by       = None
@@ -289,7 +291,7 @@ class UnassignLeadView(APIView):
                 lead.sub_assigned_by   = None
                 lead.sub_assigned_date = None
 
-        elif user.role == 'ADM_MANAGER':
+        elif user.db_roles.filter(name='ADM_MANAGER').exists():
             if lead.assigned_to != user:
                 return Response(
                     {'error': 'You can only unassign leads assigned to you'},

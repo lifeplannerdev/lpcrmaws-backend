@@ -8,10 +8,20 @@ from accounts.utils import log_activity
 
 User = get_user_model()
 
-@receiver(post_save, sender=User)
-def create_trainer_profile(sender, instance, created, **kwargs):
-    if created and instance.role == "TRAINER":
-        Trainer.objects.create(user=instance)
+from django.db.models.signals import m2m_changed
+from accounts.models import Role
+
+@receiver(m2m_changed, sender=User.db_roles.through)
+def create_trainer_profile(sender, instance, action, reverse, pk_set, **kwargs):
+    if action == "post_add":
+        if not reverse:
+            trainer_role = Role.objects.filter(name="TRAINER").first()
+            if trainer_role and trainer_role.pk in pk_set:
+                Trainer.objects.get_or_create(user=instance)
+        else:
+            if instance.name == "TRAINER":
+                for user_id in pk_set:
+                    Trainer.objects.get_or_create(user_id=user_id)
 
 
 

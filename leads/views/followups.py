@@ -56,7 +56,7 @@ class FollowUpListCreateAPIView(APIView):
         user = request.user
 
         # ADMIN/CEO/OPS see all follow-ups; others see only their own
-        if user.role in FULL_ACCESS_ROLES:
+        if user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists():
             queryset = FollowUp.objects.all()
         else:
             queryset = FollowUp.objects.filter(assigned_to=user)
@@ -110,7 +110,7 @@ class FollowUpDetailAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get_object(self, pk, user):
-        if user.role in FULL_ACCESS_ROLES:
+        if user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists():
             return get_object_or_404(FollowUp, pk=pk)
         return get_object_or_404(FollowUp, pk=pk, assigned_to=user)
 
@@ -141,7 +141,7 @@ class TodayFollowUpsAPIView(APIView):
         today = timezone.now().date()
 
         # Admin sees all today's follow-ups
-        if request.user.role in FULL_ACCESS_ROLES:
+        if request.user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists():
             queryset = FollowUp.objects.filter(follow_up_date=today)
         else:
             queryset = FollowUp.objects.filter(
@@ -159,7 +159,7 @@ class OverdueFollowUpsAPIView(APIView):
         today = timezone.now().date()
 
         # Admin sees all overdue follow-ups
-        if request.user.role in FULL_ACCESS_ROLES:
+        if request.user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists():
             queryset = FollowUp.objects.filter(
                 follow_up_date__lt=today,
                 status='pending'

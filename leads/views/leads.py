@@ -82,7 +82,7 @@ class LeadListView(generics.ListAPIView):
             'assigned_to', 'assigned_by',
             'sub_assigned_to', 'sub_assigned_by',
         )
-        if user.role in FULL_ACCESS_ROLES:
+        if user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists():
             return base_qs.all().distinct()
         return base_qs.filter(
             models.Q(assigned_to=user) |
@@ -161,7 +161,7 @@ class LeadDetailView(generics.RetrieveUpdateDestroyAPIView):
             'assigned_to', 'assigned_by',
             'sub_assigned_to', 'sub_assigned_by',
         )
-        if user.role in FULL_ACCESS_ROLES:
+        if user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists():
             return base_qs.all()
         return base_qs.filter(
             models.Q(assigned_to=user) |
@@ -213,7 +213,7 @@ class LeadDetailView(generics.RetrieveUpdateDestroyAPIView):
         user = request.user
 
         if (
-            user.role not in FULL_ACCESS_ROLES and
+            not user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists() and
             lead.assigned_to != user and
             lead.sub_assigned_to != user
         ):
@@ -252,7 +252,7 @@ class LeadProcessingTimelineView(generics.ListAPIView):
         lead    = get_object_or_404(Lead, id=lead_id)
         user    = self.request.user
 
-        if user.role in FULL_ACCESS_ROLES:
+        if user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists():
             return ProcessingUpdate.objects.filter(lead=lead).select_related('changed_by').order_by('-timestamp')
 
         if lead.assigned_to != user and lead.sub_assigned_to != user:
@@ -269,7 +269,7 @@ class UpdateLeadView(APIView):
         if (
             lead.assigned_to != request.user
             and lead.sub_assigned_to != request.user
-            and request.user.role not in FULL_ACCESS_ROLES
+            and not request.user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists()
         ):
             return Response(
                 {'error': 'Permission denied'},
@@ -313,7 +313,7 @@ class MyTeamLeadsView(generics.ListAPIView):
             'assigned_to', 'assigned_by',
             'sub_assigned_to', 'sub_assigned_by',
         )
-        if user.role in FULL_ACCESS_ROLES:
+        if user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists():
             return base_qs.all().distinct()
         return base_qs.filter(
             models.Q(assigned_to=user) |
@@ -592,7 +592,7 @@ class LeadDocumentListCreateView(APIView):
         if (
             lead.assigned_to != request.user
             and lead.sub_assigned_to != request.user
-            and request.user.role not in FULL_ACCESS_ROLES
+            and not request.user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists()
         ):
             return Response(
                 {'error': 'Permission denied'},

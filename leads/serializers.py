@@ -65,28 +65,28 @@ class LeadCreateSerializer(serializers.ModelSerializer):
         if not assignee.is_active:
             raise serializers.ValidationError('Cannot assign to inactive user.')
 
-        if creator and creator.role == 'ADM_EXEC':
+        if creator and creator.db_roles.filter(name='ADM_EXEC').exists():
             if assignee != creator:
                 raise serializers.ValidationError(
                     'Admission Executives can assign leads only to themselves.'
                 )
-        elif creator and creator.role == 'FOE':
+        elif creator and creator.db_roles.filter(name='FOE').exists():
             if assignee != creator:
                 raise serializers.ValidationError(
                     'Front Office Executives can assign leads only to themselves.'
                 )
-        elif creator and creator.role == 'ADM_MANAGER':
-            if assignee != creator and assignee.role not in ['ADM_EXEC', 'FOE']:
+        elif creator and creator.db_roles.filter(name='ADM_MANAGER').exists():
+            if assignee != creator and not assignee.db_roles.filter(name__in=['ADM_EXEC', 'FOE']).exists():
                 raise serializers.ValidationError(
                     'Admission Managers can assign leads to themselves, FOE, or Admission Executives.'
                 )
-        elif creator and creator.role in MANAGER_ROLES and creator.role != 'ADM_MANAGER':
-            if assignee != creator and assignee.role not in EXECUTIVE_ROLES:
+        elif creator and creator.db_roles.filter(name__in=MANAGER_ROLES).exists() and not creator.db_roles.filter(name='ADM_MANAGER').exists():
+            if assignee != creator and not assignee.db_roles.filter(name__in=EXECUTIVE_ROLES).exists():
                 raise serializers.ValidationError(
                     'Managers can assign leads to themselves or executives only.'
                 )
-        elif creator and creator.role in FULL_ACCESS_ROLES:
-            if assignee.role not in MANAGER_ROLES + EXECUTIVE_ROLES:
+        elif creator and creator.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists():
+            if not assignee.db_roles.filter(name__in=MANAGER_ROLES + EXECUTIVE_ROLES).exists():
                 raise serializers.ValidationError(
                     'Admins can assign leads only to managers or executives.'
                 )
@@ -170,15 +170,15 @@ class LeadAssignSerializer(serializers.Serializer):
         except User.DoesNotExist:
             raise serializers.ValidationError({'assigned_to_id': 'User not found.'})
 
-        if user.role in FULL_ACCESS_ROLES:
-            if assignee.role not in MANAGER_ROLES + EXECUTIVE_ROLES:
+        if user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists():
+            if not assignee.db_roles.filter(name__in=MANAGER_ROLES + EXECUTIVE_ROLES).exists():
                 raise serializers.ValidationError({
                     'assigned_to_id': 'Can only assign to managers or executives.'
                 })
             attrs['assignment_type'] = 'PRIMARY'
 
-        elif user.role == 'ADM_MANAGER':
-            if assignee.role not in ['ADM_EXEC', 'FOE']:
+        elif user.db_roles.filter(name='ADM_MANAGER').exists():
+            if not assignee.db_roles.filter(name__in=['ADM_EXEC', 'FOE']).exists():
                 raise serializers.ValidationError({
                     'assigned_to_id': (
                         'Admission Managers can only assign to '
@@ -191,8 +191,8 @@ class LeadAssignSerializer(serializers.Serializer):
                 })
             attrs['assignment_type'] = 'SUB'
 
-        elif user.role in MANAGER_ROLES and user.role != 'ADM_MANAGER':
-            if assignee != user and assignee.role not in EXECUTIVE_ROLES:
+        elif user.db_roles.filter(name__in=MANAGER_ROLES).exists() and not user.db_roles.filter(name='ADM_MANAGER').exists():
+            if assignee != user and not assignee.db_roles.filter(name__in=EXECUTIVE_ROLES).exists():
                 raise serializers.ValidationError({
                     'assigned_to_id': 'Managers can only assign to themselves or executives.'
                 })
@@ -202,14 +202,14 @@ class LeadAssignSerializer(serializers.Serializer):
                 })
             attrs['assignment_type'] = 'SUB'
 
-        elif user.role == 'ADM_EXEC':
+        elif user.db_roles.filter(name='ADM_EXEC').exists():
             if assignee != user:
                 raise serializers.ValidationError({
                     'assigned_to_id': 'Admission Executives can assign leads only to themselves.'
                 })
             attrs['assignment_type'] = 'PRIMARY'
 
-        elif user.role == 'FOE':
+        elif user.db_roles.filter(name='FOE').exists():
             if assignee != user:
                 raise serializers.ValidationError({
                     'assigned_to_id': 'Front Office Executives can assign leads only to themselves.'
@@ -383,9 +383,9 @@ class BulkLeadCreateSerializer(LeadCreateSerializer):
             raise serializers.ValidationError(f"User '{value}' is inactive.")
 
         # Leads can only be assigned to managers or executives, never to admin/CEO/OPS etc.
-        if user.role not in MANAGER_ROLES + EXECUTIVE_ROLES:
+        if not user.db_roles.filter(name__in=MANAGER_ROLES + EXECUTIVE_ROLES).exists():
             raise serializers.ValidationError(
-                f"Cannot assign leads to '{value}' (role '{user.role}'). "
+                f"Cannot assign leads to '{value}'. "
                 f"Only managers and executives can be assigned leads."
             )
 

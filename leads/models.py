@@ -150,7 +150,7 @@ class Lead(models.Model):
         self.processing_status = status
         self.processing_status_date = timezone.now()
         
-        if executive and executive.role == 'PROCESSING':
+        if executive and executive.db_roles.filter(name='PROCESSING').exists():
             self.processing_executive = executive
         
         if notes:
