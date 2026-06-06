@@ -11,6 +11,8 @@ from .serializers import (
 
 class CredentialPermission(permissions.BasePermission):
     def has_permission(self, request, view):
+        if request.user.is_superuser:
+            return True
         # Must have view_credentials to list/retrieve
         perms = request.user.permissions if request.user.permissions else []
         if view.action in ['list', 'retrieve', 'history', 'requests']:
@@ -22,6 +24,8 @@ class CredentialPermission(permissions.BasePermission):
         return False
 
     def has_object_permission(self, request, view, obj):
+        if request.user.is_superuser:
+            return True
         # Admins or users with credentials:manage can do anything
         perms = request.user.permissions if request.user.permissions else []
         if 'credentials:manage' in perms:
@@ -52,7 +56,7 @@ class CredentialViewSet(viewsets.ModelViewSet):
         user = self.request.user
         perms = user.permissions if user.permissions else []
         
-        if 'credentials:manage' in perms:
+        if 'credentials:manage' in perms or user.is_superuser:
             return Credential.objects.all().order_by('-created_at')
             
         # Filter for only credentials user has access to
@@ -120,7 +124,7 @@ class CredentialUpdateRequestViewSet(viewsets.ModelViewSet):
         user = self.request.user
         perms = user.permissions if user.permissions else []
         
-        if 'credentials:manage' in perms:
+        if 'credentials:manage' in perms or user.is_superuser:
             return CredentialUpdateRequest.objects.all().order_by('-created_at')
             
         return CredentialUpdateRequest.objects.filter(Q(requested_by=user) | Q(credential__created_by=user)).order_by('-created_at')
@@ -133,7 +137,7 @@ class CredentialUpdateRequestViewSet(viewsets.ModelViewSet):
             
         credential = req.credential
         perms = request.user.permissions if request.user.permissions else []
-        if credential.created_by != request.user and 'credentials:manage' not in perms:
+        if credential.created_by != request.user and 'credentials:manage' not in perms and not request.user.is_superuser:
             return Response({"error": "Not authorized to approve this request"}, status=status.HTTP_403_FORBIDDEN)
 
         # 1. Save old password to history
@@ -163,7 +167,7 @@ class CredentialUpdateRequestViewSet(viewsets.ModelViewSet):
             
         credential = req.credential
         perms = request.user.permissions if request.user.permissions else []
-        if credential.created_by != request.user and 'credentials:manage' not in perms:
+        if credential.created_by != request.user and 'credentials:manage' not in perms and not request.user.is_superuser:
             return Response({"error": "Not authorized to reject this request"}, status=status.HTTP_403_FORBIDDEN)
 
         req.status = 'REJECTED'
