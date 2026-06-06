@@ -37,7 +37,7 @@ class DashboardStatsAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        if request.user.role != "ADMIN":
+        if not request.user.db_roles.filter(name="ADMIN").exists():
             raise PermissionDenied("You are not allowed to view dashboard stats")
 
         data = {
@@ -62,17 +62,17 @@ class ActivityLogListView(generics.ListAPIView):
         qs = ActivityLog.objects.select_related('user').all()
 
         user = self.request.user
-        if user.role not in ('ADMIN', 'BUSINESS_HEAD', 'CEO'):
+        if not user.db_roles.filter(name__in=['ADMIN', 'BUSINESS_HEAD', 'CEO']).exists():
             qs = qs.filter(
                 Q(user=user) |
                 Q(user__isnull=True, entity_type='Staff', entity_id=user.pk)
             )
         else:
             qs = qs.exclude(
-                user__role__in=['ADMIN', 'CEO']
+                user__db_roles__name__in=['ADMIN', 'CEO']
             ).exclude(
                 action__in=['USER_LOGIN', 'USER_LOGOUT'] 
-            )
+            ).distinct()
 
         # Date range filters
         date_from = self.request.query_params.get('date_from')
@@ -96,7 +96,6 @@ class CurrentUserAPIView(APIView):
             "email": user.email,
             "first_name": user.first_name,
             "last_name": user.last_name,
-            "role": user.role,
             "role_names": list(user.db_roles.values_list('name', flat=True)),
             "company": user.company,
             "permissions": PermissionService.get_user_permissions(user),
@@ -231,16 +230,14 @@ class StaffCreateView(generics.CreateAPIView):
         
         # If user is a trainer and a branch_id was provided, update the trainer profile
         branch_id = request.data.get('branch_id')
-        role = request.data.get('role')
-        if role == 'TRAINER' and branch_id:
+        username = request.data.get('username')
+        if branch_id and username:
             try:
-                # The user was created in super().create(), let's fetch it by email or username
-                # But we don't have the instance easily from response. So let's get it by username
-                username = request.data.get('username')
+                # The user was created in super().create(), let's fetch it by username
                 user = User.objects.get(username=username)
                 
                 # Signal has already created trainer_profile
-                if hasattr(user, 'trainer_profile'):
+                if user.db_roles.filter(name='TRAINER').exists() and hasattr(user, 'trainer_profile'):
                     user.trainer_profile.branch_id = branch_id
                     user.trainer_profile.save()
             except Exception as e:
@@ -266,7 +263,7 @@ class StaffUpdateView(generics.UpdateAPIView):
 
         # Handle branch update for trainers
         branch_id = request.data.get('branch_id')
-        if instance.role == 'TRAINER' and branch_id:
+        if instance.db_roles.filter(name='TRAINER').exists() and branch_id:
             try:
                 if hasattr(instance, 'trainer_profile'):
                     instance.trainer_profile.branch_id = branch_id
@@ -302,7 +299,7 @@ class StaffAssetTimelineView(generics.ListAPIView):
 class EmployeeListAPI(APIView):
     def get(self, request):
         employees = User.objects.filter(
-            role__in=[
+            db_roles__name__in=[
                 "ADM_MANAGER",
                 "ADM_COUNSELLOR",  
                 "ADM_EXEC",
@@ -310,14 +307,14 @@ class EmployeeListAPI(APIView):
                 "CM"
             ],
             is_active=True
-        )
+        ).distinct()
 
         data = []
         for emp in employees:
             data.append({
                 "id": emp.id,
                 "name": emp.get_full_name() or emp.username,  
-                "role": emp.get_role_display()
+                "role": ", ".join(emp.db_roles.values_list('name', flat=True))
             })
 
         return Response(data)

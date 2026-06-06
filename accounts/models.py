@@ -31,30 +31,6 @@ class Role(models.Model):
 
 
 class User(AbstractUser):
-    ROLE_CHOICES = [
-        ('ADMIN', 'General Manager'),
-        ('OPS', 'Operations Manager'),
-        ('ADM_MANAGER', 'Admission Manager'),
-        ('ADM_COUNSELLOR', 'Admission Counsellor'), 
-        ('ADM_EXEC', 'Admission Executive'),
-        ('PROCESSING', 'Processing Executive'),
-        ('MEDIA', 'Media Team'),
-        ('TRAINER', 'Trainer'),
-        ('BUSINESS_HEAD', 'Business Head'),
-        ('BDM', 'Business Development Manager'),
-        ('CM', 'Center Manager'),
-        ('HR', 'Human Resources'),
-        ('FOE', 'FOE Cum TC'),
-        ('ACCOUNTS', 'Accounts'),
-        ('CEO','Chief executive'),
-        ('DOCUMENTATION','Documentation executive')
-    ]
-
-    role = models.CharField(
-        max_length=100,
-        choices=ROLE_CHOICES,
-        db_index=True
-    )
     COMPANY_CHOICES = [
         ('LP', 'LP'),
         ('FLAG', 'FLAG'),
@@ -98,19 +74,19 @@ class User(AbstractUser):
     )
 
     def __str__(self):
-        return f"{self.username} ({self.get_role_display()})"
+        return self.username
 
     @property
     def is_business_head(self):
-        return self.role == 'BUSINESS_HEAD'
+        return self.db_roles.filter(name='BUSINESS_HEAD').exists()
 
     @property
     def is_cm(self):
-        return self.role == 'CM'
+        return self.db_roles.filter(name='CM').exists()
 
     @property
     def is_hr(self):
-        return self.role == 'HR'
+        return self.db_roles.filter(name='HR').exists()
 
 class ActivityLog(models.Model):
     ACTION_CHOICES = [
