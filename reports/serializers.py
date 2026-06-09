@@ -1,7 +1,12 @@
 from rest_framework import serializers
-from .models import DailyReport, DailyReportAttachment
+from .models import DailyReport, DailyReportAttachment, ReportTimingSettings
 
-
+class ReportTimingSettingsSerializer(serializers.ModelSerializer):
+    user_name = serializers.CharField(source='user.get_full_name', read_only=True)
+    
+    class Meta:
+        model = ReportTimingSettings
+        fields = ['id', 'user', 'user_name', 'agenda_policy', 'agenda_deadline', 'report_deadline']
 class DailyReportAttachmentSerializer(serializers.ModelSerializer):
     view_url = serializers.SerializerMethodField()
     download_url = serializers.SerializerMethodField()
@@ -36,20 +41,28 @@ class DailyReportSerializer(serializers.ModelSerializer):
     file_url = serializers.SerializerMethodField()
     view_url = serializers.SerializerMethodField()
 
+    completion_percentage = serializers.ReadOnlyField()
+    is_report_late = serializers.ReadOnlyField()
+    is_agenda_late = serializers.ReadOnlyField()
+
     class Meta:
         model = DailyReport
         fields = [
-            "id", "user", "user_name", "name", "heading", "report_text",
+            "id", "user", "user_name", "name", 
+            "report_heading", "report_text", "report_submitted_at",
+            "agenda_heading", "next_day_agenda", "agenda_submitted_at",
+            "completion_percentage", "is_report_late", "is_agenda_late",
             "file_url", "view_url",   
             "attachments",
             "report_date", "status", "review_comment",
             "reviewed_by", "reviewed_by_name",
-            "report_type", "submission_time", "next_day_agenda",
+            "report_type",
             "created_at", "updated_at", "company"
         ]
         read_only_fields = [
             "user", "status", "reviewed_by", "review_comment",
-            "created_at", "updated_at", "submission_time",
+            "created_at", "updated_at",
+            "report_submitted_at", "agenda_submitted_at"
         ]
 
     def get_file_url(self, obj):

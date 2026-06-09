@@ -2,9 +2,22 @@ from django.contrib.auth import get_user_model
 from django.db import models
 from django.utils import timezone
 import urllib.parse
+from datetime import time
 
 User = get_user_model()
 
+class ReportTimingSettings(models.Model):
+    AGENDA_POLICY_CHOICES = (
+        ('EVENING_BEFORE', 'Evening Before'),
+        ('MORNING_OF', 'Morning Of'),
+    )
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='report_settings')
+    agenda_policy = models.CharField(max_length=20, choices=AGENDA_POLICY_CHOICES, default='MORNING_OF')
+    agenda_deadline = models.TimeField(default=time(10, 0))
+    report_deadline = models.TimeField(default=time(18, 0))
+
+    def __str__(self):
+        return f"Report Settings for {self.user.get_full_name()}"
 
 class DailyReport(models.Model):
     STATUS_CHOICES = (
@@ -29,21 +42,30 @@ class DailyReport(models.Model):
         default='EVENING',
         db_index=True
     )
-    submission_time = models.DateTimeField(auto_now_add=True, null=True)
+    report_submitted_at = models.DateTimeField(null=True, blank=True)
+    agenda_submitted_at = models.DateTimeField(null=True, blank=True)
     next_day_agenda = models.TextField(blank=True, null=True)
     name = models.CharField(
         max_length=200,
         verbose_name='Report Name',
         help_text='Give a title to your daily report'
     )
-    heading = models.CharField(
+    report_heading = models.CharField(
         max_length=300,
         verbose_name='Report Heading',
-        help_text='Brief summary of your daily report'
+        help_text='Brief summary of your daily report',
+        blank=True, null=True
+    )
+    agenda_heading = models.CharField(
+        max_length=300,
+        verbose_name='Agenda Heading',
+        help_text='Brief summary of your agenda',
+        blank=True, null=True
     )
     report_text = models.TextField(
         verbose_name='Daily Update',
-        help_text='Share your daily progress and updates'
+        help_text='Share your daily progress and updates',
+        blank=True, null=True
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -77,6 +99,49 @@ class DailyReport(models.Model):
     @property
     def is_today_report(self):
         return self.report_date == timezone.now().date()
+
+    @property
+    def completion_percentage(self):
+        score = 0
+        if self.next_day_agenda:
+            score += 50
+        if self.report_text:
+            score += 50
+        return score
+
+    @property
+    def is_agenda_late(self):
+        if not self.agenda_submitted_at:
+            return False
+        try:
+            settings = self.user.report_settings
+        except ReportTimingSettings.DoesNotExist:
+            return False
+            
+        if settings.agenda_policy == 'MORNING_OF':
+            deadline = timezone.datetime.combine(self.report_date, settings.agenda_deadline)
+            deadline = timezone.make_aware(deadline) if timezone.is_naive(deadline) else deadline
+            return self.agenda_submitted_at > deadline
+        elif settings.agenda_policy == 'EVENING_BEFORE':
+            from datetime import timedelta
+            deadline_date = self.report_date - timedelta(days=1)
+            deadline = timezone.datetime.combine(deadline_date, settings.agenda_deadline)
+            deadline = timezone.make_aware(deadline) if timezone.is_naive(deadline) else deadline
+            return self.agenda_submitted_at > deadline
+        return False
+
+    @property
+    def is_report_late(self):
+        if not self.report_submitted_at:
+            return False
+        try:
+            settings = self.user.report_settings
+        except ReportTimingSettings.DoesNotExist:
+            return False
+            
+        deadline = timezone.datetime.combine(self.report_date, settings.report_deadline)
+        deadline = timezone.make_aware(deadline) if timezone.is_naive(deadline) else deadline
+        return self.report_submitted_at > deadline
 
 
 class DailyReportAttachment(models.Model):

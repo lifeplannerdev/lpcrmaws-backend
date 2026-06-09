@@ -3,8 +3,8 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from django.utils.timezone import now
 from rest_framework.permissions import IsAuthenticated
-from .models import DailyReport, DailyReportAttachment
-from .serializers import DailyReportSerializer
+from .models import DailyReport, DailyReportAttachment, ReportTimingSettings
+from .serializers import DailyReportSerializer, ReportTimingSettingsSerializer
 from .permissions import REPORT_REVIEWERS, IsReportReviewer, IsReportOwner
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.exceptions import PermissionDenied
@@ -26,10 +26,37 @@ class DailyReportCreateView(generics.CreateAPIView):
     permission_classes = [IsAuthenticated]
 
     def perform_create(self, serializer):
+        data = serializer.validated_data
+        
+        # Determine timestamps
+        report_submitted_at = now() if data.get('report_text') else None
+        agenda_submitted_at = now() if data.get('next_day_agenda') else None
+        
+        # Auto-carryover logic
+        user = self.request.user
+        report_date = data.get('report_date', now().date())
+        
+        # If no agenda provided in request, check yesterday's report
+        agenda_heading = data.get('agenda_heading')
+        next_day_agenda = data.get('next_day_agenda')
+        
+        if not next_day_agenda:
+            from datetime import timedelta
+            yesterday = report_date - timedelta(days=1)
+            yesterday_report = DailyReport.objects.filter(user=user, report_date=yesterday).order_by('-created_at').first()
+            if yesterday_report and yesterday_report.next_day_agenda:
+                agenda_heading = yesterday_report.agenda_heading
+                next_day_agenda = yesterday_report.next_day_agenda
+                agenda_submitted_at = yesterday_report.agenda_submitted_at
+
         serializer.save(
-            user=self.request.user,
+            user=user,
             status="pending",
-            company=self.request.user.company,
+            company=user.company,
+            report_submitted_at=report_submitted_at,
+            agenda_submitted_at=agenda_submitted_at,
+            agenda_heading=agenda_heading,
+            next_day_agenda=next_day_agenda
         )
 
     def get_serializer_context(self):
@@ -52,6 +79,38 @@ class MyDailyReportsView(generics.ListAPIView):
             
         return qs.order_by("-report_date")
 
+    def filter_lateness(self, queryset):
+        lateness = self.request.query_params.get("lateness")
+        if not lateness or lateness == 'all':
+            return queryset
+        
+        results = []
+        for r in queryset:
+            if lateness == 'late_agenda' and r.is_agenda_late:
+                results.append(r)
+            elif lateness == 'late_report' and r.is_report_late:
+                results.append(r)
+            elif lateness == 'on_time' and not r.is_report_late and not r.is_agenda_late and r.completion_percentage == 100:
+                results.append(r)
+            elif lateness == 'incomplete' and r.completion_percentage < 100:
+                results.append(r)
+        return results
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        
+        lateness = request.query_params.get("lateness")
+        if lateness and lateness != 'all':
+            queryset = self.filter_lateness(queryset)
+            page = self.paginate_queryset(queryset)
+            if page is not None:
+                serializer = self.get_serializer(page, many=True)
+                return self.get_paginated_response(serializer.data)
+            serializer = self.get_serializer(queryset, many=True)
+            return Response(serializer.data)
+            
+        return super().list(request, *args, **kwargs)
+
 
 class MyDailyReportUpdateView(generics.UpdateAPIView):
     serializer_class = DailyReportSerializer
@@ -64,7 +123,22 @@ class MyDailyReportUpdateView(generics.UpdateAPIView):
             raise PermissionDenied(
                 "Approved or rejected reports cannot be edited."
             )
-        serializer.save()
+        
+        # Determine timestamps based on previous state
+        data = serializer.validated_data
+        
+        report_submitted_at = report.report_submitted_at
+        if data.get('report_text') and not report.report_submitted_at:
+            report_submitted_at = now()
+            
+        agenda_submitted_at = report.agenda_submitted_at
+        if data.get('next_day_agenda') and not report.agenda_submitted_at:
+            agenda_submitted_at = now()
+
+        serializer.save(
+            report_submitted_at=report_submitted_at,
+            agenda_submitted_at=agenda_submitted_at
+        )
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
@@ -105,8 +179,10 @@ class AllDailyReportsView(generics.ListAPIView):
             from django.db.models import Q
             qs = qs.filter(
                 Q(name__icontains=search) | 
-                Q(heading__icontains=search) | 
-                Q(report_text__icontains=search)
+                Q(report_heading__icontains=search) | 
+                Q(agenda_heading__icontains=search) | 
+                Q(report_text__icontains=search) |
+                Q(next_day_agenda__icontains=search)
             )
 
         qs = qs.annotate(
@@ -120,6 +196,38 @@ class AllDailyReportsView(generics.ListAPIView):
         ).order_by("status_order", "-report_date", "-created_at")
 
         return qs
+
+    def filter_lateness(self, queryset):
+        lateness = self.request.query_params.get("lateness")
+        if not lateness or lateness == 'all':
+            return queryset
+        
+        results = []
+        for r in queryset:
+            if lateness == 'late_agenda' and r.is_agenda_late:
+                results.append(r)
+            elif lateness == 'late_report' and r.is_report_late:
+                results.append(r)
+            elif lateness == 'on_time' and not r.is_report_late and not r.is_agenda_late and r.completion_percentage == 100:
+                results.append(r)
+            elif lateness == 'incomplete' and r.completion_percentage < 100:
+                results.append(r)
+        return results
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        
+        lateness = request.query_params.get("lateness")
+        if lateness and lateness != 'all':
+            queryset = self.filter_lateness(queryset)
+            page = self.paginate_queryset(queryset)
+            if page is not None:
+                serializer = self.get_serializer(page, many=True)
+                return self.get_paginated_response(serializer.data)
+            serializer = self.get_serializer(queryset, many=True)
+            return Response(serializer.data)
+            
+        return super().list(request, *args, **kwargs)
 
 
 class ReviewDailyReportView(APIView):
@@ -172,8 +280,10 @@ class AdminReportStatsView(APIView):
             from django.db.models import Q
             qs = qs.filter(
                 Q(name__icontains=search) | 
-                Q(heading__icontains=search) | 
-                Q(report_text__icontains=search)
+                Q(report_heading__icontains=search) | 
+                Q(agenda_heading__icontains=search) | 
+                Q(report_text__icontains=search) |
+                Q(next_day_agenda__icontains=search)
             )
 
         return Response(
@@ -333,3 +443,15 @@ class PreviousEveningAgendaView(APIView):
             agenda = latest_evening_report.next_day_agenda
             
         return Response({'next_day_agenda': agenda})
+
+class AdminReportSettingsListView(generics.ListCreateAPIView):
+    serializer_class = ReportTimingSettingsSerializer
+    permission_classes = [IsReportReviewer]
+    
+    def get_queryset(self):
+        return ReportTimingSettings.objects.all().select_related('user')
+
+class AdminReportSettingsDetailView(generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = ReportTimingSettingsSerializer
+    permission_classes = [IsReportReviewer]
+    queryset = ReportTimingSettings.objects.all()
