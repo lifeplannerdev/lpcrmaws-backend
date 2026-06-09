@@ -4,6 +4,7 @@ from rest_framework.response import Response
 from django.db.models import Q
 from django.utils import timezone
 from .models import Credential, CredentialHistory, CredentialUpdateRequest, CredentialCategory
+from accounts.permissions import has_dynamic_permission
 from .serializers import (
     CredentialSerializer, CredentialDetailSerializer, 
     CredentialHistorySerializer, CredentialUpdateRequestSerializer,
@@ -14,10 +15,9 @@ class CredentialCategoryPermission(permissions.BasePermission):
     def has_permission(self, request, view):
         if request.user.is_superuser:
             return True
-        perms = request.user.permissions if request.user.permissions else []
         if view.action in ['list', 'retrieve']:
             return True
-        return 'credentials:manage' in perms
+        return has_dynamic_permission(request.user, 'credentials:manage')
 
 class CredentialCategoryViewSet(viewsets.ModelViewSet):
     queryset = CredentialCategory.objects.all().order_by('name')
@@ -28,22 +28,18 @@ class CredentialPermission(permissions.BasePermission):
     def has_permission(self, request, view):
         if request.user.is_superuser:
             return True
-        # Must have view_credentials to list/retrieve
-        perms = request.user.permissions if request.user.permissions else []
-        if view.action in ['list', 'retrieve', 'history', 'requests']:
-            return 'credentials:view' in perms or 'credentials:manage' in perms
+        # All authenticated users can list/retrieve; get_queryset filters what they see
+        if view.action in ['list', 'retrieve', 'history', 'requests', 'propose_update']:
+            return True
         if view.action in ['create', 'update', 'partial_update', 'destroy', 'approve_request', 'reject_request']:
-            return 'credentials:manage' in perms
-        if view.action == 'propose_update':
-            return 'credentials:view' in perms # Shared users can propose updates
+            return has_dynamic_permission(request.user, 'credentials:manage')
         return False
 
     def has_object_permission(self, request, view, obj):
         if request.user.is_superuser:
             return True
         # Admins or users with credentials:manage can do anything
-        perms = request.user.permissions if request.user.permissions else []
-        if 'credentials:manage' in perms:
+        if has_dynamic_permission(request.user, 'credentials:manage'):
             return True
             
         # Object-level checks
@@ -69,9 +65,8 @@ class CredentialViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        perms = user.permissions if user.permissions else []
         
-        if 'credentials:manage' in perms or user.is_superuser:
+        if has_dynamic_permission(user, 'credentials:manage') or user.is_superuser:
             return Credential.objects.all().order_by('-created_at')
             
         # Filter for only credentials user has access to
@@ -137,9 +132,8 @@ class CredentialUpdateRequestViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        perms = user.permissions if user.permissions else []
         
-        if 'credentials:manage' in perms or user.is_superuser:
+        if has_dynamic_permission(user, 'credentials:manage') or user.is_superuser:
             return CredentialUpdateRequest.objects.all().order_by('-created_at')
             
         return CredentialUpdateRequest.objects.filter(Q(requested_by=user) | Q(credential__created_by=user)).order_by('-created_at')
@@ -151,8 +145,7 @@ class CredentialUpdateRequestViewSet(viewsets.ModelViewSet):
             return Response({"error": "Request is not pending"}, status=status.HTTP_400_BAD_REQUEST)
             
         credential = req.credential
-        perms = request.user.permissions if request.user.permissions else []
-        if credential.created_by != request.user and 'credentials:manage' not in perms and not request.user.is_superuser:
+        if credential.created_by != request.user and not has_dynamic_permission(request.user, 'credentials:manage') and not request.user.is_superuser:
             return Response({"error": "Not authorized to approve this request"}, status=status.HTTP_403_FORBIDDEN)
 
         # 1. Save old password to history
@@ -181,8 +174,7 @@ class CredentialUpdateRequestViewSet(viewsets.ModelViewSet):
             return Response({"error": "Request is not pending"}, status=status.HTTP_400_BAD_REQUEST)
             
         credential = req.credential
-        perms = request.user.permissions if request.user.permissions else []
-        if credential.created_by != request.user and 'credentials:manage' not in perms and not request.user.is_superuser:
+        if credential.created_by != request.user and not has_dynamic_permission(request.user, 'credentials:manage') and not request.user.is_superuser:
             return Response({"error": "Not authorized to reject this request"}, status=status.HTTP_403_FORBIDDEN)
 
         req.status = 'REJECTED'
