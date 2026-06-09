@@ -11,7 +11,7 @@ class CredentialSerializer(serializers.ModelSerializer):
     created_by_name = serializers.CharField(source='created_by.get_full_name', read_only=True)
     shared_users_list = StaffListSerializer(source='shared_users', many=True, read_only=True)
     shared_roles_list = RoleSerializer(source='shared_roles', many=True, read_only=True)
-    password = serializers.CharField(write_only=True) # Used for writing only
+    password = serializers.CharField(write_only=True, required=False, allow_blank=True) # Used for writing only
     category_detail = CredentialCategorySerializer(source='category', read_only=True)
 
     class Meta:
@@ -23,6 +23,13 @@ class CredentialSerializer(serializers.ModelSerializer):
             'password'
         ]
         read_only_fields = ['id', 'created_by', 'created_at', 'updated_at']
+
+    def validate(self, data):
+        # Enforce password on creation
+        if not self.instance:
+            if not data.get('password'):
+                raise serializers.ValidationError({"password": "A password is required when creating a new credential."})
+        return data
 
     def create(self, validated_data):
         password = validated_data.pop('password', None)
