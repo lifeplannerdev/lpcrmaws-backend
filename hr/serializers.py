@@ -7,7 +7,7 @@ User = get_user_model()
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ["id", "username", "email", "role", "salary", "join_date", "phone", "personal_phone", "office_phone", "location"]
+        fields = ["id", "username", "email", "salary", "join_date", "phone", "personal_phone", "office_phone", "location"]
 
 class UserMinimalSerializer(serializers.ModelSerializer):
     name = serializers.SerializerMethodField()
@@ -109,7 +109,6 @@ class AttendanceDocumentSerializer(serializers.ModelSerializer):
         return None
 
 class StaffSerializer(serializers.ModelSerializer):
-    role_display = serializers.CharField(source="get_role_display", read_only=True)
     full_name = serializers.SerializerMethodField()
     assets = serializers.SerializerMethodField()
     
@@ -125,8 +124,6 @@ class StaffSerializer(serializers.ModelSerializer):
             "phone",
             "personal_phone",
             "office_phone",
-            "role",
-            "role_display",
             "team",
             "location",
             "salary",

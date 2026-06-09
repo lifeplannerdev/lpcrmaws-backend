@@ -219,7 +219,7 @@ class TrainerUserSerializer(serializers.ModelSerializer):
         model = User
         fields = [
             'id', 'username', 'email', 'first_name', 'last_name',
-            'full_name', 'role', 'phone', 'is_active', 'company'
+            'full_name', 'phone', 'is_active', 'company'
         ]
     
     def get_full_name(self, obj):
