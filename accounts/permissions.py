@@ -18,7 +18,7 @@ class IsManagement(BasePermission):
     Management-level users who can view staff lists and details
     """
     def has_permission(self, request, view):
-        return has_dynamic_permission(request.user, 'view_staff')
+        return has_dynamic_permission(request.user, 'staff:read_tenant')
 
 
 class IsSuperAdmin(BasePermission):
@@ -26,7 +26,7 @@ class IsSuperAdmin(BasePermission):
     Very restricted actions like deleting staff
     """
     def has_permission(self, request, view):
-        return has_dynamic_permission(request.user, 'view_staff') and has_dynamic_permission(request.user, 'edit_tasks')
+        return has_dynamic_permission(request.user, 'staff:read_tenant') and has_dynamic_permission(request.user, 'tasks:edit_any')
 
 
 def HasPermission(required_permission):
@@ -39,3 +39,4 @@ def HasPermission(required_permission):
             return has_dynamic_permission(request.user, required_permission)
 
     return _HasPermission
+

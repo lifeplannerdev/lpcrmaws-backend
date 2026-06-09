@@ -40,7 +40,7 @@ class IsTaskAssigner(BasePermission):
     def has_permission(self, request, view):
         return (
             request.user.is_authenticated
-            and 'edit_tasks' in request.user.permissions
+            and 'tasks:edit_any' in request.user.permissions
         )
 
 
@@ -57,7 +57,8 @@ class IsAssigneeOrTaskAssigner(BasePermission):
         if obj.assigned_to == request.user:
             return True
 
-        if 'edit_tasks' in request.user.permissions:
+        if 'tasks:edit_any' in request.user.permissions:
             return True
 
         return False
+

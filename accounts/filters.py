@@ -17,7 +17,7 @@ class CompanyFilterBackend(filters.BaseFilterBackend):
             # Check if user is trying to access another company's data
             if requested_company != user.company:
                 # The only allowed cross-company access is LP users accessing FLAG data
-                if requested_company == 'FLAG' and 'access_flag' in user.permissions:
+                if requested_company == 'FLAG' and 'staff:access_flag' in user.permissions:
                     pass  # Access granted
                 else:
                     raise PermissionDenied(f"You do not have permission to access {requested_company} data.")
@@ -32,3 +32,4 @@ class CompanyFilterBackend(filters.BaseFilterBackend):
             if hasattr(queryset.model, 'company'):
                 return queryset.filter(company=user.company)
             return queryset
+

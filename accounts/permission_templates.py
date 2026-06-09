@@ -3,75 +3,75 @@
 
 ROLE_PERMISSIONS = {
     'ADMIN': [
-        'view_overview', 'view_leads', 'view_staff', 'view_all_tasks', 
-        'view_students', 'edit_students', 'view_fees', 'manage_fees', 'restructure_fees',
-        'record_partial_payment', 'issue_fee_notice', 'view_fee_reports',
-        'view_staff_reports', 'view_voxbay',
-        'edit_tasks', 'edit_penalties', 'edit_candidates', 'edit_staff', 'delete_staff',
-        'access_flag', 'view_asset', 'manage_asset', 'view_staff_assets', 'edit_staff_contact_logic',
+        'dashboard:read', 'leads:read_tenant', 'staff:read_tenant', 'tasks:read_all', 
+        'students:read_tenant', 'students:edit_any', 'fees:read_tenant', 'fees:manage', 'fees:restructure',
+        'fees:partial_payment', 'fees:issue_notice', 'fees:view_reports',
+        'reports:read_all', 'voxbay:read',
+        'tasks:edit_any', 'penalties:edit_any', 'candidates:edit_any', 'staff:edit_any', 'staff:delete_any',
+        'staff:access_flag', 'assets:read_any', 'assets:manage', 'assets:read_tenant', 'staff:edit_contact_logic',
         'credentials:view', 'credentials:manage', 'credentials:share'
     ],
     'CEO': [
-        'view_overview', 'view_leads', 'view_staff', 'view_all_tasks', 
-        'view_students', 'edit_students', 'view_fees', 'manage_fees', 'view_fee_reports',
-        'view_my_reports', 'view_staff_reports', 'view_voxbay',
-        'edit_tasks', 'access_flag',
+        'dashboard:read', 'leads:read_tenant', 'staff:read_tenant', 'tasks:read_all', 
+        'students:read_tenant', 'students:edit_any', 'fees:read_tenant', 'fees:manage', 'fees:view_reports',
+        'reports:read_own', 'reports:read_all', 'voxbay:read',
+        'tasks:edit_any', 'staff:access_flag',
         'credentials:view', 'credentials:manage', 'credentials:share'
     ],
     'BUSINESS_HEAD': [
-        'view_overview', 'view_leads', 'view_staff', 'view_my_tasks', 
-        'view_all_tasks', 'view_my_reports'
+        'dashboard:read', 'leads:read_tenant', 'staff:read_tenant', 'tasks:read_own', 
+        'tasks:read_all', 'reports:read_own'
     ],
     'OPS': [
-        'view_overview', 'view_leads', 'view_staff', 'view_all_tasks', 
-        'view_my_reports',
-        'edit_tasks'
+        'dashboard:read', 'leads:read_tenant', 'staff:read_tenant', 'tasks:read_all', 
+        'reports:read_own',
+        'tasks:edit_any'
     ],
     'ADM_MANAGER': [
-        'view_overview', 'view_leads', 'view_all_tasks', 'view_my_reports'
+        'dashboard:read', 'leads:read_tenant', 'tasks:read_all', 'reports:read_own'
     ],
     'ADM_COUNSELLOR': [
-        'view_overview', 'view_leads', 'view_all_tasks', 'view_my_reports'
+        'dashboard:read', 'leads:read_tenant', 'tasks:read_all', 'reports:read_own'
     ],
     'ADM_EXEC': [
-        'view_overview', 'view_leads', 'view_all_tasks', 'view_my_reports'
+        'dashboard:read', 'leads:read_tenant', 'tasks:read_all', 'reports:read_own'
     ],
     'PROCESSING': [
         # Based on default logic or fallback
-        'view_overview', 'view_all_tasks', 'view_my_reports'
+        'dashboard:read', 'tasks:read_all', 'reports:read_own'
     ],
     'MEDIA': [
-        'view_overview', 'view_all_tasks', 'view_my_reports'
+        'dashboard:read', 'tasks:read_all', 'reports:read_own'
     ],
     'TRAINER': [
-        'view_overview', 'view_students', 'view_fees', 'mark_attendance', 
-        'view_all_tasks', 'view_my_reports'
+        'dashboard:read', 'students:read_tenant', 'fees:read_tenant', 'attendance:mark', 
+        'tasks:read_all', 'reports:read_own'
     ],
     'BDM': [
-        'view_overview', 'view_leads', 'view_all_tasks', 'view_my_reports',
-        'edit_tasks'
+        'dashboard:read', 'leads:read_tenant', 'tasks:read_all', 'reports:read_own',
+        'tasks:edit_any'
     ],
     'CM': [
-        'view_overview', 'view_staff', 'view_leads', 'view_all_tasks', 
-        'view_my_reports', 'view_staff_reports',
-        'edit_tasks', 'access_flag'
+        'dashboard:read', 'staff:read_tenant', 'leads:read_tenant', 'tasks:read_all', 
+        'reports:read_own', 'reports:read_all',
+        'tasks:edit_any', 'staff:access_flag'
     ],
     'HR': [
-        'view_overview', 'view_staff', 'view_penalties', 'view_attendance_docs', 'view_fees',
-        'view_candidates', 'view_all_tasks', 'view_my_reports', 'view_staff_reports',
-        'edit_tasks', 'edit_penalties', 'edit_candidates', 'edit_staff', 'delete_staff',
-        'access_flag', 'view_asset', 'manage_asset', 'view_staff_assets', 'edit_staff_contact_logic'
+        'dashboard:read', 'staff:read_tenant', 'penalties:read_any', 'attendance:view_docs', 'fees:read_tenant',
+        'candidates:read_any', 'tasks:read_all', 'reports:read_own', 'reports:read_all',
+        'tasks:edit_any', 'penalties:edit_any', 'candidates:edit_any', 'staff:edit_any', 'staff:delete_any',
+        'staff:access_flag', 'assets:read_any', 'assets:manage', 'assets:read_tenant', 'staff:edit_contact_logic'
     ],
     'FOE': [
-        'view_overview', 'view_leads', 'view_all_tasks', 'view_my_reports'
+        'dashboard:read', 'leads:read_tenant', 'tasks:read_all', 'reports:read_own'
     ],
     'DOCUMENTATION': [
-        'view_overview', 'view_all_tasks', 'view_my_reports'
+        'dashboard:read', 'tasks:read_all', 'reports:read_own'
     ],
     'ACCOUNTS': [
-        'view_overview', 'view_penalties', 'view_all_tasks', 'view_my_reports',
-        'view_fees', 'manage_fees', 'restructure_fees', 'record_partial_payment',
-        'issue_fee_notice', 'view_fee_reports', 'edit_penalties'
+        'dashboard:read', 'penalties:read_any', 'tasks:read_all', 'reports:read_own',
+        'fees:read_tenant', 'fees:manage', 'fees:restructure', 'fees:partial_payment',
+        'fees:issue_notice', 'fees:view_reports', 'penalties:edit_any'
     ],
 }
 
@@ -80,3 +80,4 @@ def get_permissions_for_role(role_name):
     if not role_name:
         return []
     return ROLE_PERMISSIONS.get(role_name.upper(), [])
+

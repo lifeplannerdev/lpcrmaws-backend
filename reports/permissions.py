@@ -13,10 +13,11 @@ class IsReportReviewer(BasePermission):
     def has_permission(self, request, view):
         return (
             request.user.is_authenticated and
-            'view_staff_reports' in request.user.permissions
+            'reports:read_all' in request.user.permissions
         )
 
 
 class IsReportOwner(BasePermission):
     def has_object_permission(self, request, view, obj):
         return obj.user == request.user
+

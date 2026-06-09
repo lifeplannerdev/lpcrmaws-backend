@@ -36,7 +36,7 @@ def _finance_recipients(company=None):
     qs = User.objects.filter(is_active=True)
     if company:
         qs = qs.filter(company=company)
-    return [user for user in qs if 'manage_fees' in (user.permissions or [])]
+    return [user for user in qs if 'fees:manage' in (user.permissions or [])]
 
 
 def _perm_list(user):
@@ -45,7 +45,7 @@ def _perm_list(user):
 
 def _can_view_fee_account(user, account):
     perms = _perm_list(user)
-    if 'view_fees' in perms or 'view_fee_reports' in perms or 'manage_fees' in perms:
+    if 'fees:read_tenant' in perms or 'fees:view_reports' in perms or 'fees:manage' in perms:
         return True
     return hasattr(user, 'trainer_profile') and account.student.trainer_id == user.trainer_profile.id
 
@@ -100,7 +100,7 @@ class FeeAccountListCreateAPIView(APIView):
         plan_type = request.GET.get('plan_type')
         branch_id = request.GET.get('branch_id')
 
-        if hasattr(request.user, 'trainer_profile') and 'view_fees' not in _perm_list(request.user) and 'manage_fees' not in _perm_list(request.user) and 'view_fee_reports' not in _perm_list(request.user):
+        if hasattr(request.user, 'trainer_profile') and 'fees:read_tenant' not in _perm_list(request.user) and 'fees:manage' not in _perm_list(request.user) and 'fees:view_reports' not in _perm_list(request.user):
             qs = qs.filter(student__trainer=request.user.trainer_profile)
 
         if company:
@@ -167,7 +167,7 @@ class FeeAccountDetailAPIView(APIView):
         return Response(StudentFeeAccountSerializer(account).data)
 
     def patch(self, request, pk):
-        if 'manage_fees' not in _perm_list(request.user):
+        if 'fees:manage' not in _perm_list(request.user):
             return Response({'detail': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
         account = self.get_object(request, pk)
         if not account:
@@ -206,7 +206,7 @@ class FeePaymentListCreateAPIView(APIView):
         return Response(FeePaymentSerializer(account.payments.all(), many=True).data)
 
     def post(self, request, account_pk):
-        if 'manage_fees' not in _perm_list(request.user) and 'record_partial_payment' not in _perm_list(request.user):
+        if 'fees:manage' not in _perm_list(request.user) and 'fees:partial_payment' not in _perm_list(request.user):
             return Response({'detail': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
 
         account = get_object_or_404(StudentFeeAccount, pk=account_pk)
@@ -341,7 +341,7 @@ class FeeSummaryAPIView(APIView):
         company = request.GET.get('company')
         if company:
             qs = qs.filter(company=company)
-        if hasattr(request.user, 'trainer_profile') and 'view_fee_reports' not in _perm_list(request.user) and 'manage_fees' not in _perm_list(request.user):
+        if hasattr(request.user, 'trainer_profile') and 'fees:view_reports' not in _perm_list(request.user) and 'fees:manage' not in _perm_list(request.user):
             qs = qs.filter(student__trainer=request.user.trainer_profile)
 
         student_id = request.GET.get('student')
@@ -433,7 +433,7 @@ class FeeStudentsAPIView(APIView):
 
     def get(self, request):
         qs = Student.objects.exclude(status__in=['COMPLETED', 'DROPPED']).select_related('branch')
-        if hasattr(request.user, 'trainer_profile') and 'view_fees' not in _perm_list(request.user) and 'manage_fees' not in _perm_list(request.user) and 'view_fee_reports' not in _perm_list(request.user):
+        if hasattr(request.user, 'trainer_profile') and 'fees:read_tenant' not in _perm_list(request.user) and 'fees:manage' not in _perm_list(request.user) and 'fees:view_reports' not in _perm_list(request.user):
             qs = qs.filter(trainer=request.user.trainer_profile)
 
         search = request.GET.get('search')
@@ -449,3 +449,4 @@ class FeeStudentsAPIView(APIView):
                 'phone': s.phone_number,
             })
         return Response(data)
+

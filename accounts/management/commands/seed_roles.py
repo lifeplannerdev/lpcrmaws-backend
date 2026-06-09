@@ -6,52 +6,7 @@ from accounts.services import PermissionService
 
 User = get_user_model()
 
-def get_legacy_permissions(role):
-    permissions = {
-        "profile": ["read", "edit_own"],
-        "dashboard": ["read"],
-    }
-    if role in ['ADMIN', 'CEO']:
-        permissions.update({
-            "leads": ["read", "create", "edit_any", "delete_any"],
-            "staff": ["read", "create", "edit_any", "delete_any"],
-            "attendance": ["read_any", "create_any", "edit_any"],
-            "penalties": ["read_any", "create", "edit_any", "delete_any"],
-            "assets": ["read_any", "create", "edit_any", "delete_any"],
-            "candidates": ["read_any", "create", "edit_any", "delete_any"],
-        })
-    elif role in ['ADM_MANAGER', 'OPS', 'CM', 'BUSINESS_HEAD']:
-        permissions.update({
-            "leads": ["read_tenant", "create", "edit_tenant", "delete_tenant"],
-            "staff": ["read_tenant", "edit_tenant"],
-            "attendance": ["read_tenant", "create"],
-            "penalties": ["read_tenant"],
-            "assets": ["read_tenant"],
-        })
-    elif role in ['ADM_COUNSELLOR', 'ADM_EXEC', 'PROCESSING', 'FOE', 'BDM']:
-        permissions.update({
-            "leads": ["read_own", "create", "edit_own"],
-            "staff": ["read_own"],
-            "attendance": ["read_own", "create_own"],
-            "penalties": ["read_own"],
-            "assets": ["read_own"],
-        })
-    elif role == 'HR':
-        permissions.update({
-            "leads": ["read_tenant"],
-            "staff": ["read_tenant", "create", "edit_tenant", "delete_tenant"],
-            "attendance": ["read_tenant", "create", "edit_tenant"],
-            "penalties": ["read_tenant", "create", "edit_tenant", "delete_tenant"],
-            "assets": ["read_tenant", "create", "edit_tenant", "delete_tenant"],
-            "candidates": ["read_tenant", "create", "edit_tenant", "delete_tenant"],
-        })
-    else:
-        permissions.update({
-            "leads": ["read_own"],
-            "staff": ["read_own"],
-            "attendance": ["read_own", "create_own"],
-        })
-    return permissions
+
 
 class Command(BaseCommand):
     help = 'Seeds the database with dynamic roles and permissions'
@@ -80,19 +35,12 @@ class Command(BaseCommand):
         for role_name, backend_perms in ROLE_PERMISSIONS.items():
             role_obj, _ = Role.objects.get_or_create(name=role_name)
             
-            # Combine backend string permissions (view_leads) with scope permissions (leads:read_all)
-            payload = get_legacy_permissions(role_name)
+            # ROLE_PERMISSIONS already contains full resource:action strings
             
-            # Convert payload to strings like "leads:read", "leads:create"
-            frontend_perms = []
-            for resource, actions in payload.items():
-                for action in actions:
-                    frontend_perms.append(f"{resource}:{action}")
-
-            # Also ensure dashboard:read and profile:read are included explicitly if not there
-            frontend_perms.extend(["profile:read", "profile:edit_own", "dashboard:read"])
-
-            all_perms = set(backend_perms + frontend_perms)
+            all_perms = set(backend_perms)
+            
+            # Ensure basic permissions are present
+            all_perms.update(["profile:read", "profile:edit_own", "dashboard:read"])
             
             role_obj.permissions.clear()
             for perm_name in all_perms:
@@ -103,15 +51,6 @@ class Command(BaseCommand):
                 
             self.stdout.write(f"Seeded role {role_name} with {len(all_perms)} permissions")
 
-        # 4. Map existing users to their DB role based on user.role string
-        users = User.objects.exclude(username='admin')
-        for user in users:
-            if user.role:
-                try:
-                    r = Role.objects.get(name=user.role.upper())
-                    user.db_roles.add(r)
-                except Role.DoesNotExist:
-                    pass
-        self.stdout.write(self.style.SUCCESS("Mapped existing users to their DB roles"))
+
 
         self.stdout.write(self.style.SUCCESS('Successfully seeded roles and permissions'))

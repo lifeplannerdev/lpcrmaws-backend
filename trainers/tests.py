@@ -43,7 +43,7 @@ class StudentAccessTests(APITestCase):
             password='pass12345',
             role='HR',
             company='FLAG',
-            permissions=['view_students'],
+            permissions=['students:read_tenant'],
         )
 
         self.own_student = Student.objects.create(
@@ -101,7 +101,7 @@ class StudentEnrollmentFeeSyncTests(APITestCase):
             password='pass12345',
             role='TRAINER',
             company='FLAG',
-            permissions=['edit_students', 'view_students', 'view_fees'],
+            permissions=['students:edit_any', 'students:read_tenant', 'fees:read_tenant'],
         )
         self.trainer = self.enroller.trainer_profile
         self.trainer.branch = self.branch
@@ -148,3 +148,4 @@ class StudentEnrollmentFeeSyncTests(APITestCase):
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.data['fee_setup_status'], 'PENDING_FEE_SETUP')
         self.assertIsNone(response.data['fee_summary'])
+

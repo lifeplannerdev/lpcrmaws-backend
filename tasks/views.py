@@ -42,10 +42,10 @@ def _task_queryset_for_user(user, base_qs=None):
 
     user_perms = getattr(user, 'permissions', []) or []
 
-    if 'view_all_tasks' in user_perms or user.db_roles.filter(name__in=TOP_MANAGEMENT).exists():
+    if 'tasks:read_all' in user_perms or user.db_roles.filter(name__in=TOP_MANAGEMENT).exists():
         return base_qs
 
-    if 'edit_tasks' in user_perms or user.db_roles.filter(name__in=OPERATIONS).exists():
+    if 'tasks:edit_any' in user_perms or user.db_roles.filter(name__in=OPERATIONS).exists():
         return base_qs.filter(
             Q(assigned_to=user) | Q(assigned_by=user)
         ).distinct()
@@ -237,7 +237,7 @@ class TaskDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
         user = self.request.user
         user_perms = getattr(user, 'permissions', []) or []
         
-        if 'edit_tasks' in user_perms or user.db_roles.filter(name__in=TOP_MANAGEMENT).exists():
+        if 'tasks:edit_any' in user_perms or user.db_roles.filter(name__in=TOP_MANAGEMENT).exists():
             return
             
         if user.db_roles.filter(name__in=OPERATIONS).exists() and task.assigned_by == user:

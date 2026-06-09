@@ -142,7 +142,7 @@ class StudentSerializer(serializers.ModelSerializer):
 
         recipients = [
             user for user in User.objects.filter(is_active=True, company=student.company)
-            if 'manage_fees' in (user.permissions or [])
+            if 'fees:manage' in (user.permissions or [])
         ]
         trainer_user = getattr(getattr(student, 'trainer', None), 'user', None)
         if trainer_user and trainer_user.is_active:
@@ -236,3 +236,4 @@ class ExamResultSerializer(serializers.ModelSerializer):
     class Meta:
         model = ExamResult
         fields = ['id', 'student', 'student_name', 'academic_batch', 'academic_batch_name', 'exam_type', 'score', 'remarks', 'recorded_at']
+
