@@ -1,3 +1,4 @@
+from accounts.permissions import has_dynamic_permission
 from rest_framework import filters
 from rest_framework.exceptions import PermissionDenied
 

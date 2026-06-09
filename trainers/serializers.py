@@ -1,3 +1,4 @@
+from accounts.permissions import has_dynamic_permission
 from rest_framework import serializers
 from .models import Trainer, Student, Attendance, AcademicBatch, Branch, ExamResult
 from django.contrib.auth import get_user_model

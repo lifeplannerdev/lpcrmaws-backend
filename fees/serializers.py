@@ -1,3 +1,4 @@
+from accounts.permissions import has_dynamic_permission
 from decimal import Decimal
 
 from django.db import transaction
