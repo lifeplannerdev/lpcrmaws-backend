@@ -18,6 +18,7 @@ def get_legacy_permissions(role):
             "attendance": ["read_any", "create_any", "edit_any"],
             "penalties": ["read_any", "create", "edit_any", "delete_any"],
             "assets": ["read_any", "create", "edit_any", "delete_any"],
+            "candidates": ["read_any", "create", "edit_any", "delete_any"],
         })
     elif role in ['ADM_MANAGER', 'OPS', 'CM', 'BUSINESS_HEAD']:
         permissions.update({
@@ -42,6 +43,7 @@ def get_legacy_permissions(role):
             "attendance": ["read_tenant", "create", "edit_tenant"],
             "penalties": ["read_tenant", "create", "edit_tenant", "delete_tenant"],
             "assets": ["read_tenant", "create", "edit_tenant", "delete_tenant"],
+            "candidates": ["read_tenant", "create", "edit_tenant", "delete_tenant"],
         })
     else:
         permissions.update({

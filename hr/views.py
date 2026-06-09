@@ -10,7 +10,13 @@ from .serializers import (
     CandidateSerializer,
     AssetSerializer
 )
-from .permissions import IsHR, IsHROrAccountsOrAdmin, HasAssetPermission
+from .permissions import (
+    HasPenaltyPermission,
+    HasStaffPermission,
+    HasAttendancePermission,
+    HasCandidatePermission,
+    HasAssetPermission
+)
 
 User = get_user_model()
 
@@ -18,7 +24,7 @@ User = get_user_model()
 # PENALTY APIs 
 
 class PenaltyListCreateAPI(APIView):
-    permission_classes = [IsHROrAccountsOrAdmin]
+    permission_classes = [HasPenaltyPermission]
     
     def get(self, request):
         penalties = Penalty.objects.all()
@@ -59,7 +65,7 @@ class PenaltyListCreateAPI(APIView):
 
 
 class PenaltyDetailAPI(APIView):
-    permission_classes = [IsHROrAccountsOrAdmin]
+    permission_classes = [HasPenaltyPermission]
     
     def get(self, request, pk):
         try:
@@ -107,7 +113,7 @@ class PenaltyDetailAPI(APIView):
 # ATTENDANCE APIs 
 class AttendanceDocumentAPI(APIView):
 
-    permission_classes = [IsHR]
+    permission_classes = [HasAttendancePermission]
     
     def get(self, request):
         docs = AttendanceDocument.objects.all()
@@ -135,7 +141,7 @@ class AttendanceDocumentAPI(APIView):
 
 
 class AttendanceDocumentDeleteAPI(APIView):
-    permission_classes = [IsHR] 
+    permission_classes = [HasAttendancePermission] 
     def get(self, request, pk):
         try:
             doc = AttendanceDocument.objects.get(pk=pk)
@@ -166,7 +172,7 @@ class AttendanceDocumentDeleteAPI(APIView):
 
 # STAFF/EMPLOYEE APIs
 class StaffListAPI(APIView):
-    permission_classes = [IsHROrAccountsOrAdmin]
+    permission_classes = [HasStaffPermission]
     
     def get(self, request):
         users = User.objects.all()
@@ -202,7 +208,7 @@ class StaffListAPI(APIView):
 
 
 class StaffDetailAPI(APIView):
-    permission_classes = [IsHROrAccountsOrAdmin]
+    permission_classes = [HasStaffPermission]
     
     def get(self, request, pk):
         try:
@@ -218,7 +224,7 @@ class StaffDetailAPI(APIView):
 
 
 class CandidateListCreateAPI(APIView):
-    permission_classes = [IsHROrAccountsOrAdmin]
+    permission_classes = [HasCandidatePermission]
 
     def get(self, request):
         status_filter = request.GET.get("status")
@@ -246,7 +252,7 @@ class CandidateListCreateAPI(APIView):
 
 
 class CandidateDetailAPI(APIView):
-    permission_classes = [IsHROrAccountsOrAdmin]
+    permission_classes = [HasCandidatePermission]
 
     def get(self, request, pk):
         try:
