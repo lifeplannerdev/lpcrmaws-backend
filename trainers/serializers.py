@@ -142,7 +142,7 @@ class StudentSerializer(serializers.ModelSerializer):
 
         recipients = [
             user for user in User.objects.filter(is_active=True, company=student.company)
-            if 'fees:manage' in (user.permissions or [])
+            if has_dynamic_permission(user, 'fees:manage')
         ]
         trainer_user = getattr(getattr(student, 'trainer', None), 'user', None)
         if trainer_user and trainer_user.is_active:

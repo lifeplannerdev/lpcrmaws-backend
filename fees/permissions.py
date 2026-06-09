@@ -2,7 +2,7 @@ from rest_framework.permissions import BasePermission
 
 
 def _has_perm(user, perm):
-    return user.is_authenticated and perm in (user.permissions or [])
+    return user.is_authenticated and has_dynamic_permission(user, perm)
 
 
 class CanViewFees(BasePermission):

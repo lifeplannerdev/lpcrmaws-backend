@@ -25,7 +25,7 @@ User = get_user_model()
 
 
 def _has_perm(user, perm):
-    return user.is_authenticated and perm in (user.permissions or [])
+    return user.is_authenticated and has_dynamic_permission(user, perm)
 
 
 class StandardResultsSetPagination(PageNumberPagination):

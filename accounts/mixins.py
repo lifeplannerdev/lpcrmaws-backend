@@ -19,7 +19,7 @@ class CompanyFilterMixin:
             # Check if user is trying to access another company's data
             if requested_company != user.company:
                 # The only allowed cross-company access is LP users accessing FLAG data
-                if requested_company == 'FLAG' and 'staff:access_flag' in user.permissions:
+                if requested_company == 'FLAG' and has_dynamic_permission(user, 'staff:access_flag'):
                     pass  # Access granted
                 else:
                     raise PermissionDenied(f"You do not have permission to access {requested_company} data.")

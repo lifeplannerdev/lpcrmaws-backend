@@ -37,7 +37,7 @@ class CanAccessLeads(BasePermission):
     def has_permission(self, request, view):
         return (
             request.user.is_authenticated and
-            'leads:read_tenant' in request.user.permissions
+            has_dynamic_permission(request.user, 'leads:read_tenant')
         )
 
 
@@ -46,7 +46,7 @@ class CanAssignLeads(BasePermission):
         user = request.user
         return (
             user.is_authenticated and
-            'leads:read_tenant' in user.permissions
+            has_dynamic_permission(user, 'leads:read_tenant')
         )
 
 
@@ -54,7 +54,7 @@ class CanViewAllLeads(BasePermission):
     def has_permission(self, request, view):
         return (
             request.user.is_authenticated and
-            'leads:read_tenant' in request.user.permissions
+            has_dynamic_permission(request.user, 'leads:read_tenant')
         )
 
 
@@ -62,7 +62,7 @@ class CanModifyAllLeads(BasePermission):
     def has_permission(self, request, view):
         return (
             request.user.is_authenticated and
-            'staff:read_tenant' in request.user.permissions
+            has_dynamic_permission(request.user, 'staff:read_tenant')
         )
 
 
@@ -70,5 +70,5 @@ class CanManageConversion(BasePermission):
     def has_permission(self, request, view):
         return (
             request.user.is_authenticated and
-            'leads:read_tenant' in request.user.permissions
+            has_dynamic_permission(request.user, 'leads:read_tenant')
         )
