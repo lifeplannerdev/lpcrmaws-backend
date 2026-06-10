@@ -44,6 +44,7 @@ class User(AbstractUser):
 
     team = models.CharField(max_length=50, blank=True)
     is_active = models.BooleanField(default=True)
+    is_on_leave = models.BooleanField(default=False)
     phone = models.CharField(max_length=20, blank=True, null=True)
     personal_phone = models.CharField(max_length=20, blank=True, null=True)
     office_phone = models.CharField(max_length=20, blank=True, null=True)

@@ -200,10 +200,12 @@ class StaffListView(generics.ListAPIView):
         if status_param == 'inactive':
             queryset = queryset.filter(is_active=False)
         elif status_param == 'active':
-            queryset = queryset.filter(is_active=True)
+            queryset = queryset.filter(is_active=True, is_on_leave=False)
+        elif status_param == 'on_leave':
+            queryset = queryset.filter(is_on_leave=True)
         # default or 'all' might not filter by is_active at all, but for now we default to active if not specified
         elif not status_param:
-            queryset = queryset.filter(is_active=True)
+            queryset = queryset.filter(is_active=True, is_on_leave=False)
 
         team = self.request.query_params.get('team')
         if team and team != "all":

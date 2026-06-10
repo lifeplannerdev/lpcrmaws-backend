@@ -7,9 +7,14 @@ def has_dynamic_permission(user, perm_name):
     if user.is_superuser:
         return True
     if not hasattr(user, '_dynamic_perms_cache'):
-        user._dynamic_perms_cache = set(
+        # Get permissions from db_roles
+        db_perms = set(
             AppPermission.objects.filter(roles__users=user).values_list('name', flat=True)
         )
+        # Get user-specific JSON permissions
+        user_specific_perms = set(user.permissions) if isinstance(user.permissions, list) else set()
+        user._dynamic_perms_cache = db_perms.union(user_specific_perms)
+        
     return perm_name in user._dynamic_perms_cache
 
 

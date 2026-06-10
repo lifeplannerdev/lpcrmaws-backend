@@ -70,6 +70,8 @@ class LeadListView(generics.ListAPIView):
         'assigned_to':       ['exact', 'isnull'],
         'sub_assigned_to':   ['exact'],
         'campaign_name':     ['exact', 'icontains'],
+        'adset_name':        ['exact', 'icontains'],
+        'ad_name':           ['exact', 'icontains'],
         'created_at':        ['date', 'gte', 'lte'],
     }
     search_fields   = ['name', 'phone', 'email', 'program', 'campaign_name']

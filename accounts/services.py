@@ -30,6 +30,15 @@ class PermissionService:
                         permissions_dict[resource] = set()
                     permissions_dict[resource].add(action)
 
+        # Include user-specific JSON permissions
+        user_specific_perms = user.permissions if isinstance(user.permissions, list) else []
+        for perm in user_specific_perms:
+            if isinstance(perm, str) and ':' in perm:
+                resource, action = perm.split(':', 1)
+                if resource not in permissions_dict:
+                    permissions_dict[resource] = set()
+                permissions_dict[resource].add(action)
+
         # Convert sets to lists
         for resource in permissions_dict:
             permissions_dict[resource] = list(permissions_dict[resource])

@@ -47,6 +47,7 @@ class StaffListSerializer(serializers.ModelSerializer):
             'office_phone',
             'location', 
             'is_active',
+            'is_on_leave',
             'team',
             'salary',
             'join_date',
@@ -91,7 +92,8 @@ class StaffDetailSerializer(serializers.ModelSerializer):
             'permissions',
             'assets',
             'db_roles',
-            'role_names'
+            'role_names',
+            'is_on_leave'
         ]
         read_only_fields = ['date_joined', 'last_login']
 
@@ -134,7 +136,8 @@ class StaffCreateSerializer(serializers.ModelSerializer):
             'location',
             'salary',
             'join_date',
-            'db_roles'
+            'db_roles',
+            'is_on_leave'
         ]
     
     def create(self, validated_data):
@@ -169,7 +172,8 @@ class StaffUpdateSerializer(serializers.ModelSerializer):
             'salary',
             'join_date',
             'permissions',
-            'db_roles'
+            'db_roles',
+            'is_on_leave'
         ]
 
 
