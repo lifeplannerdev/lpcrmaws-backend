@@ -19,6 +19,7 @@ from .serializers import (
 )
 from django.contrib.auth import get_user_model
 from accounts.filters import CompanyFilterBackend
+from accounts.permissions import has_dynamic_permission
 from .permissions import (
     IsTaskAssigner,
     TASK_ASSIGNERS,
@@ -40,12 +41,10 @@ def _task_queryset_for_user(user, base_qs=None):
     if base_qs is None:
         base_qs = Task.objects.select_related("assigned_to", "assigned_by")
 
-    user_perms = getattr(user, 'permissions', []) or []
-
-    if 'tasks:read_all' in user_perms or user.db_roles.filter(name__in=TOP_MANAGEMENT).exists():
+    if has_dynamic_permission(user, 'tasks:read_all') or user.db_roles.filter(name__in=TOP_MANAGEMENT).exists():
         return base_qs
 
-    if 'tasks:edit_any' in user_perms or user.db_roles.filter(name__in=OPERATIONS).exists():
+    if has_dynamic_permission(user, 'tasks:edit_any') or user.db_roles.filter(name__in=OPERATIONS).exists():
         return base_qs.filter(
             Q(assigned_to=user) | Q(assigned_by=user)
         ).distinct()
@@ -235,9 +234,8 @@ class TaskDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
 
     def _check_edit_permission(self, task):
         user = self.request.user
-        user_perms = getattr(user, 'permissions', []) or []
         
-        if 'tasks:edit_any' in user_perms or user.db_roles.filter(name__in=TOP_MANAGEMENT).exists():
+        if has_dynamic_permission(user, 'tasks:edit_any') or user.db_roles.filter(name__in=TOP_MANAGEMENT).exists():
             return
             
         if user.db_roles.filter(name__in=OPERATIONS).exists() and task.assigned_by == user:
