@@ -3,6 +3,7 @@ from django.db import models
 from django.utils import timezone
 import urllib.parse
 from datetime import time
+from cloudinary.models import CloudinaryField
 
 User = get_user_model()
 
@@ -150,8 +151,8 @@ class DailyReportAttachment(models.Model):
         on_delete=models.CASCADE,
         related_name='attachments'
     )
-    attached_file = models.FileField(
-        upload_to='daily_reports/attachments/',
+    attached_file = CloudinaryField(
+        'attached_file',
         null=True, blank=True
     )
     original_filename = models.CharField(max_length=255, null=True, blank=True)
