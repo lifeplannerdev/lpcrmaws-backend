@@ -56,6 +56,13 @@ class AcademicBatch(models.Model):
     admission_date = models.DateField(blank=True, null=True)
     model_exam_date = models.DateField(blank=True, null=True)
     final_exam_date = models.DateField(blank=True, null=True)
+    default_fee_template = models.ForeignKey(
+        'fees.FeePlanTemplate',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='academic_batches'
+    )
 
     class Meta:
         ordering = ['-academic_year', 'name']

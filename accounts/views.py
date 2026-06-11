@@ -5,9 +5,10 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework import generics, filters, status
 from rest_framework.pagination import PageNumberPagination
-from .permissions import IsManagement, IsSuperAdmin
+from .permissions import IsManagement, IsSuperAdmin, has_dynamic_permission
 from leads.models import Lead
 from trainers.models import Student
+from hr.models import Candidate
 from .models import User, ActivityLog
 from rest_framework.exceptions import PermissionDenied
 from django_filters.rest_framework import DjangoFilterBackend
@@ -37,14 +38,24 @@ class DashboardStatsAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        if not request.user.db_roles.filter(name="ADMIN").exists():
+        user = request.user
+        is_admin = user.db_roles.filter(name="ADMIN").exists()
+        data = {}
+
+        if is_admin or has_dynamic_permission(user, 'leads:read_tenant'):
+            data["total_leads"] = Lead.objects.count()
+
+        if is_admin or has_dynamic_permission(user, 'staff:read_tenant'):
+            data["active_staff"] = User.objects.filter(is_active=True).count()
+            data["staff_on_leave"] = User.objects.filter(is_on_leave=True).count()
+            data["pending_candidates"] = Candidate.objects.filter(status='applied').count()
+
+        if is_admin or has_dynamic_permission(user, 'students:read_tenant'):
+            data["total_students"] = Student.objects.count()
+
+        if not data:
             raise PermissionDenied("You are not allowed to view dashboard stats")
 
-        data = {
-            "total_leads": Lead.objects.count(),
-            "active_staff": User.objects.filter(is_active=True).count(),
-            "total_students": Student.objects.count(),
-        }
         return Response(data)
 
 

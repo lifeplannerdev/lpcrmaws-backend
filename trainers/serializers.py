@@ -29,7 +29,7 @@ class TrainerSerializer(serializers.ModelSerializer):
 class AcademicBatchSerializer(serializers.ModelSerializer):
     class Meta:
         model = AcademicBatch
-        fields = ['id', 'name', 'academic_year', 'grade', 'admission_date', 'model_exam_date', 'final_exam_date']
+        fields = ['id', 'name', 'academic_year', 'grade', 'admission_date', 'model_exam_date', 'final_exam_date', 'default_fee_template']
 
 # Student Serializer
 class StudentSerializer(serializers.ModelSerializer):
@@ -176,6 +176,19 @@ class StudentSerializer(serializers.ModelSerializer):
             template = self._resolve_fee_template(student, fee_template_id)
             if template:
                 self._create_fee_account_from_template(student, template, request.user if request else None)
+            else:
+                recipients = [
+                    user for user in User.objects.filter(is_active=True, company=student.company)
+                    if has_dynamic_permission(user, 'fees:manage')
+                ]
+                by = request.user.get_full_name() or request.user.username if request and hasattr(request, 'user') else 'System'
+                for user in recipients:
+                    Notification.objects.create(
+                        user=user,
+                        type='fee',
+                        message=f"Action Required: Student {student.name} enrolled without a fee plan.",
+                        by=by,
+                    )
 
         return student
 
