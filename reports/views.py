@@ -9,6 +9,7 @@ from .permissions import REPORT_REVIEWERS, IsReportReviewer, IsReportOwner
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404
+from accounts.permissions import has_dynamic_permission
 from django.http import JsonResponse, StreamingHttpResponse, HttpResponse
 from django.db.models import Case, When, Value, IntegerField
 import urllib.parse
@@ -311,7 +312,7 @@ class DailyReportDetailView(APIView):
 
         if (
             report.user != request.user
-            and not request.user.db_roles.filter(name__in=REPORT_REVIEWERS).exists()
+            and not (has_dynamic_permission(request.user, 'reports:read_all') or request.user.db_roles.filter(name__in=REPORT_REVIEWERS).exists())
         ):
             return Response({"error": "Permission denied"}, status=403)
 
@@ -331,7 +332,7 @@ class ViewReportFileView(APIView):
 
         if (
             report.user != request.user
-            and not request.user.db_roles.filter(name__in=REPORT_REVIEWERS).exists()
+            and not (has_dynamic_permission(request.user, 'reports:read_all') or request.user.db_roles.filter(name__in=REPORT_REVIEWERS).exists())
         ):
             return Response({"error": "Permission denied"}, status=403)
 
@@ -379,7 +380,7 @@ class DownloadAttachmentView(APIView):
         )
 
         is_owner    = attachment.report.user == request.user
-        is_reviewer = request.user.db_roles.filter(name__in=REPORT_REVIEWERS).exists()
+        is_reviewer = has_dynamic_permission(request.user, 'reports:read_all') or request.user.db_roles.filter(name__in=REPORT_REVIEWERS).exists()
         if not (is_owner or is_reviewer):
             return Response({"error": "Permission denied"}, status=403)
 
@@ -387,6 +388,8 @@ class DownloadAttachmentView(APIView):
             return Response({"error": "No file found"}, status=404)
 
         file_url = attachment.attached_file.url
+        if file_url.startswith('/'):
+            file_url = request.build_absolute_uri(file_url)
 
         original_filename = attachment.original_filename or "download"
 
