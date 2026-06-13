@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Penalty, AttendanceDocument, Candidate, Asset, Location, AssetCategory
+from .models import Penalty, AttendanceDocument, Candidate, Asset, Location, AssetCategory, Branch
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
@@ -23,7 +23,14 @@ class UserMinimalSerializer(serializers.ModelSerializer):
             return obj.first_name
         return obj.username
 
+class BranchSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Branch
+        fields = '__all__'
+
 class LocationSerializer(serializers.ModelSerializer):
+    branch_details = BranchSerializer(source='branch', read_only=True)
+
     class Meta:
         model = Location
         fields = '__all__'

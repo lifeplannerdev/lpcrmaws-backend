@@ -94,6 +94,23 @@ class Candidate(models.Model):
         return f"{self.name} - {self.position_applied} ({self.status})"
 
 
+class Branch(models.Model):
+    COMPANY_CHOICES = [
+        ('LP', 'LP'),
+        ('FLAG', 'FLAG'),
+    ]
+    name = models.CharField(max_length=255)
+    company = models.CharField(max_length=10, choices=COMPANY_CHOICES, default='LP', db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['name']
+        verbose_name_plural = 'Branches'
+
+    def __str__(self):
+        return f"{self.name} - {self.company}"
+
+
 class Location(models.Model):
     COMPANY_CHOICES = [
         ('LP', 'LP'),
@@ -101,6 +118,7 @@ class Location(models.Model):
     ]
     name = models.CharField(max_length=255)
     company = models.CharField(max_length=10, choices=COMPANY_CHOICES, default='LP', db_index=True)
+    branch = models.ForeignKey(Branch, on_delete=models.SET_NULL, null=True, blank=True, related_name='locations')
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

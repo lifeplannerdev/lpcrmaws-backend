@@ -13,7 +13,8 @@ from .serializers import (
     CandidateSerializer,
     AssetSerializer,
     LocationSerializer,
-    AssetCategorySerializer
+    AssetCategorySerializer,
+    BranchSerializer
 )
 from .permissions import (
     HasPenaltyPermission,
@@ -22,6 +23,19 @@ from .permissions import (
     HasCandidatePermission,
     HasAssetPermission
 )
+from .models import Branch
+
+class BranchViewSet(viewsets.ModelViewSet):
+    queryset = Branch.objects.all()
+    serializer_class = BranchSerializer
+    permission_classes = [HasAssetPermission]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        company = self.request.query_params.get('company')
+        if company:
+            qs = qs.filter(company=company)
+        return qs
 
 class LocationViewSet(viewsets.ModelViewSet):
     queryset = Location.objects.all()
@@ -50,6 +64,7 @@ class LocationViewSet(viewsets.ModelViewSet):
                 "id": loc.id,
                 "name": loc.name,
                 "company": loc.company,
+                "branch_id": loc.branch_id,
                 "asset_counts": category_counts,
                 "total_assets": assets.count()
             })

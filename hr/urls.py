@@ -3,6 +3,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     LocationViewSet,
     AssetCategoryViewSet,
+    BranchViewSet,
     PenaltyListCreateAPI, 
     PenaltyDetailAPI, 
     AttendanceDocumentAPI, 
@@ -18,6 +19,7 @@ from .views import (
 router = DefaultRouter()
 router.register(r'locations', LocationViewSet, basename='location')
 router.register(r'asset-categories', AssetCategoryViewSet, basename='asset-category')
+router.register(r'branches', BranchViewSet, basename='branch')
 
 urlpatterns = [
     path("", include(router.urls)),
