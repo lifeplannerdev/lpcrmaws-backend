@@ -1,5 +1,8 @@
-from django.urls import path
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
 from .views import (
+    LocationViewSet,
+    AssetCategoryViewSet,
     PenaltyListCreateAPI, 
     PenaltyDetailAPI, 
     AttendanceDocumentAPI, 
@@ -12,7 +15,12 @@ from .views import (
     AssetDetailAPI,
 )
 
+router = DefaultRouter()
+router.register(r'locations', LocationViewSet, basename='location')
+router.register(r'asset-categories', AssetCategoryViewSet, basename='asset-category')
+
 urlpatterns = [
+    path("", include(router.urls)),
     path("penalties/", PenaltyListCreateAPI.as_view(), name="penalty-list-create"),
     path("penalties/<int:pk>/", PenaltyDetailAPI.as_view(), name="penalty-detail"),
     path("attendance/", AttendanceDocumentAPI.as_view(), name="attendance-list-create"),

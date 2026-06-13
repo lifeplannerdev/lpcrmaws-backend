@@ -94,6 +94,34 @@ class Candidate(models.Model):
         return f"{self.name} - {self.position_applied} ({self.status})"
 
 
+class Location(models.Model):
+    COMPANY_CHOICES = [
+        ('LP', 'LP'),
+        ('FLAG', 'FLAG'),
+    ]
+    name = models.CharField(max_length=255)
+    company = models.CharField(max_length=10, choices=COMPANY_CHOICES, default='LP', db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return f"{self.name} - {self.company}"
+
+
+class AssetCategory(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['name']
+        verbose_name_plural = 'Asset Categories'
+
+    def __str__(self):
+        return self.name
+
+
 class Asset(models.Model):
     STATUS_CHOICES = [
         ('AVAILABLE', 'Available'),
@@ -106,23 +134,18 @@ class Asset(models.Model):
         ('LP', 'LP'),
         ('FLAG', 'FLAG'),
     ]
-    
-    ASSET_TYPE_CHOICES = [
-        ('Mobiles', 'Mobiles'),
-        ('Monitors', 'Monitors'),
-        ('PC', 'PC'),
-        ('Keyboard', 'Keyboard'),
-        ('Mouse', 'Mouse'),
-        ('Laptops', 'Laptops'),
-        ('SIM', 'SIM'),
-    ]
 
     name = models.CharField(max_length=255)
-    asset_type = models.CharField(max_length=100, choices=ASSET_TYPE_CHOICES)
     serial_number = models.CharField(max_length=100, blank=True, null=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='AVAILABLE')
     company = models.CharField(max_length=10, choices=COMPANY_CHOICES, default='LP', db_index=True)
     
+    category = models.ForeignKey(AssetCategory, on_delete=models.SET_NULL, null=True, blank=True, related_name='assets')
+    assigned_location = models.ForeignKey(Location, on_delete=models.SET_NULL, null=True, blank=True, related_name='assets', help_text="Physical location where this asset is placed")
+    
+    primary_phone_number = models.CharField(max_length=20, blank=True, null=True)
+    secondary_phone_number = models.CharField(max_length=20, blank=True, null=True)
+
     parent_asset = models.ForeignKey(
         'self',
         on_delete=models.SET_NULL,

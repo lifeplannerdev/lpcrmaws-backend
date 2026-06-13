@@ -2,13 +2,18 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from django.contrib.auth import get_user_model
-from .models import Penalty, AttendanceDocument, Candidate, Asset
+from rest_framework import viewsets
+from rest_framework.decorators import action
+from django.db.models import Count, Q
+from .models import Penalty, AttendanceDocument, Candidate, Asset, Location, AssetCategory
 from .serializers import (
     PenaltySerializer, 
     AttendanceDocumentSerializer, 
     StaffSerializer,
     CandidateSerializer,
-    AssetSerializer
+    AssetSerializer,
+    LocationSerializer,
+    AssetCategorySerializer
 )
 from .permissions import (
     HasPenaltyPermission,
@@ -17,6 +22,43 @@ from .permissions import (
     HasCandidatePermission,
     HasAssetPermission
 )
+
+class LocationViewSet(viewsets.ModelViewSet):
+    queryset = Location.objects.all()
+    serializer_class = LocationSerializer
+    permission_classes = [HasAssetPermission]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        company = self.request.query_params.get('company')
+        if company:
+            qs = qs.filter(company=company)
+        return qs
+
+    @action(detail=False, methods=['get'])
+    def summary(self, request):
+        qs = self.get_queryset()
+        summary_data = []
+        for loc in qs:
+            assets = loc.assets.all()
+            category_counts = {}
+            for asset in assets:
+                cat_name = asset.category.name if asset.category else 'Uncategorized'
+                category_counts[cat_name] = category_counts.get(cat_name, 0) + 1
+            
+            summary_data.append({
+                "id": loc.id,
+                "name": loc.name,
+                "company": loc.company,
+                "asset_counts": category_counts,
+                "total_assets": assets.count()
+            })
+        return Response(summary_data)
+
+class AssetCategoryViewSet(viewsets.ModelViewSet):
+    queryset = AssetCategory.objects.all()
+    serializer_class = AssetCategorySerializer
+    permission_classes = [HasAssetPermission]
 
 User = get_user_model()
 
@@ -296,6 +338,14 @@ class AssetListCreateAPI(APIView):
         assigned_to = request.GET.get("assigned_to")
         if assigned_to:
             assets = assets.filter(assigned_to_id=assigned_to)
+
+        location_id = request.GET.get("location_id")
+        if location_id:
+            assets = assets.filter(assigned_location_id=location_id)
+
+        category_id = request.GET.get("category_id")
+        if category_id:
+            assets = assets.filter(category_id=category_id)
 
         serializer = AssetSerializer(assets, many=True)
         return Response({
