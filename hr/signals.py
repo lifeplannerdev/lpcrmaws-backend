@@ -124,17 +124,18 @@ def capture_asset_old_state(sender, instance, **kwargs):
 @receiver(post_save, sender=Asset)
 def log_asset_activity(sender, instance, created, **kwargs):
     staff_name = _user_label(instance.assigned_to) if instance.assigned_to else 'None'
+    category_name = instance.category.name if instance.category else 'Uncategorized'
     metadata = {
-        'asset_type': instance.asset_type,
+        'asset_type': category_name,
         'status': instance.status,
         'staff_id': instance.assigned_to.pk if instance.assigned_to else None,
     }
 
     if created:
         action = 'ASSET_ASSIGNED' if instance.assigned_to else 'ASSET_CREATED'
-        desc = f'Asset "{instance.name}" ({instance.asset_type}) created.'
+        desc = f'Asset "{instance.name}" ({category_name}) created.'
         if instance.assigned_to:
-            desc = f'Asset "{instance.name}" ({instance.asset_type}) assigned to {staff_name}.'
+            desc = f'Asset "{instance.name}" ({category_name}) assigned to {staff_name}.'
 
         log_activity(
             action=action,
@@ -189,12 +190,13 @@ def log_asset_activity(sender, instance, created, **kwargs):
 
 @receiver(post_delete, sender=Asset)
 def log_asset_deleted(sender, instance, **kwargs):
+    category_name = instance.category.name if instance.category else 'Uncategorized'
     log_activity(
         action='ASSET_DELETED',
         entity_type='Asset',
         entity_id=instance.pk,
         entity_name=instance.name,
-        description=f'Asset "{instance.name}" ({instance.asset_type}) was deleted.',
+        description=f'Asset "{instance.name}" ({category_name}) was deleted.',
     )
 
 
@@ -204,7 +206,7 @@ def sync_staff_contact_from_asset(sender, instance, **kwargs):
     If a SIM asset is assigned/unassigned, update the user's office_phone.
     We assume the asset 'name' or 'serial_number' holds the phone number.
     """
-    if instance.asset_type == 'SIM':
+    if instance.category and instance.category.name == 'SIM':
         # If assigned, update the staff's office_phone
         if instance.assigned_to:
             user = instance.assigned_to
