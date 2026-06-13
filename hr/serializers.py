@@ -44,6 +44,7 @@ class AssetSerializer(serializers.ModelSerializer):
     assigned_to_details = UserMinimalSerializer(source='assigned_to', read_only=True)
     assigned_location_details = LocationSerializer(source='assigned_location', read_only=True)
     category_details = AssetCategorySerializer(source='category', read_only=True)
+    branch_details = BranchSerializer(source='branch', read_only=True)
     attachment_url = serializers.SerializerMethodField(read_only=True)
     attached_assets = serializers.SerializerMethodField(read_only=True)
 
@@ -53,7 +54,7 @@ class AssetSerializer(serializers.ModelSerializer):
             'id', 'name', 'category', 'category_details', 'serial_number', 'status', 'company',
             'parent_asset', 'attached_assets', 'primary_phone_number', 'secondary_phone_number',
             'assigned_to', 'assigned_to_details', 'assigned_location', 'assigned_location_details',
-            'attachment', 'attachment_url', 'purchase_date', 'notes', 'created_at', 'updated_at'
+            'branch', 'branch_details', 'attachment', 'attachment_url', 'purchase_date', 'notes', 'created_at', 'updated_at'
         ]
 
     def get_attachment_url(self, obj):

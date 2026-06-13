@@ -19,7 +19,7 @@ from .views import (
 router = DefaultRouter()
 router.register(r'locations', LocationViewSet, basename='location')
 router.register(r'asset-categories', AssetCategoryViewSet, basename='asset-category')
-router.register(r'branches', BranchViewSet, basename='branch')
+router.register(r'hr-branches', BranchViewSet, basename='hr-branch')
 
 urlpatterns = [
     path("", include(router.urls)),

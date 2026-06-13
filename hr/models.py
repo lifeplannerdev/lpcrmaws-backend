@@ -160,6 +160,7 @@ class Asset(models.Model):
     
     category = models.ForeignKey(AssetCategory, on_delete=models.SET_NULL, null=True, blank=True, related_name='assets')
     assigned_location = models.ForeignKey(Location, on_delete=models.SET_NULL, null=True, blank=True, related_name='assets', help_text="Physical location where this asset is placed")
+    branch = models.ForeignKey(Branch, on_delete=models.SET_NULL, null=True, blank=True, related_name='assets', help_text="Branch this asset belongs to")
     
     primary_phone_number = models.CharField(max_length=20, blank=True, null=True)
     secondary_phone_number = models.CharField(max_length=20, blank=True, null=True)
