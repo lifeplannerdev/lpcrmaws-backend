@@ -346,10 +346,6 @@ class AssetListCreateAPI(APIView):
         if company:
             assets = assets.filter(company=company)
             
-        status_filter = request.GET.get("status")
-        if status_filter:
-            assets = assets.filter(status=status_filter)
-            
         assigned_to = request.GET.get("assigned_to")
         if assigned_to:
             assets = assets.filter(assigned_to_id=assigned_to)
@@ -361,6 +357,16 @@ class AssetListCreateAPI(APIView):
         category_id = request.GET.get("category_id")
         if category_id:
             assets = assets.filter(category_id=category_id)
+
+        search = request.GET.get("search")
+        if search:
+            assets = assets.filter(
+                Q(name__icontains=search) |
+                Q(serial_number__icontains=search) |
+                Q(primary_sim__name__icontains=search) |
+                Q(secondary_sim__name__icontains=search) |
+                Q(provider__icontains=search)
+            )
 
         serializer = AssetSerializer(assets, many=True)
         return Response({

@@ -30,10 +30,29 @@ class BranchSerializer(serializers.ModelSerializer):
 
 class LocationSerializer(serializers.ModelSerializer):
     branch_details = BranchSerializer(source='branch', read_only=True)
+    assigned_staff = serializers.SerializerMethodField(read_only=True)
+    assigned_assets = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Location
         fields = '__all__'
+
+    def get_assigned_staff(self, obj):
+        users = User.objects.filter(location=obj.name, company=obj.company)
+        return UserMinimalSerializer(users, many=True).data
+        
+    def get_assigned_assets(self, obj):
+        assets = obj.assets.all()
+        return [
+            {
+                "id": a.id,
+                "name": a.name,
+                "category": a.category.name if a.category else None,
+                "serial_number": a.serial_number,
+                "provider": a.provider,
+                "assigned_to": a.assigned_to.id if a.assigned_to else None,
+            } for a in assets
+        ]
 
 class AssetCategorySerializer(serializers.ModelSerializer):
     class Meta:
@@ -46,13 +65,14 @@ class AssetSerializer(serializers.ModelSerializer):
     category_details = AssetCategorySerializer(source='category', read_only=True)
     branch_details = BranchSerializer(source='branch', read_only=True)
     attachment_url = serializers.SerializerMethodField(read_only=True)
-    attached_assets = serializers.SerializerMethodField(read_only=True)
+    primary_sim_details = serializers.SerializerMethodField(read_only=True)
+    secondary_sim_details = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Asset
         fields = [
-            'id', 'name', 'category', 'category_details', 'serial_number', 'status', 'company',
-            'parent_asset', 'attached_assets', 'primary_phone_number', 'secondary_phone_number',
+            'id', 'name', 'category', 'category_details', 'serial_number', 'company',
+            'primary_sim', 'primary_sim_details', 'secondary_sim', 'secondary_sim_details', 'provider',
             'assigned_to', 'assigned_to_details', 'assigned_location', 'assigned_location_details',
             'branch', 'branch_details', 'attachment', 'attachment_url', 'purchase_date', 'notes', 'created_at', 'updated_at'
         ]
@@ -62,18 +82,38 @@ class AssetSerializer(serializers.ModelSerializer):
             return obj.attachment.url
         return None
 
-    def get_attached_assets(self, obj):
-        children = obj.attached_assets.all()
-        return [
-            {
-                "id": child.id,
-                "name": child.name,
-                "category": child.category.name if child.category else None,
-                "serial_number": child.serial_number,
-                "status": child.status,
-                "attachment_url": child.attachment.url if child.attachment else None
-            } for child in children
-        ]
+    def get_primary_sim_details(self, obj):
+        if obj.primary_sim:
+            return {
+                "id": obj.primary_sim.id,
+                "name": obj.primary_sim.name,
+                "provider": obj.primary_sim.provider
+            }
+        return None
+
+    def get_secondary_sim_details(self, obj):
+        if obj.secondary_sim:
+            return {
+                "id": obj.secondary_sim.id,
+                "name": obj.secondary_sim.name,
+                "provider": obj.secondary_sim.provider
+            }
+        return None
+
+    def update(self, instance, validated_data):
+        primary_sim = validated_data.get('primary_sim', instance.primary_sim)
+        secondary_sim = validated_data.get('secondary_sim', instance.secondary_sim)
+
+        # SIM swap logic: if this SIM is already primary or secondary on another asset, detach it
+        if primary_sim and primary_sim != instance.primary_sim:
+            Asset.objects.filter(primary_sim=primary_sim).exclude(id=instance.id).update(primary_sim=None)
+            Asset.objects.filter(secondary_sim=primary_sim).exclude(id=instance.id).update(secondary_sim=None)
+            
+        if secondary_sim and secondary_sim != instance.secondary_sim:
+            Asset.objects.filter(primary_sim=secondary_sim).exclude(id=instance.id).update(primary_sim=None)
+            Asset.objects.filter(secondary_sim=secondary_sim).exclude(id=instance.id).update(secondary_sim=None)
+
+        return super().update(instance, validated_data)
 
 class PenaltySerializer(serializers.ModelSerializer):
     user_name = serializers.SerializerMethodField(read_only=True)
@@ -151,6 +191,7 @@ class StaffSerializer(serializers.ModelSerializer):
             "is_active",
             "company",
             "assets",
+            "responsible_locations",
         ]
     
     def get_full_name(self, obj):
@@ -161,8 +202,20 @@ class StaffSerializer(serializers.ModelSerializer):
         return obj.username
 
     def get_assets(self, obj):
-        assets = obj.assigned_assets.filter(parent_asset__isnull=True)
+        assets = obj.assigned_assets.all()
         return AssetSerializer(assets, many=True).data
+
+    def get_responsible_locations(self, obj):
+        if obj.location:
+            locs = Location.objects.filter(name__icontains=obj.location, company=obj.company)
+            return [
+                {
+                    "id": l.id,
+                    "name": l.name,
+                    "branch": l.branch.name if l.branch else None
+                } for l in locs
+            ]
+        return []
 
 
 class CandidateSerializer(serializers.ModelSerializer):

@@ -30,6 +30,6 @@ class AssetCategoryAdmin(admin.ModelAdmin):
 
 @admin.register(Asset)
 class AssetAdmin(admin.ModelAdmin):
-    list_display = ['name', 'category', 'status', 'company', 'assigned_to', 'assigned_location']
-    list_filter = ['status', 'company', 'category']
-    search_fields = ['name', 'serial_number', 'primary_phone_number', 'secondary_phone_number']
+    list_display = ['name', 'category', 'company', 'assigned_to', 'assigned_location', 'provider']
+    list_filter = ['company', 'category']
+    search_fields = ['name', 'serial_number', 'primary_sim__name', 'secondary_sim__name', 'provider']

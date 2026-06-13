@@ -141,13 +141,6 @@ class AssetCategory(models.Model):
 
 
 class Asset(models.Model):
-    STATUS_CHOICES = [
-        ('AVAILABLE', 'Available'),
-        ('ASSIGNED', 'Assigned'),
-        ('MAINTENANCE', 'In Maintenance'),
-        ('RETIRED', 'Retired')
-    ]
-
     COMPANY_CHOICES = [
         ('LP', 'LP'),
         ('FLAG', 'FLAG'),
@@ -155,24 +148,29 @@ class Asset(models.Model):
 
     name = models.CharField(max_length=255)
     serial_number = models.CharField(max_length=100, blank=True, null=True)
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='AVAILABLE')
     company = models.CharField(max_length=10, choices=COMPANY_CHOICES, default='LP', db_index=True)
     
     category = models.ForeignKey(AssetCategory, on_delete=models.SET_NULL, null=True, blank=True, related_name='assets')
     assigned_location = models.ForeignKey(Location, on_delete=models.SET_NULL, null=True, blank=True, related_name='assets', help_text="Physical location where this asset is placed")
     branch = models.ForeignKey(Branch, on_delete=models.SET_NULL, null=True, blank=True, related_name='assets', help_text="Branch this asset belongs to")
     
-    primary_phone_number = models.CharField(max_length=20, blank=True, null=True)
-    secondary_phone_number = models.CharField(max_length=20, blank=True, null=True)
-
-    parent_asset = models.ForeignKey(
+    primary_sim = models.ForeignKey(
         'self',
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name='attached_assets',
-        help_text="Parent asset this is attached to (e.g. Mobile for a SIM)"
+        related_name='primary_for',
+        help_text="Primary SIM assigned to this device"
     )
+    secondary_sim = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='secondary_for',
+        help_text="Secondary SIM assigned to this device"
+    )
+    provider = models.CharField(max_length=100, blank=True, null=True, help_text="Telecom Provider (for SIM Cards)")
     
     assigned_to = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -202,15 +200,17 @@ class Asset(models.Model):
         ordering = ['-created_at']
 
     def __str__(self):
-        return f"{self.name} ({self.asset_type}) - {self.company}"
+        category_name = self.category.name if self.category else "Uncategorized"
+        return f"{self.name} ({category_name}) - {self.company}"
         
     def save(self, *args, **kwargs):
-        # Sync assigned_to with parent_asset if it exists
-        if self.parent_asset:
-            self.assigned_to = self.parent_asset.assigned_to
-
         super().save(*args, **kwargs)
 
-        # Sync all attached assets when this asset's assigned_to changes
-        if self.pk:
-            self.attached_assets.all().update(assigned_to=self.assigned_to)
+        # Sync assigned_to with primary_sim and secondary_sim
+        if self.primary_sim and self.primary_sim.assigned_to != self.assigned_to:
+            self.primary_sim.assigned_to = self.assigned_to
+            self.primary_sim.save()
+            
+        if self.secondary_sim and self.secondary_sim.assigned_to != self.assigned_to:
+            self.secondary_sim.assigned_to = self.assigned_to
+            self.secondary_sim.save()
