@@ -87,6 +87,7 @@ class AssetSerializer(serializers.ModelSerializer):
             return {
                 "id": obj.primary_sim.id,
                 "name": obj.primary_sim.name,
+                "serial_number": obj.primary_sim.serial_number,
                 "provider": obj.primary_sim.provider
             }
         return None
@@ -96,6 +97,7 @@ class AssetSerializer(serializers.ModelSerializer):
             return {
                 "id": obj.secondary_sim.id,
                 "name": obj.secondary_sim.name,
+                "serial_number": obj.secondary_sim.serial_number,
                 "provider": obj.secondary_sim.provider
             }
         return None
@@ -208,13 +210,7 @@ class StaffSerializer(serializers.ModelSerializer):
     def get_responsible_locations(self, obj):
         if obj.location:
             locs = Location.objects.filter(name__icontains=obj.location, company=obj.company)
-            return [
-                {
-                    "id": l.id,
-                    "name": l.name,
-                    "branch": l.branch.name if l.branch else None
-                } for l in locs
-            ]
+            return LocationSerializer(locs, many=True).data
         return []
 
 
