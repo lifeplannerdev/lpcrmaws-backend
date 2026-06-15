@@ -24,6 +24,7 @@ class Credential(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     title = models.CharField(max_length=255)
     username = models.CharField(max_length=255, blank=True, null=True)
+    web_mail = models.CharField(max_length=255, blank=True, null=True)
     encrypted_password = models.TextField()
     url = models.URLField(blank=True, null=True)
     notes = models.TextField(blank=True, null=True)

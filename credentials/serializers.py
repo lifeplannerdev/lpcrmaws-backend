@@ -17,7 +17,7 @@ class CredentialSerializer(serializers.ModelSerializer):
     class Meta:
         model = Credential
         fields = [
-            'id', 'title', 'username', 'url', 'notes', 'category', 'category_detail',
+            'id', 'title', 'username', 'web_mail', 'url', 'notes', 'category', 'category_detail',
             'created_by', 'created_by_name', 'created_at', 'updated_at',
             'shared_users', 'shared_roles', 'shared_users_list', 'shared_roles_list',
             'password'
