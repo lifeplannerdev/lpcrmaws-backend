@@ -173,6 +173,7 @@ class AttendanceDocumentSerializer(serializers.ModelSerializer):
 class StaffSerializer(serializers.ModelSerializer):
     full_name = serializers.SerializerMethodField()
     assets = serializers.SerializerMethodField()
+    responsible_locations = serializers.SerializerMethodField()
     
     class Meta:
         model = User
