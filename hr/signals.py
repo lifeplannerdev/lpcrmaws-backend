@@ -111,14 +111,11 @@ def capture_asset_old_state(sender, instance, **kwargs):
         try:
             old = Asset.objects.get(pk=instance.pk)
             instance._old_assigned_to = old.assigned_to
-            instance._old_status = old.status
             instance._old_company_phone = None  # placeholder if asset impacts staff
         except Asset.DoesNotExist:
             instance._old_assigned_to = None
-            instance._old_status = None
     else:
         instance._old_assigned_to = None
-        instance._old_status = None
 
 
 @receiver(post_save, sender=Asset)
@@ -127,7 +124,6 @@ def log_asset_activity(sender, instance, created, **kwargs):
     category_name = instance.category.name if instance.category else 'Uncategorized'
     metadata = {
         'asset_type': category_name,
-        'status': instance.status,
         'staff_id': instance.assigned_to.pk if instance.assigned_to else None,
     }
 
@@ -147,7 +143,6 @@ def log_asset_activity(sender, instance, created, **kwargs):
         )
     else:
         old_assigned = getattr(instance, '_old_assigned_to', None)
-        old_status = getattr(instance, '_old_status', None)
 
         if old_assigned != instance.assigned_to:
             if instance.assigned_to:
@@ -168,15 +163,6 @@ def log_asset_activity(sender, instance, created, **kwargs):
                     description=f'Asset "{instance.name}" unassigned from {_user_label(old_assigned)}.',
                     metadata={'staff_id': old_assigned.pk}
                 )
-        elif old_status != instance.status:
-            log_activity(
-                action='ASSET_UPDATED',
-                entity_type='Asset',
-                entity_id=instance.pk,
-                entity_name=instance.name,
-                description=f'Asset "{instance.name}" status changed to {instance.status}.',
-                metadata=metadata
-            )
         else:
             log_activity(
                 action='ASSET_UPDATED',
