@@ -24,9 +24,7 @@ class HasStaffPermission(BasePermission):
             return False
             
         if request.method in ['GET', 'HEAD', 'OPTIONS']:
-            return has_dynamic_permission(request.user, 'staff:read_any') or \
-                   has_dynamic_permission(request.user, 'staff:read_tenant') or \
-                   has_dynamic_permission(request.user, 'staff:read_own')
+            return True
         elif request.method == 'POST':
             return has_dynamic_permission(request.user, 'staff:create')
         else:
