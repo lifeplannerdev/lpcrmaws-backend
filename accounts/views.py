@@ -338,6 +338,7 @@ class AppPermissionListView(generics.ListAPIView):
     queryset = AppPermission.objects.all().order_by('name')
     serializer_class = AppPermissionSerializer
     permission_classes = [IsManagement]
+    pagination_class = None
 
 class RoleListCreateView(generics.ListCreateAPIView):
     queryset = Role.objects.all().order_by('name')
