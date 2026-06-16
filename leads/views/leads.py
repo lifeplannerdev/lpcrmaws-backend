@@ -84,8 +84,12 @@ class LeadListView(generics.ListAPIView):
             'assigned_to', 'assigned_by',
             'sub_assigned_to', 'sub_assigned_by',
         )
-        if user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists():
+        from accounts.permissions import has_dynamic_permission
+        if (user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists() or 
+            has_dynamic_permission(user, 'leads:read_any') or 
+            has_dynamic_permission(user, 'leads:read_tenant')):
             return base_qs.all().distinct()
+            
         return base_qs.filter(
             models.Q(assigned_to=user) |
             models.Q(sub_assigned_to=user)
@@ -163,7 +167,10 @@ class LeadDetailView(generics.RetrieveUpdateDestroyAPIView):
             'assigned_to', 'assigned_by',
             'sub_assigned_to', 'sub_assigned_by',
         )
-        if user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists():
+        from accounts.permissions import has_dynamic_permission
+        if (user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists() or 
+            has_dynamic_permission(user, 'leads:read_any') or 
+            has_dynamic_permission(user, 'leads:read_tenant')):
             return base_qs.all()
         return base_qs.filter(
             models.Q(assigned_to=user) |
@@ -315,8 +322,12 @@ class MyTeamLeadsView(generics.ListAPIView):
             'assigned_to', 'assigned_by',
             'sub_assigned_to', 'sub_assigned_by',
         )
-        if user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists():
+        from accounts.permissions import has_dynamic_permission
+        if (user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists() or 
+            has_dynamic_permission(user, 'leads:read_any') or 
+            has_dynamic_permission(user, 'leads:read_tenant')):
             return base_qs.all().distinct()
+            
         return base_qs.filter(
             models.Q(assigned_to=user) |
             models.Q(sub_assigned_to=user)

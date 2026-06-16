@@ -41,7 +41,9 @@ def _task_queryset_for_user(user, base_qs=None):
     if base_qs is None:
         base_qs = Task.objects.select_related("assigned_to", "assigned_by")
 
-    if has_dynamic_permission(user, 'tasks:read_all') or user.db_roles.filter(name__in=TOP_MANAGEMENT).exists():
+    if (has_dynamic_permission(user, 'tasks:read_all') or 
+        has_dynamic_permission(user, 'tasks:read_tenant') or 
+        user.db_roles.filter(name__in=TOP_MANAGEMENT).exists()):
         return base_qs
 
     if has_dynamic_permission(user, 'tasks:edit_any') or user.db_roles.filter(name__in=OPERATIONS).exists():

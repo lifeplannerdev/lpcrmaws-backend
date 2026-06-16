@@ -55,8 +55,10 @@ class FollowUpListCreateAPIView(APIView):
     def get(self, request):
         user = request.user
 
-        # ADMIN/CEO/OPS see all follow-ups; others see only their own
-        if user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists():
+        from accounts.permissions import has_dynamic_permission
+        if (user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists() or 
+            has_dynamic_permission(user, 'leads:read_any') or 
+            has_dynamic_permission(user, 'leads:read_tenant')):
             queryset = FollowUp.objects.all()
         else:
             queryset = FollowUp.objects.filter(assigned_to=user)
@@ -110,7 +112,10 @@ class FollowUpDetailAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get_object(self, pk, user):
-        if user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists():
+        from accounts.permissions import has_dynamic_permission
+        if (user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists() or 
+            has_dynamic_permission(user, 'leads:read_any') or 
+            has_dynamic_permission(user, 'leads:read_tenant')):
             return get_object_or_404(FollowUp, pk=pk)
         return get_object_or_404(FollowUp, pk=pk, assigned_to=user)
 
@@ -140,8 +145,10 @@ class TodayFollowUpsAPIView(APIView):
     def get(self, request):
         today = timezone.now().date()
 
-        # Admin sees all today's follow-ups
-        if request.user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists():
+        from accounts.permissions import has_dynamic_permission
+        if (request.user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists() or 
+            has_dynamic_permission(request.user, 'leads:read_any') or 
+            has_dynamic_permission(request.user, 'leads:read_tenant')):
             queryset = FollowUp.objects.filter(follow_up_date=today)
         else:
             queryset = FollowUp.objects.filter(
@@ -158,8 +165,10 @@ class OverdueFollowUpsAPIView(APIView):
     def get(self, request):
         today = timezone.now().date()
 
-        # Admin sees all overdue follow-ups
-        if request.user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists():
+        from accounts.permissions import has_dynamic_permission
+        if (request.user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists() or 
+            has_dynamic_permission(request.user, 'leads:read_any') or 
+            has_dynamic_permission(request.user, 'leads:read_tenant')):
             queryset = FollowUp.objects.filter(
                 follow_up_date__lt=today,
                 status='pending'

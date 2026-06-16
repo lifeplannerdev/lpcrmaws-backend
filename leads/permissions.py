@@ -38,7 +38,9 @@ class CanAccessLeads(BasePermission):
     def has_permission(self, request, view):
         return (
             request.user.is_authenticated and
-            has_dynamic_permission(request.user, 'leads:read_tenant')
+            (has_dynamic_permission(request.user, 'leads:read_any') or
+             has_dynamic_permission(request.user, 'leads:read_tenant') or
+             has_dynamic_permission(request.user, 'leads:read_own'))
         )
 
 
@@ -47,7 +49,9 @@ class CanAssignLeads(BasePermission):
         user = request.user
         return (
             user.is_authenticated and
-            has_dynamic_permission(user, 'leads:read_tenant')
+            (has_dynamic_permission(user, 'leads:read_tenant') or 
+             has_dynamic_permission(user, 'leads:read_any') or
+             has_dynamic_permission(user, 'leads:edit_tenant'))
         )
 
 
@@ -55,7 +59,8 @@ class CanViewAllLeads(BasePermission):
     def has_permission(self, request, view):
         return (
             request.user.is_authenticated and
-            has_dynamic_permission(request.user, 'leads:read_tenant')
+            (has_dynamic_permission(request.user, 'leads:read_tenant') or
+             has_dynamic_permission(request.user, 'leads:read_any'))
         )
 
 

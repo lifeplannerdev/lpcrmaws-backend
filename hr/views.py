@@ -5,6 +5,7 @@ from django.contrib.auth import get_user_model
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from django.db.models import Count, Q
+from accounts.permissions import has_dynamic_permission
 from .models import Penalty, AttendanceDocument, Candidate, Asset, Location, AssetCategory
 from .serializers import (
     PenaltySerializer, 
@@ -86,6 +87,10 @@ class PenaltyListCreateAPI(APIView):
     def get(self, request):
         penalties = Penalty.objects.all()
         
+        if not (has_dynamic_permission(request.user, 'penalties:read_any') or 
+                has_dynamic_permission(request.user, 'penalties:read_tenant')):
+            penalties = penalties.filter(user=request.user)
+            
         # Filter by month
         month = request.GET.get("month")
         if month:
@@ -133,6 +138,11 @@ class PenaltyDetailAPI(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
         
+        if not (has_dynamic_permission(request.user, 'penalties:read_any') or 
+                has_dynamic_permission(request.user, 'penalties:read_tenant')):
+            if penalty.user != request.user:
+                return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+                
         serializer = PenaltySerializer(penalty)
         return Response(serializer.data)
     
@@ -174,6 +184,14 @@ class AttendanceDocumentAPI(APIView):
     
     def get(self, request):
         docs = AttendanceDocument.objects.all()
+        
+        if not has_dynamic_permission(request.user, 'attendance:read_any'):
+            if has_dynamic_permission(request.user, 'attendance:read_tenant'):
+                if hasattr(request.user, 'company') and request.user.company:
+                    docs = docs.filter(company=request.user.company)
+            else:
+                docs = docs.none()
+                
         month = request.GET.get("month")
         if month:
             docs = docs.filter(month=month)
@@ -208,6 +226,13 @@ class AttendanceDocumentDeleteAPI(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
         
+        if not has_dynamic_permission(request.user, 'attendance:read_any'):
+            if has_dynamic_permission(request.user, 'attendance:read_tenant'):
+                if hasattr(request.user, 'company') and request.user.company and doc.company != request.user.company:
+                    return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+            else:
+                return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+                
         serializer = AttendanceDocumentSerializer(doc)
         return Response(serializer.data)
     
@@ -234,6 +259,10 @@ class StaffListAPI(APIView):
     def get(self, request):
         users = User.objects.all()
         
+        if not (has_dynamic_permission(request.user, 'staff:read_any') or 
+                has_dynamic_permission(request.user, 'staff:read_tenant')):
+            users = users.filter(id=request.user.id)
+            
         # Filter by role
         role = request.GET.get("role")
         if role:
@@ -341,6 +370,10 @@ class AssetListCreateAPI(APIView):
 
     def get(self, request):
         assets = Asset.objects.all()
+        
+        if not (has_dynamic_permission(request.user, 'assets:read_any') or 
+                has_dynamic_permission(request.user, 'assets:read_tenant')):
+            assets = assets.filter(assigned_to=request.user)
 
         company = request.GET.get("company")
         if company:
@@ -390,7 +423,12 @@ class AssetDetailAPI(APIView):
             asset = Asset.objects.get(pk=pk)
         except Asset.DoesNotExist:
             return Response({"error": "Asset not found"}, status=status.HTTP_404_NOT_FOUND)
-
+            
+        if not (has_dynamic_permission(request.user, 'assets:read_any') or 
+                has_dynamic_permission(request.user, 'assets:read_tenant')):
+            if asset.assigned_to != request.user:
+                return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+                
         serializer = AssetSerializer(asset)
         return Response(serializer.data)
 
