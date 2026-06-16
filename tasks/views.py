@@ -49,7 +49,10 @@ def _task_queryset_for_user(user, base_qs=None):
             Q(assigned_to=user) | Q(assigned_by=user)
         ).distinct()
 
-    return base_qs.filter(assigned_to=user)
+    if has_dynamic_permission(user, 'tasks:read_own'):
+        return base_qs.filter(assigned_to=user)
+
+    return base_qs.none()
 
 
 def _apply_status_ordering(qs):
