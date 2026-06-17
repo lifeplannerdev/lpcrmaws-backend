@@ -231,11 +231,61 @@ class StudentFeeAccountCreateSerializer(serializers.ModelSerializer):
         defaults['plan_snapshot'].setdefault('template', self._template_snapshot(template))
         return defaults
 
+    def _generate_installments(self, account, template):
+        if template.plan_type not in ('MONTHLY', 'INSTALLMENT'):
+            return
+
+        import datetime
+        from decimal import Decimal
+        from calendar import monthrange
+        
+        start_date = account.start_date or datetime.date.today()
+        due_day = account.due_day or 10
+
+        count = 0
+        amount = Decimal('0')
+
+        if template.plan_type == 'MONTHLY':
+            count = template.duration_months or 0
+            amount = template.monthly_amount or Decimal('0')
+        elif template.plan_type == 'INSTALLMENT':
+            count = template.installment_count or 0
+            amount = template.installment_amount or Decimal('0')
+
+        if count <= 0 or amount <= 0:
+            return
+
+        installments = []
+        for i in range(count):
+            month_offset = i
+            month = start_date.month - 1 + month_offset
+            year = start_date.year + month // 12
+            month = month % 12 + 1
+            
+            days_in_month = monthrange(year, month)[1]
+            day = min(due_day, days_in_month)
+            
+            due_date = datetime.date(year, month, day)
+            
+            installments.append(FeeInstallment(
+                account=account,
+                sequence_number=i + 1,
+                label=f"Installment {i + 1} of {count}",
+                due_date=due_date,
+                scheduled_amount=amount,
+                balance_amount=amount,
+                status='PENDING'
+            ))
+
+        if installments:
+            FeeInstallment.objects.bulk_create(installments)
+
     def create(self, validated_data):
         request = self.context['request']
         student = validated_data['student']
         template = validated_data.get('template')
         validated_data = self._apply_template_defaults(validated_data, template)
+        
         account, created = StudentFeeAccount.objects.get_or_create(student=student, defaults={
             'company': student.company,
             'created_by': request.user,
@@ -255,7 +305,11 @@ class StudentFeeAccountCreateSerializer(serializers.ModelSerializer):
             if template:
                 account.plan_snapshot.setdefault('template', self._template_snapshot(template))
             account.save()
+            
+            if template:
+                self._generate_installments(account, template)
 
+        account.recalculate(save=True)
         return account
 
 
