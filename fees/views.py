@@ -85,6 +85,11 @@ class FeePlanTemplateDetailAPIView(APIView):
         serializer.save()
         return Response(serializer.data)
 
+    def delete(self, request, pk):
+        template = get_object_or_404(FeePlanTemplate, pk=pk)
+        template.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
 
 class FeeAccountListCreateAPIView(APIView):
     permission_classes = [IsAuthenticated, CanViewFees]
