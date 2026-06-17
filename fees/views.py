@@ -182,6 +182,15 @@ class FeeAccountDetailAPIView(APIView):
         account.recalculate(save=True)
         return Response(StudentFeeAccountSerializer(account).data)
 
+    def delete(self, request, pk):
+        if not has_dynamic_permission(request.user, 'fees:manage'):
+            return Response({'detail': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
+        account = self.get_object(request, pk)
+        if not account:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        account.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
 
 class FeeInstallmentListCreateAPIView(APIView):
     permission_classes = [IsAuthenticated, CanManageFees]
@@ -224,6 +233,66 @@ class FeePaymentListCreateAPIView(APIView):
             account.save(update_fields=['status', 'updated_at'])
 
         return Response(FeePaymentSerializer(payment).data, status=status.HTTP_201_CREATED)
+
+
+class FeeInstallmentDetailAPIView(APIView):
+    permission_classes = [IsAuthenticated, CanManageFees]
+
+    def get_object(self, request, account_pk, pk):
+        account = get_object_or_404(StudentFeeAccount, pk=account_pk)
+        if not _can_view_fee_account(request.user, account):
+            return None
+        return get_object_or_404(FeeInstallment, pk=pk, account=account)
+
+    def patch(self, request, account_pk, pk):
+        installment = self.get_object(request, account_pk, pk)
+        if not installment:
+            return Response({'detail': 'Not found or Forbidden.'}, status=status.HTTP_404_NOT_FOUND)
+            
+        serializer = FeeInstallmentSerializer(installment, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        installment = serializer.save()
+        installment.account.recalculate(save=True)
+        return Response(serializer.data)
+
+    def delete(self, request, account_pk, pk):
+        installment = self.get_object(request, account_pk, pk)
+        if not installment:
+            return Response({'detail': 'Not found or Forbidden.'}, status=status.HTTP_404_NOT_FOUND)
+        account = installment.account
+        installment.delete()
+        account.recalculate(save=True)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class FeePaymentDetailAPIView(APIView):
+    permission_classes = [IsAuthenticated, CanManageFees]
+
+    def get_object(self, request, account_pk, pk):
+        account = get_object_or_404(StudentFeeAccount, pk=account_pk)
+        if not _can_view_fee_account(request.user, account):
+            return None
+        return get_object_or_404(FeePayment, pk=pk, account=account)
+
+    def patch(self, request, account_pk, pk):
+        payment = self.get_object(request, account_pk, pk)
+        if not payment:
+            return Response({'detail': 'Not found or Forbidden.'}, status=status.HTTP_404_NOT_FOUND)
+            
+        serializer = FeePaymentSerializer(payment, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        payment = serializer.save()
+        payment.account.recalculate(save=True)
+        return Response(serializer.data)
+
+    def delete(self, request, account_pk, pk):
+        payment = self.get_object(request, account_pk, pk)
+        if not payment:
+            return Response({'detail': 'Not found or Forbidden.'}, status=status.HTTP_404_NOT_FOUND)
+        account = payment.account
+        payment.delete()
+        account.recalculate(save=True)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class FeeAdjustmentListCreateAPIView(APIView):
