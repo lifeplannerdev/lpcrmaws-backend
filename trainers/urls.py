@@ -18,6 +18,7 @@ from .views import (
     BranchDetailAPIView,
     ExamResultListCreateAPIView,
     ExamResultDetailAPIView,
+    AttendanceApproveAPIView,
 )
 
 urlpatterns = [
@@ -33,6 +34,7 @@ urlpatterns = [
     path('attendance/quick-mark/', QuickMarkAttendanceAPIView.as_view(), name='attendance-quick-mark'),
     path('attendance/students/', AttendanceStudentsAPIView.as_view(), name='attendance-students'), 
     path('attendance/student/<int:student_id>/', AttendanceRecordsAPIView.as_view(), name='attendance-student-records'),
+    path('attendance/<int:pk>/approve/', AttendanceApproveAPIView.as_view(), name='attendance-approve'),
     path('attendance/export/<int:student_id>/', ExportStudentAttendanceAPIView.as_view(), name='export-student-attendance'),
     path('stats/students/', StudentStatsAPIView.as_view(), name='student-stats'),
     path('branches/', BranchListCreateAPIView.as_view(), name='branch-list-create'),

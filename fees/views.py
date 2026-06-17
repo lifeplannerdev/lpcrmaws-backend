@@ -9,6 +9,8 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+import pandas as pd
+from django.http import HttpResponse
 
 from accounts.models import ActivityLog, User
 from notifications.models import Notification
@@ -445,4 +447,80 @@ class FeeStudentsAPIView(APIView):
                 'phone': s.phone_number,
             })
         return Response(data)
+
+class ExportAdmissionsReportAPIView(APIView):
+    permission_classes = [IsAuthenticated, CanViewFees]
+
+    def get(self, request):
+        qs = StudentFeeAccount.objects.select_related('student', 'student__trainer__user', 'student__branch', 'template').prefetch_related('payments')
+        
+        data = []
+        for i, account in enumerate(qs, start=1):
+            student = account.student
+            row = {
+                "SL NO": i,
+                "HANDLED BY": student.trainer.user.get_full_name() if student.trainer else "",
+                "NAME": student.name,
+                "PH NO": student.phone_number,
+                "PARENT NAME": student.parent_name,
+                "PARENT NO": student.parent_phone,
+                "MAIL ID": student.email,
+                "CAMPUS": student.branch.name if student.branch else "",
+                "MODE OF STUDY": student.get_mode_of_study_display() if student.mode_of_study else "",
+                "PREFERRED LEVEL": student.get_preferred_level_display() if student.preferred_level else "",
+                "PACKAGE CHOSEN": account.plan_name or account.plan_type,
+                "TOTAL FEE": account.total_due,
+                "SPECIAL DISCOUNT": 0,
+                "PENDING": account.balance_due,
+                "RECEIPT GIVEN": "Yes" if account.payments.exists() else "No",
+                "STATUS OF FEE": account.get_status_display()
+            }
+            
+            payments = account.payments.all().order_by('payment_date')
+            for p_idx, payment in enumerate(payments[:4], start=1):
+                if p_idx == 1:
+                    row["1st PAYMENT"] = payment.amount
+                    row["Unnamed: 15"] = payment.get_payment_method_display()
+                    row["Unnamed: 16"] = payment.payment_date.strftime("%d/%m/%Y")
+                elif p_idx == 2:
+                    row["2nd PAYMENT"] = payment.amount
+                    row["Unnamed: 18"] = payment.get_payment_method_display()
+                    row["Unnamed: 19"] = payment.payment_date.strftime("%d/%m/%Y")
+                elif p_idx == 3:
+                    row["3rd PAYMENT"] = payment.amount
+                    row["Unnamed: 21"] = payment.get_payment_method_display()
+                    row["Unnamed: 22"] = payment.payment_date.strftime("%d/%m/%Y")
+                elif p_idx == 4:
+                    row["4th PAYMENT"] = payment.amount
+                    row["Unnamed: 24"] = payment.get_payment_method_display()
+                    row["Unnamed: 25"] = payment.payment_date.strftime("%d/%m/%Y")
+                    
+            data.append(row)
+
+        df = pd.DataFrame(data)
+        
+        columns = [
+            "SL NO", "HANDLED BY", "NAME", "PH NO", "PARENT NAME", "PARENT NO", 
+            "MAIL ID", "CAMPUS", "MODE OF STUDY", "PREFERRED LEVEL", "PACKAGE CHOSEN", 
+            "TOTAL FEE", "SPECIAL DISCOUNT", "PENDING", 
+            "1st PAYMENT", "Unnamed: 15", "Unnamed: 16", 
+            "2nd PAYMENT", "Unnamed: 18", "Unnamed: 19", 
+            "3rd PAYMENT", "Unnamed: 21", "Unnamed: 22", 
+            "4th PAYMENT", "Unnamed: 24", "Unnamed: 25", 
+            "RECEIPT GIVEN", "STATUS OF FEE"
+        ]
+        
+        for col in columns:
+            if col not in df.columns:
+                df[col] = ""
+                
+        df = df[columns]
+
+        response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        response['Content-Disposition'] = 'attachment; filename="admissions_report.xlsx"'
+        
+        with pd.ExcelWriter(response, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Admissions')
+
+        return response
 

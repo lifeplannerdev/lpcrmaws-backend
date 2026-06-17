@@ -99,6 +99,46 @@ class Student(models.Model):
         max_length=100,
         validators=[MinLengthValidator(3)]
     )
+    
+    parent_name = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        help_text="Parent's name"
+    )
+
+    parent_phone = models.CharField(
+        max_length=20,
+        blank=True,
+        null=True,
+        help_text="Parent's phone number"
+    )
+
+    MODE_OF_STUDY_CHOICES = [
+        ('OFFLINE', 'Offline'),
+        ('ONLINE', 'Online'),
+        ('HYBRID', 'Hybrid'),
+    ]
+    mode_of_study = models.CharField(
+        max_length=20,
+        choices=MODE_OF_STUDY_CHOICES,
+        default='OFFLINE'
+    )
+
+    PREFERRED_LEVEL_CHOICES = [
+        ('A1', 'A1'),
+        ('A2', 'A2'),
+        ('B1', 'B1'),
+        ('B2', 'B2'),
+        ('A1-B2', 'A1 to B2'),
+        ('OTHER', 'Other'),
+    ]
+    preferred_level = models.CharField(
+        max_length=20,
+        choices=PREFERRED_LEVEL_CHOICES,
+        blank=True,
+        null=True
+    )
 
     batch = models.CharField(
         max_length=200,
@@ -218,6 +258,30 @@ class Attendance(models.Model):
         max_length=15,
         choices=STATUS_CHOICES,
         default='PRESENT'
+    )
+
+    APPROVAL_STATUS_CHOICES = [
+        ('APPROVED', 'Approved'),
+        ('PENDING_FEE_APPROVAL', 'Pending Fee Approval'),
+    ]
+
+    approval_status = models.CharField(
+        max_length=30,
+        choices=APPROVAL_STATUS_CHOICES,
+        default='APPROVED'
+    )
+
+    approved_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='approved_attendances'
+    )
+
+    approval_notes = models.TextField(
+        blank=True,
+        help_text="Notes regarding the attendance approval (e.g., fee promises)"
     )
 
     marked_at = models.DateTimeField(

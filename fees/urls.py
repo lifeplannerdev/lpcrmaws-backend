@@ -12,6 +12,7 @@ from .views import (
     FeeSummaryAPIView,
     FeeCatalogSeedAPIView,
     FeeStudentsAPIView,
+    ExportAdmissionsReportAPIView,
 )
 
 
@@ -27,4 +28,5 @@ urlpatterns = [
     path('fees/accounts/<int:pk>/restructure/', FeeRestructureAPIView.as_view(), name='fee-restructure'),
     path('fees/summary/', FeeSummaryAPIView.as_view(), name='fee-summary'),
     path('fees/students/', FeeStudentsAPIView.as_view(), name='fee-students'),
+    path('fees/export/admissions/', ExportAdmissionsReportAPIView.as_view(), name='export-admissions-report'),
 ]

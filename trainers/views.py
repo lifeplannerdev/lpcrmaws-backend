@@ -276,7 +276,14 @@ class AttendanceListCreateAPIView(APIView):
 
         serializer = AttendanceSerializer(data=request.data)
         if serializer.is_valid():
-            serializer.save(trainer=trainer)
+            approval_status = 'APPROVED'
+            try:
+                if student.fee_account and student.fee_account.is_overdue:
+                    approval_status = 'PENDING_FEE_APPROVAL'
+            except Exception:
+                pass
+
+            serializer.save(trainer=trainer, approval_status=approval_status)
             return Response(serializer.data, status=201)
         return Response(serializer.errors, status=400)
         
@@ -298,6 +305,7 @@ class AttendanceDetailAPIView(APIView):
         trainer_id = request.GET.get('trainer')
         branch_id = request.GET.get('branch_id')
         date = request.GET.get('date')
+        approval_status = request.GET.get('approval_status')
 
         if student_id:
             records = records.filter(student_id=student_id)
@@ -307,6 +315,8 @@ class AttendanceDetailAPIView(APIView):
             records = records.filter(student__branch_id=branch_id)
         if date:
             records = records.filter(date=date)
+        if approval_status:
+            records = records.filter(approval_status=approval_status)
 
         
         if date:
@@ -351,12 +361,20 @@ class QuickMarkAttendanceAPIView(APIView):
 
                 trainer_to_assign = student.trainer
 
+                approval_status = 'APPROVED'
+                try:
+                    if student.fee_account and student.fee_account.is_overdue:
+                        approval_status = 'PENDING_FEE_APPROVAL'
+                except Exception:
+                    pass
+
                 obj, created = Attendance.objects.update_or_create(
                     student=student, 
                     date=date,
                     defaults={
                         'trainer': trainer_to_assign,
-                        'status': r.get('status', 'PRESENT')
+                        'status': r.get('status', 'PRESENT'),
+                        'approval_status': approval_status
                     }
                 )
                 saved.append(obj)
@@ -426,6 +444,25 @@ class ExportStudentAttendanceAPIView(APIView):
 
         return response
 
+
+class AttendanceApproveAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        if not _has_perm(request.user, 'fees:manage'):
+            return Response({"detail": "Only accountants can approve attendance"}, status=403)
+        
+        attendance = get_object_or_404(Attendance, pk=pk)
+        
+        if attendance.approval_status != 'PENDING_FEE_APPROVAL':
+            return Response({"detail": "Attendance is not pending approval"}, status=400)
+
+        attendance.approval_status = 'APPROVED'
+        attendance.approved_by = request.user
+        attendance.approval_notes = request.data.get('approval_notes', '')
+        attendance.save()
+
+        return Response(AttendanceSerializer(attendance).data)
 
 class AttendanceStudentsAPIView(APIView):
     permission_classes = [IsAuthenticated]

@@ -48,7 +48,8 @@ class StudentSerializer(serializers.ModelSerializer):
             'trainer', 'trainer_name', 'branch', 'branch_name',
             'status', 'admission_date', 'notes',
             'email', 'phone_number', 'drive_link', 'student_class', 'company',
-            'fee_summary', 'attendance_summary', 'fee_setup_status', 'fee_template'
+            'fee_summary', 'attendance_summary', 'fee_setup_status', 'fee_template',
+            'parent_name', 'parent_phone', 'mode_of_study', 'preferred_level'
         ]
         extra_kwargs = {
             'fee_template': {'write_only': True},
@@ -217,7 +218,8 @@ class AttendanceSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'date', 'trainer', 'trainer_name',
             'student', 'student_name',
-            'status', 'marked_at', 'company'
+            'status', 'marked_at', 'company',
+            'approval_status', 'approved_by', 'approval_notes'
         ]
         read_only_fields = ['trainer', 'marked_at']  
         extra_kwargs = {
