@@ -7,9 +7,18 @@ User = get_user_model()
 
 #  Employee Serializer
 class EmployeeSerializer(serializers.ModelSerializer):
+    role = serializers.SerializerMethodField()
+    role_names = serializers.SerializerMethodField()
+
     class Meta:
         model = User
-        fields = ['id', 'username']
+        fields = ['id', 'username', 'is_active', 'role', 'role_names']
+        
+    def get_role(self, obj):
+        return ", ".join(obj.db_roles.values_list('name', flat=True))
+
+    def get_role_names(self, obj):
+        return list(obj.db_roles.values_list('name', flat=True))
 
 
 #  Task Serializer 
