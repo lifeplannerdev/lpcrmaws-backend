@@ -103,11 +103,15 @@ class StudentFeeAccount(models.Model):
         installment_balance = self.installments.aggregate(total=models.Sum('balance_amount')).get('total') or Decimal('0')
 
         self.total_paid = payments_total
-        if self.total_due:
+        
+        if self.installments.exists():
+            self.balance_due = installment_balance
+            self.total_due = installment_paid + installment_balance
+        elif self.total_due:
             self.balance_due = max(Decimal('0'), self.total_due - payments_total)
         else:
-            self.balance_due = installment_balance
-            self.total_due = payments_total + installment_balance
+            self.balance_due = Decimal('0')
+            self.total_due = payments_total
 
         overdue_total = self.installments.filter(status='OVERDUE').aggregate(total=models.Sum('balance_amount')).get('total') or Decimal('0')
         self.overdue_amount = overdue_total
