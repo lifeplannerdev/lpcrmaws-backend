@@ -2,3 +2,4 @@ from .leads import LeadListView, LeadCreateView, LeadDetailView, LeadProcessingT
 from .assignments import LeadAssignView, BulkLeadAssignView, LeadAssignmentHistoryView, AvailableUsersForAssignmentView, UnassignLeadView
 from .followups import FollowUpListCreateAPIView, FollowUpDetailAPIView, TodayFollowUpsAPIView, OverdueFollowUpsAPIView
 from .uploads import BulkLeadUploadView
+from .bulk_paste import BulkPasteLeadsView

@@ -52,7 +52,7 @@ class Lead(models.Model):
     ('REGISTERED', 'Registered'),
 ]
     # Basic lead info
-    name = models.CharField(max_length=100, validators=[MinLengthValidator(3)])
+    name = models.CharField(max_length=100, validators=[MinLengthValidator(3)], null=True, blank=True)
     phone = models.CharField(max_length=20, validators=[MinLengthValidator(10)], unique=True, help_text="Contact phone number")
     email = models.EmailField(unique=True, null=True, blank=True)
     priority = models.CharField(max_length=10, choices=PRIORITY_CHOICES, default='MEDIUM')
@@ -62,6 +62,13 @@ class Lead(models.Model):
     location = models.CharField(max_length=100, blank=True, null=True)
     source = models.CharField(max_length=20, choices=SOURCE_CHOICES, blank=True, null=True)
     custom_source = models.CharField(max_length=50, blank=True, null=True)
+    
+    # Spreadsheet fields
+    interested_country = models.CharField(max_length=100, blank=True, null=True)
+    interested_course = models.CharField(max_length=200, blank=True, null=True)
+    previous_qualification = models.CharField(max_length=200, blank=True, null=True)
+    work_experience = models.CharField(max_length=200, blank=True, null=True)
+    budget = models.CharField(max_length=100, blank=True, null=True)
     
     # Marketing Tracking Fields
     campaign_name = models.CharField(max_length=255, blank=True, null=True)

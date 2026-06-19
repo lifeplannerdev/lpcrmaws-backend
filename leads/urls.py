@@ -23,6 +23,7 @@ from .views import (
     WebhookLogListView,
     UnifiedTimelineAPIView,
     LeadDocumentListCreateView,
+    BulkPasteLeadsView,
 )
 from .webhooks import meta_webhook, voxbay_webhook, meta_process_webhook
 
@@ -33,6 +34,7 @@ urlpatterns = [
     path('leads/create/', LeadCreateView.as_view(), name='lead-create'),
     path('leads/assign/', LeadAssignView.as_view(), name='lead-assign'),
     path('leads/bulk-upload/', BulkLeadUploadView.as_view(), name='lead-bulk-upload'),
+    path('leads/bulk-paste/', BulkPasteLeadsView.as_view(), name='lead-bulk-paste'),
     path('leads/bulk-assign/', BulkLeadAssignView.as_view(), name='bulk-lead-assign'),
     path('leads/unassign/', UnassignLeadView.as_view(), name='lead-unassign'),
     path('leads/my-team/', MyTeamLeadsView.as_view(), name='my-team-leads'),

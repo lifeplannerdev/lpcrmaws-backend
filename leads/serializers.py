@@ -237,6 +237,8 @@ class LeadListSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'name', 'phone', 'email', 'location',
             'status', 'priority', 'program', 'source', 'custom_source',
+            'interested_country', 'interested_course', 'previous_qualification', 
+            'work_experience', 'budget',
             'processing_status',
             'assigned_to', 'assigned_by', 'assigned_date',
             'sub_assigned_to', 'sub_assigned_by', 'sub_assigned_date',
@@ -342,6 +344,8 @@ class LeadUpdateSerializer(serializers.ModelSerializer):
         fields = [
             'name', 'phone', 'email', 'location', 'remarks',
             'priority', 'status', 'program', 'source', 'custom_source', 'company',
+            'interested_country', 'interested_course', 'previous_qualification', 
+            'work_experience', 'budget',
         ]
 
     def validate_priority(self, value):
