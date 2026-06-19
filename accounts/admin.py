@@ -10,7 +10,7 @@ class CustomUserAdmin(UserAdmin):
         ('Personal info', {
             'fields': ('first_name', 'last_name', 'email', 'location', 'phone')
         }),
-        ('Role info', {'fields': ('role', 'team', 'salary')}),
+        ('Role info', {'fields': ('db_roles', 'company', 'team', 'salary')}),
         ('Permissions', {
             'fields': (
                 'is_active',
