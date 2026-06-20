@@ -74,6 +74,70 @@ def _resolve_recording_url(raw_url):
     return VOXBAY_RECORDING_BASE_URL + raw_url
 
 
+def process_voxbay_call_log(obj):
+    if obj.call_type != 'incoming':
+        return
+
+    caller_number = obj.caller_number
+    if not caller_number:
+        return
+
+    from leads.models import Lead, FollowUp
+    from accounts.models import User
+    from django.utils import timezone
+
+    agent_user = None
+    if obj.agent_number:
+        agent_user = User.objects.filter(voxbay_number=obj.agent_number).first()
+
+    existing_lead = Lead.objects.filter(phone=caller_number).first()
+
+    if obj.call_status == 'ANSWER':
+        if not existing_lead and agent_user:
+            existing_lead = Lead.objects.create(
+                name=f"Voxbay Caller - {caller_number}",
+                phone=caller_number,
+                source='VOXBAY CALL',
+                status='ENQUIRY',
+                assigned_to=agent_user
+            )
+
+        if existing_lead and agent_user:
+            duration_str = str(obj.duration) + 's' if obj.duration else 'Unknown'
+            notes = f"Answered Call\nDuration: {duration_str}\n"
+            if obj.recording_url:
+                notes += f"Recording: {obj.recording_url}\n"
+            notes += f"\nCall UUID: {obj.call_uuid}"
+
+            if not FollowUp.objects.filter(lead=existing_lead, assigned_to=agent_user, notes__contains=obj.call_uuid, status='contacted').exists():
+                FollowUp.objects.create(
+                    lead=existing_lead,
+                    assigned_to=agent_user,
+                    follow_up_date=obj.created_at.date() if obj.created_at else timezone.now().date(),
+                    followup_type='call',
+                    status='contacted',
+                    priority='medium',
+                    notes=notes,
+                )
+    else:
+        if existing_lead:
+            answered_exists = VoxbayCallLog.objects.filter(call_uuid=obj.call_uuid, call_status='ANSWER').exists()
+            if not answered_exists:
+                notes = f"Missed Call from Lead\nCall UUID: {obj.call_uuid}"
+                lead_owner = existing_lead.assigned_to
+                if lead_owner and not FollowUp.objects.filter(lead=existing_lead, status='pending', notes__contains=obj.call_uuid).exists():
+                    FollowUp.objects.create(
+                        lead=existing_lead,
+                        assigned_to=lead_owner,
+                        follow_up_date=timezone.now().date(),
+                        followup_type='call',
+                        status='pending',
+                        priority='high',
+                        notes=notes,
+                    )
+
+
+
 def _date_filter(qs, request):
     from django.utils.dateparse import parse_datetime, parse_date
     from_str = request.query_params.get("from")
@@ -284,6 +348,10 @@ class VoxbayWebhookView(APIView):
                 f"[Voxbay Webhook] {'created' if created else 'updated'} "
                 f"CallLog id={obj.id} uuid={call_uuid}"
             )
+            try:
+                process_voxbay_call_log(obj)
+            except Exception as e:
+                logger.error(f"[Voxbay] Error processing call log for lead generation: {e}")
         else:
             logger.warning(
                 f"[Voxbay Webhook] no UUID in payload – rejecting. raw_body={raw_body}"
@@ -519,4 +587,83 @@ class ClickToCallView(APIView):
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
+# ─── Unique Missed Calls ──────────────────────────────────────────────────────
 
+class UnassignedMissedCallsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if not has_dynamic_permission(request.user, "voxbay:admin"):
+            return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+
+        # Get all incoming missed calls (not ANSWER)
+        missed_logs = VoxbayCallLog.objects.filter(call_type='incoming').exclude(call_status='ANSWER')
+        
+        # Get all CallUUIDs that HAVE been answered
+        answered_uuids = VoxbayCallLog.objects.filter(call_type='incoming', call_status='ANSWER').values_list('call_uuid', flat=True)
+        
+        # Exclude those that were eventually answered
+        unique_missed = missed_logs.exclude(call_uuid__in=answered_uuids).order_by('-created_at')
+
+        # To avoid showing the same ring multiple times if it rang 3 agents and none answered:
+        # We can group by CallUUID and return the latest
+        unique_missed_dict = {}
+        for log in unique_missed:
+            if log.call_uuid not in unique_missed_dict:
+                unique_missed_dict[log.call_uuid] = log
+
+        logs_to_return = list(unique_missed_dict.values())
+        serializer = VoxbayCallLogSerializer(logs_to_return, many=True)
+        return Response(serializer.data)
+
+
+class AssignMissedCallView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, call_uuid):
+        if not has_dynamic_permission(request.user, "voxbay:admin"):
+            return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+
+        agent_id = request.data.get('agent_id')
+        if not agent_id:
+            return Response({"error": "agent_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        from accounts.models import User
+        from leads.models import Lead, FollowUp
+        from django.utils import timezone
+
+        agent = User.objects.filter(id=agent_id).first()
+        if not agent:
+            return Response({"error": "Agent not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        log = VoxbayCallLog.objects.filter(call_uuid=call_uuid).first()
+        if not log:
+            return Response({"error": "Call log not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        caller_number = log.caller_number
+        existing_lead = Lead.objects.filter(phone=caller_number).first()
+
+        if not existing_lead:
+            existing_lead = Lead.objects.create(
+                name=f"Voxbay Caller - {caller_number}",
+                phone=caller_number,
+                source='VOXBAY CALL',
+                status='ENQUIRY',
+                assigned_to=agent
+            )
+        
+        notes = f"Missed Call assigned by Admin\nCall UUID: {log.call_uuid}"
+        
+        lead_owner = existing_lead.assigned_to
+        if not FollowUp.objects.filter(lead=existing_lead, status='pending', notes__contains=log.call_uuid).exists():
+            FollowUp.objects.create(
+                lead=existing_lead,
+                assigned_to=agent,
+                follow_up_date=timezone.now().date(),
+                followup_type='call',
+                status='pending',
+                priority='high',
+                notes=notes,
+            )
+
+        return Response({"message": "Successfully assigned"}, status=status.HTTP_200_OK)
