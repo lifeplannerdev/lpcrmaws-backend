@@ -303,13 +303,10 @@ class CallLogListView(APIView):
 
         if not has_dynamic_permission(request.user, 'voxbay:read_all'):
             if has_dynamic_permission(request.user, 'voxbay:read_own'):
-                user_phone = getattr(request.user, 'phone', None)
+                voxbay_number = getattr(request.user, 'voxbay_number', None)
                 agent_numbers = []
-                if user_phone:
-                    base_phone = user_phone[-10:] if len(user_phone) >= 10 else user_phone
-                    agents = VoxbayAgent.objects.filter(phone_number__endswith=base_phone)
-                    agent_numbers = list(agents.values_list('phone_number', flat=True))
-                    agent_numbers.extend([e for e in agents.values_list('extension', flat=True) if e])
+                if voxbay_number:
+                    agent_numbers.append(voxbay_number)
                 
                 from leads.models import Lead
                 assigned_phones = list(Lead.objects.filter(

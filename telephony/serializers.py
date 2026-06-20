@@ -1,6 +1,8 @@
+from django.contrib.auth import get_user_model
 from rest_framework import serializers
 from .models import VoxbayCallLog, VoxbayAgent
 
+User = get_user_model()
 
 class VoxbayAgentSerializer(serializers.ModelSerializer):
     class Meta:
@@ -21,6 +23,7 @@ class VoxbayCallLogSerializer(serializers.ModelSerializer):
     conversation_duration_display = serializers.SerializerMethodField()
     is_lead                       = serializers.SerializerMethodField()
     lead_id                       = serializers.SerializerMethodField()
+    agent_name                    = serializers.SerializerMethodField()
 
     class Meta:
         model  = VoxbayCallLog
@@ -48,8 +51,17 @@ class VoxbayCallLogSerializer(serializers.ModelSerializer):
             'updated_at',
             'is_lead',
             'lead_id',
+            'agent_name',
         ]
         read_only_fields = fields
+
+    def get_agent_name(self, obj):
+        if not obj.agent_number:
+            return None
+        user = User.objects.filter(voxbay_number=obj.agent_number).first()
+        if user:
+            return user.get_full_name() or user.username
+        return None
 
     def get_is_lead(self, obj):
         if not obj.caller_number:
