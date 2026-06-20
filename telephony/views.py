@@ -213,7 +213,19 @@ class VoxbayWebhookView(APIView):
 
     def post(self, request):
         data = request.data
-        logger.info(f"[Voxbay Webhook] payload={dict(data)}")
+        if not data:
+            data = request.query_params
+
+        raw_body = ""
+        try:
+            raw_body = request.body.decode("utf-8")
+        except Exception:
+            raw_body = "<undecodable body>"
+
+        if data:
+            logger.info(f"[Voxbay Webhook] payload={dict(data)}")
+        else:
+            logger.info(f"[Voxbay Webhook] payload is empty. raw_body={raw_body}")
 
         call_type = (
             "outgoing"
@@ -273,10 +285,10 @@ class VoxbayWebhookView(APIView):
                 f"CallLog id={obj.id} uuid={call_uuid}"
             )
         else:
-            obj = VoxbayCallLog.objects.create(**defaults)
             logger.warning(
-                f"[Voxbay Webhook] no UUID in payload – created new row id={obj.id}"
+                f"[Voxbay Webhook] no UUID in payload – rejecting. raw_body={raw_body}"
             )
+            return Response({"error": "Missing CallUUID"}, status=status.HTTP_400_BAD_REQUEST)
 
         return HttpResponse("success", content_type="text/plain")
 
