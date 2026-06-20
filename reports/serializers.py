@@ -44,6 +44,8 @@ class DailyReportSerializer(serializers.ModelSerializer):
     completion_percentage = serializers.ReadOnlyField()
     is_report_late = serializers.ReadOnlyField()
     is_agenda_late = serializers.ReadOnlyField()
+    agenda_late_by = serializers.ReadOnlyField()
+    report_late_by = serializers.ReadOnlyField()
 
     class Meta:
         model = DailyReport
@@ -52,6 +54,7 @@ class DailyReportSerializer(serializers.ModelSerializer):
             "report_heading", "report_text", "report_submitted_at",
             "agenda_heading", "next_day_agenda", "agenda_submitted_at",
             "completion_percentage", "is_report_late", "is_agenda_late",
+            "agenda_late_by", "report_late_by",
             "file_url", "view_url",   
             "attachments",
             "report_date", "status", "review_comment",

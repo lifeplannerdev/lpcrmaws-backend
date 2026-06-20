@@ -144,6 +144,55 @@ class DailyReport(models.Model):
         deadline = timezone.make_aware(deadline) if timezone.is_naive(deadline) else deadline
         return self.report_submitted_at > deadline
 
+    @staticmethod
+    def _format_timedelta(td):
+        total_seconds = int(td.total_seconds())
+        if total_seconds <= 0:
+            return None
+        hours = total_seconds // 3600
+        minutes = (total_seconds % 3600) // 60
+        if hours > 0:
+            return f"{hours}h {minutes}m" if minutes > 0 else f"{hours}h"
+        return f"{minutes}m" if minutes > 0 else "< 1m"
+
+    @property
+    def agenda_late_by(self):
+        if not self.agenda_submitted_at:
+            return None
+        try:
+            settings = self.user.report_settings
+        except ReportTimingSettings.DoesNotExist:
+            return None
+            
+        if settings.agenda_policy == 'MORNING_OF':
+            deadline = timezone.datetime.combine(self.report_date, settings.agenda_deadline)
+            deadline = timezone.make_aware(deadline) if timezone.is_naive(deadline) else deadline
+            if self.agenda_submitted_at > deadline:
+                return self._format_timedelta(self.agenda_submitted_at - deadline)
+        elif settings.agenda_policy == 'EVENING_BEFORE':
+            from datetime import timedelta
+            deadline_date = self.report_date - timedelta(days=1)
+            deadline = timezone.datetime.combine(deadline_date, settings.agenda_deadline)
+            deadline = timezone.make_aware(deadline) if timezone.is_naive(deadline) else deadline
+            if self.agenda_submitted_at > deadline:
+                return self._format_timedelta(self.agenda_submitted_at - deadline)
+        return None
+
+    @property
+    def report_late_by(self):
+        if not self.report_submitted_at:
+            return None
+        try:
+            settings = self.user.report_settings
+        except ReportTimingSettings.DoesNotExist:
+            return None
+            
+        deadline = timezone.datetime.combine(self.report_date, settings.report_deadline)
+        deadline = timezone.make_aware(deadline) if timezone.is_naive(deadline) else deadline
+        if self.report_submitted_at > deadline:
+            return self._format_timedelta(self.report_submitted_at - deadline)
+        return None
+
 
 class DailyReportAttachment(models.Model):
     report = models.ForeignKey(
