@@ -19,6 +19,8 @@ class VoxbayAgentSerializer(serializers.ModelSerializer):
 class VoxbayCallLogSerializer(serializers.ModelSerializer):
     duration_display              = serializers.SerializerMethodField()
     conversation_duration_display = serializers.SerializerMethodField()
+    is_lead                       = serializers.SerializerMethodField()
+    lead_id                       = serializers.SerializerMethodField()
 
     class Meta:
         model  = VoxbayCallLog
@@ -44,8 +46,23 @@ class VoxbayCallLogSerializer(serializers.ModelSerializer):
             'transferred_number',
             'created_at',
             'updated_at',
+            'is_lead',
+            'lead_id',
         ]
         read_only_fields = fields
+
+    def get_is_lead(self, obj):
+        if not obj.caller_number:
+            return False
+        from leads.models import Lead
+        return Lead.objects.filter(phone=obj.caller_number).exists()
+
+    def get_lead_id(self, obj):
+        if not obj.caller_number:
+            return None
+        from leads.models import Lead
+        lead = Lead.objects.filter(phone=obj.caller_number).first()
+        return lead.id if lead else None
 
     def get_duration_display(self, obj):
         if not obj.duration:

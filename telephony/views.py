@@ -8,7 +8,8 @@ from django.http import HttpResponse
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from accounts.permissions import has_dynamic_permission
 
 from .models import VoxbayCallLog, VoxbayAgent
 from .serializers import (
@@ -27,16 +28,27 @@ VOXBAY_RECORDING_BASE_URL = "https://x.voxbay.com:81/callcenter/"
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _parse_dt(date_str, time_str=None):
+    if not date_str and time_str:
+        date_str = time_str
+        time_str = None
+        
     if not date_str:
         return None
+        
     combined = f"{date_str} {time_str}".strip() if time_str else date_str.strip()
     for fmt in (
         "%Y/%m/%d %H:%M:%S",
         "%Y-%m-%d %H:%M:%S",
+        "%d-%m-%Y %H:%M:%S",
+        "%d/%m/%Y %H:%M:%S",
         "%Y/%m/%d %H:%M",
         "%Y-%m-%d %H:%M",
+        "%d-%m-%Y %H:%M",
+        "%d/%m/%Y %H:%M",
         "%Y/%m/%d",
         "%Y-%m-%d",
+        "%d-%m-%Y",
+        "%d/%m/%Y",
     ):
         try:
             return datetime.strptime(combined, fmt)
@@ -106,8 +118,8 @@ class VoxbayAgentListView(APIView):
     def get(self, request):
         qs = VoxbayAgent.objects.filter(is_active=True)
 
-        # ?format=map  →  { "918089040107": "Shahida Beevi AM HQ", ... }
-        if request.query_params.get("format") == "map":
+        # ?output=map  →  { "918089040107": "Shahida Beevi AM HQ", ... }
+        if request.query_params.get("output") == "map":
             mapping = {a.phone_number: a.name for a in qs}
             # also index by extension so both keys work
             for a in qs:
@@ -272,10 +284,35 @@ class VoxbayWebhookView(APIView):
 # ─── Call Log List ────────────────────────────────────────────────────────────
 
 class CallLogListView(APIView):
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         qs = VoxbayCallLog.objects.all()
+
+        if not has_dynamic_permission(request.user, 'voxbay:read_all'):
+            if has_dynamic_permission(request.user, 'voxbay:read_own'):
+                user_phone = getattr(request.user, 'phone', None)
+                agent_numbers = []
+                if user_phone:
+                    base_phone = user_phone[-10:] if len(user_phone) >= 10 else user_phone
+                    agents = VoxbayAgent.objects.filter(phone_number__endswith=base_phone)
+                    agent_numbers = list(agents.values_list('phone_number', flat=True))
+                    agent_numbers.extend([e for e in agents.values_list('extension', flat=True) if e])
+                
+                from leads.models import Lead
+                assigned_phones = list(Lead.objects.filter(
+                    Q(assigned_to=request.user) | Q(sub_assigned_to=request.user)
+                ).values_list('phone', flat=True))
+                
+                qs = qs.filter(
+                    Q(agent_number__in=agent_numbers) |
+                    Q(extension__in=agent_numbers) |
+                    Q(caller_number__in=assigned_phones) |
+                    Q(called_number__in=assigned_phones)
+                )
+            else:
+                qs = qs.none()
+
         qs = _date_filter(qs, request)
 
         call_type = request.query_params.get("call_type")
@@ -348,10 +385,35 @@ class CallLogDetailView(APIView):
 # ─── Call Statistics ──────────────────────────────────────────────────────────
 
 class CallStatsView(APIView):
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         qs = VoxbayCallLog.objects.all()
+        
+        if not has_dynamic_permission(request.user, 'voxbay:read_all'):
+            if has_dynamic_permission(request.user, 'voxbay:read_own'):
+                user_phone = getattr(request.user, 'phone', None)
+                agent_numbers = []
+                if user_phone:
+                    base_phone = user_phone[-10:] if len(user_phone) >= 10 else user_phone
+                    agents = VoxbayAgent.objects.filter(phone_number__endswith=base_phone)
+                    agent_numbers = list(agents.values_list('phone_number', flat=True))
+                    agent_numbers.extend([e for e in agents.values_list('extension', flat=True) if e])
+                
+                from leads.models import Lead
+                assigned_phones = list(Lead.objects.filter(
+                    Q(assigned_to=request.user) | Q(sub_assigned_to=request.user)
+                ).values_list('phone', flat=True))
+                
+                qs = qs.filter(
+                    Q(agent_number__in=agent_numbers) |
+                    Q(extension__in=agent_numbers) |
+                    Q(caller_number__in=assigned_phones) |
+                    Q(called_number__in=assigned_phones)
+                )
+            else:
+                qs = qs.none()
+                
         qs = _date_filter(qs, request)
 
         call_type = request.query_params.get("call_type")
@@ -393,7 +455,7 @@ class CallStatsView(APIView):
 # ─── Click-to-Call ────────────────────────────────────────────────────────────
 
 class ClickToCallView(APIView):
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         serializer = ClickToCallSerializer(data=request.data)
