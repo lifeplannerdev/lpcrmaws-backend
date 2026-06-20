@@ -598,6 +598,7 @@ class UnassignedMissedCallsView(APIView):
 
         # Get all incoming missed calls (not ANSWER)
         missed_logs = VoxbayCallLog.objects.filter(call_type='incoming').exclude(call_status='ANSWER')
+        missed_logs = _date_filter(missed_logs, request)
         
         # Get all CallUUIDs that HAVE been answered
         answered_uuids = VoxbayCallLog.objects.filter(call_type='incoming', call_status='ANSWER').values_list('call_uuid', flat=True)
