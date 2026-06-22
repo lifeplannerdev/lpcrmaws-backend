@@ -84,6 +84,26 @@ class LeadListView(generics.ListAPIView):
             'assigned_to', 'assigned_by',
             'sub_assigned_to', 'sub_assigned_by',
         )
+        
+        from django.utils import timezone
+        if self.request.query_params.get('daily_agenda') == 'true':
+            today = timezone.localtime(timezone.now()).date()
+            from django.db.models import Exists, OuterRef, Q
+            return base_qs.filter(
+                models.Q(assigned_to=user, assigned_date__date=today) |
+                models.Q(sub_assigned_to=user, sub_assigned_date__date=today) |
+                models.Q(assigned_to=user, followups__follow_up_date=today, followups__status='pending') |
+                models.Q(sub_assigned_to=user, followups__follow_up_date=today, followups__status='pending')
+            ).annotate(
+                has_follow_up_today=Exists(
+                    FollowUp.objects.filter(
+                        lead=OuterRef('pk'),
+                        follow_up_date=today,
+                        status='pending'
+                    )
+                )
+            ).distinct()
+
         from accounts.permissions import has_dynamic_permission
         if (user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists() or 
             has_dynamic_permission(user, 'leads:read_any') or 

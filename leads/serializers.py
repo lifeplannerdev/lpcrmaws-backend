@@ -231,6 +231,7 @@ class LeadListSerializer(serializers.ModelSerializer):
     sub_assigned_to = UserSimpleSerializer(read_only=True)
     sub_assigned_by = UserSimpleSerializer(read_only=True)
     current_handler = serializers.SerializerMethodField()
+    agenda_type     = serializers.SerializerMethodField()
 
     class Meta:
         model  = Lead
@@ -243,8 +244,19 @@ class LeadListSerializer(serializers.ModelSerializer):
             'assigned_to', 'assigned_by', 'assigned_date',
             'sub_assigned_to', 'sub_assigned_by', 'sub_assigned_date',
             'current_handler', 'company',
-            'created_at',
+            'created_at', 'agenda_type',
         ]
+
+    def get_agenda_type(self, obj):
+        request = self.context.get('request')
+        if not request or request.query_params.get('daily_agenda') != 'true':
+            return 'Normal'
+        
+        # If we annotated has_follow_up_today, use it
+        if getattr(obj, 'has_follow_up_today', False):
+            return 'Follow-up'
+            
+        return 'Fresh'
 
     def get_current_handler(self, obj):
         handler = obj.current_handler
