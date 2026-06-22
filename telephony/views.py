@@ -93,7 +93,7 @@ def process_voxbay_call_log(obj):
 
     existing_lead = Lead.objects.filter(phone=caller_number).first()
 
-    if obj.call_status == 'ANSWER':
+    if obj.call_status in ['ANSWER', 'ANSWERED']:
         if not existing_lead and agent_user:
             existing_lead = Lead.objects.create(
                 name=f"Voxbay Caller - {caller_number}",
@@ -122,7 +122,7 @@ def process_voxbay_call_log(obj):
                 )
     else:
         if existing_lead:
-            answered_exists = VoxbayCallLog.objects.filter(call_uuid=obj.call_uuid, call_status='ANSWER').exists()
+            answered_exists = VoxbayCallLog.objects.filter(call_uuid=obj.call_uuid, call_status__in=['ANSWER', 'ANSWERED']).exists()
             if not answered_exists:
                 notes = f"Missed Call from Lead\nCall UUID: {obj.call_uuid}"
                 lead_owner = existing_lead.assigned_to
