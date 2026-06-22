@@ -49,6 +49,7 @@ class BulkPasteLeadsView(APIView):
             if existing_lead:
                 # Update existing
                 existing_lead.assigned_to = assignee
+                existing_lead.assigned_date = timezone.now()
                 existing_lead.status = lead_status
                 if name and not existing_lead.name:
                     existing_lead.name = name
@@ -92,6 +93,7 @@ class BulkPasteLeadsView(APIView):
                     status=lead_status,
                     assigned_to=assignee,
                     assigned_by=request.user,
+                    assigned_date=timezone.now(),
                     company=company,
                     source='BULK DATA',
                     created_by=request.user
