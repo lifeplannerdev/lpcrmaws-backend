@@ -351,3 +351,8 @@ if CLOUDINARY_URL:
         api_secret=CLOUDINARY_URL.split(':')[2].split('@')[0],
         secure=True
     )
+
+# Voxbay config
+import os
+VOXBAY_UID = os.environ.get('VOXBAY_UID')
+VOXBAY_UPIN = os.environ.get('VOXBAY_UPIN')

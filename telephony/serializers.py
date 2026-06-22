@@ -103,8 +103,6 @@ class CallStatsSerializer(serializers.Serializer):
 
 
 class ClickToCallSerializer(serializers.Serializer):
-    uid         = serializers.CharField(max_length=100)
-    upin        = serializers.CharField(max_length=100)
     user_no     = serializers.CharField(max_length=50,  help_text="Extension number")
     destination = serializers.CharField(max_length=30,  help_text="Destination mobile number")
     callerid    = serializers.CharField(max_length=30,  help_text="DID number to show as caller ID")

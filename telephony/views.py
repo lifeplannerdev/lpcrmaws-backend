@@ -1,3 +1,4 @@
+from django.conf import settings
 import logging
 import requests
 from datetime import datetime
@@ -543,10 +544,21 @@ class ClickToCallView(APIView):
             )
 
         validated = serializer.validated_data
+        
+        voxbay_uid = getattr(settings, 'VOXBAY_UID', None)
+        voxbay_upin = getattr(settings, 'VOXBAY_UPIN', None)
+        
+        if not voxbay_uid or not voxbay_upin:
+            logger.error("[Click-to-Call] VOXBAY_UID or VOXBAY_UPIN missing from settings")
+            return Response(
+                {"error": "Server configuration error: Voxbay credentials not set"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
         params = {
             "id_dept":     0,
-            "uid":         validated["uid"],
-            "upin":        validated["upin"],
+            "uid":         voxbay_uid,
+            "upin":        voxbay_upin,
             "user_no":     validated["user_no"],
             "destination": validated["destination"],
             "callerid":    validated["callerid"],
