@@ -452,6 +452,8 @@ class BulkLeadCreateSerializer(LeadCreateSerializer):
 class FollowUpSerializer(serializers.ModelSerializer):
     is_overdue      = serializers.ReadOnlyField()
     contact_display = serializers.ReadOnlyField()
+    lead_program    = serializers.CharField(source='lead.program', read_only=True)
+    lead_status     = serializers.CharField(source='lead.status', read_only=True)
     assigned_to     = UserSimpleSerializer(read_only=True) 
     assigned_to_id  = serializers.PrimaryKeyRelatedField(  
         queryset=User.objects.all(),

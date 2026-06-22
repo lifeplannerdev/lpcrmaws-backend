@@ -23,6 +23,7 @@ class VoxbayCallLogSerializer(serializers.ModelSerializer):
     conversation_duration_display = serializers.SerializerMethodField()
     is_lead                       = serializers.SerializerMethodField()
     lead_id                       = serializers.SerializerMethodField()
+    lead_name                     = serializers.SerializerMethodField()
     agent_name                    = serializers.SerializerMethodField()
 
     class Meta:
@@ -51,6 +52,7 @@ class VoxbayCallLogSerializer(serializers.ModelSerializer):
             'updated_at',
             'is_lead',
             'lead_id',
+            'lead_name',
             'agent_name',
         ]
         read_only_fields = fields
@@ -63,18 +65,33 @@ class VoxbayCallLogSerializer(serializers.ModelSerializer):
             return user.get_full_name() or user.username
         return None
 
+    def _get_target_number(self, obj):
+        if obj.call_type == 'outgoing':
+            return obj.destination or obj.called_number
+        return obj.caller_number
+
     def get_is_lead(self, obj):
-        if not obj.caller_number:
+        target = self._get_target_number(obj)
+        if not target:
             return False
         from leads.models import Lead
-        return Lead.objects.filter(phone=obj.caller_number).exists()
+        return Lead.objects.filter(phone=target).exists()
 
     def get_lead_id(self, obj):
-        if not obj.caller_number:
+        target = self._get_target_number(obj)
+        if not target:
             return None
         from leads.models import Lead
-        lead = Lead.objects.filter(phone=obj.caller_number).first()
+        lead = Lead.objects.filter(phone=target).first()
         return lead.id if lead else None
+
+    def get_lead_name(self, obj):
+        target = self._get_target_number(obj)
+        if not target:
+            return None
+        from leads.models import Lead
+        lead = Lead.objects.filter(phone=target).first()
+        return lead.name if lead else None
 
     def get_duration_display(self, obj):
         if not obj.duration:
