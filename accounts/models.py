@@ -49,6 +49,7 @@ class User(AbstractUser):
     personal_phone = models.CharField(max_length=20, blank=True, null=True)
     office_phone = models.CharField(max_length=20, blank=True, null=True)
     voxbay_number = models.CharField(max_length=30, blank=True, null=True, help_text="The Agent Number or DID assigned to this user in Voxbay")
+    voxbay_extension = models.CharField(max_length=20, blank=True, null=True, help_text="The extension mapped to this user in Voxbay (used for Click-to-Call)")
     location = models.CharField(max_length=100, blank=True, null=True)
     salary = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
     join_date = models.DateField(blank=True, null=True)

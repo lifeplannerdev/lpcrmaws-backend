@@ -545,6 +545,13 @@ class ClickToCallView(APIView):
 
         validated = serializer.validated_data
         
+        voxbay_extension = request.user.voxbay_extension
+        if not voxbay_extension:
+            return Response(
+                {"error": "Your Voxbay extension is not configured. Please contact an admin."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         voxbay_uid = getattr(settings, 'VOXBAY_UID', None)
         voxbay_upin = getattr(settings, 'VOXBAY_UPIN', None)
         
@@ -559,9 +566,9 @@ class ClickToCallView(APIView):
             "id_dept":     0,
             "uid":         voxbay_uid,
             "upin":        voxbay_upin,
-            "user_no":     validated["user_no"],
+            "user_no":     voxbay_extension,
             "destination": validated["destination"],
-            "callerid":    validated["callerid"],
+            "callerid":    voxbay_extension,
         }
         if validated.get("source"):
             params["source"] = validated["source"]

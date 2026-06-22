@@ -54,7 +54,8 @@ class StaffListSerializer(serializers.ModelSerializer):
             'permissions',
             'db_roles',
             'role_names',
-            'voxbay_number'
+            'voxbay_number',
+            'voxbay_extension'
         ]
         read_only_fields = fields
 
@@ -95,7 +96,8 @@ class StaffDetailSerializer(serializers.ModelSerializer):
             'db_roles',
             'role_names',
             'is_on_leave',
-            'voxbay_number'
+            'voxbay_number',
+            'voxbay_extension'
         ]
         read_only_fields = ['date_joined', 'last_login']
 
@@ -140,7 +142,8 @@ class StaffCreateSerializer(serializers.ModelSerializer):
             'join_date',
             'db_roles',
             'is_on_leave',
-            'voxbay_number'
+            'voxbay_number',
+            'voxbay_extension'
         ]
     
     def create(self, validated_data):
@@ -177,7 +180,8 @@ class StaffUpdateSerializer(serializers.ModelSerializer):
             'permissions',
             'db_roles',
             'is_on_leave',
-            'voxbay_number'
+            'voxbay_number',
+            'voxbay_extension'
         ]
 
 
