@@ -127,7 +127,7 @@ class StudentFeeAccount(models.Model):
             self.status = 'ACTIVE'
 
         if save:
-            self.save(update_fields=['total_paid', 'balance_due', 'overdue_amount', 'status', 'closed_at', 'updated_at'])
+            self.save(update_fields=['total_paid', 'total_due', 'balance_due', 'overdue_amount', 'status', 'closed_at', 'updated_at'])
 
 
 class FeeInstallment(models.Model):

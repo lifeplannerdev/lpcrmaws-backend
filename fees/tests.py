@@ -19,18 +19,14 @@ class FeeAccessTests(APITestCase):
         self.trainer_user = User.objects.create_user(
             username='trainer-fee',
             password='pass12345',
-            role='TRAINER',
             company='FLAG',
             permissions=get_permissions_for_role('TRAINER'),
         )
-        self.trainer = self.trainer_user.trainer_profile
-        self.trainer.branch = self.branch
-        self.trainer.save(update_fields=['branch'])
+        self.trainer = Trainer.objects.create(user=self.trainer_user, branch=self.branch)
 
         self.accounts_user = User.objects.create_user(
             username='accounts',
             password='pass12345',
-            role='ACCOUNTS',
             company='FLAG',
             permissions=get_permissions_for_role('ACCOUNTS'),
         )
@@ -113,7 +109,8 @@ class FeeAccessTests(APITestCase):
         self.account.refresh_from_db()
         self.installment.refresh_from_db()
         self.assertEqual(str(self.account.total_paid), '200.00')
-        self.assertEqual(str(self.account.balance_due), '21040.00')
+        self.assertEqual(str(self.account.total_due), '1000.00')
+        self.assertEqual(str(self.account.balance_due), '800.00')
         self.assertEqual(str(self.installment.paid_amount), '200.00')
 
     def test_fee_catalog_is_readable_for_trainer_visibility(self):

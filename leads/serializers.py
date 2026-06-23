@@ -469,6 +469,8 @@ class FollowUpSerializer(serializers.ModelSerializer):
     contact_display = serializers.ReadOnlyField()
     lead_program    = serializers.CharField(source='lead.program', read_only=True)
     lead_status     = serializers.CharField(source='lead.status', read_only=True)
+    lead_name       = serializers.CharField(source='lead.name', read_only=True)
+    lead_phone      = serializers.CharField(source='lead.phone', read_only=True)
     assigned_to     = UserSimpleSerializer(read_only=True) 
     assigned_to_id  = serializers.PrimaryKeyRelatedField(  
         queryset=User.objects.all(),

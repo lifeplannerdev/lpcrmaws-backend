@@ -94,7 +94,7 @@ class FeePaymentSerializer(serializers.ModelSerializer):
             account.last_payment_date = timezone.localdate(payment.payment_date)
             account.updated_by = request.user
             account.save(update_fields=[
-                'total_paid', 'balance_due', 'overdue_amount', 'status',
+                'total_paid', 'total_due', 'balance_due', 'overdue_amount', 'status',
                 'last_payment_date', 'updated_by', 'updated_at'
             ])
 

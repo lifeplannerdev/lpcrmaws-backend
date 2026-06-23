@@ -19,29 +19,22 @@ class StudentAccessTests(APITestCase):
         self.trainer_user = User.objects.create_user(
             username='trainer1',
             password='pass12345',
-            role='TRAINER',
             company='FLAG',
             permissions=get_permissions_for_role('TRAINER'),
         )
-        self.trainer = self.trainer_user.trainer_profile
-        self.trainer.branch = self.branch
-        self.trainer.save(update_fields=['branch'])
+        self.trainer = Trainer.objects.create(user=self.trainer_user, branch=self.branch)
 
         self.other_trainer_user = User.objects.create_user(
             username='trainer2',
             password='pass12345',
-            role='TRAINER',
             company='FLAG',
             permissions=get_permissions_for_role('TRAINER'),
         )
-        self.other_trainer = self.other_trainer_user.trainer_profile
-        self.other_trainer.branch = self.branch
-        self.other_trainer.save(update_fields=['branch'])
+        self.other_trainer = Trainer.objects.create(user=self.other_trainer_user, branch=self.branch)
 
         self.viewer_user = User.objects.create_user(
             username='viewer',
             password='pass12345',
-            role='HR',
             company='FLAG',
             permissions=['students:read_tenant'],
         )
@@ -99,13 +92,10 @@ class StudentEnrollmentFeeSyncTests(APITestCase):
         self.enroller = User.objects.create_user(
             username='enroller',
             password='pass12345',
-            role='TRAINER',
             company='FLAG',
             permissions=['students:edit_any', 'students:read_tenant', 'fees:read_tenant'],
         )
-        self.trainer = self.enroller.trainer_profile
-        self.trainer.branch = self.branch
-        self.trainer.save(update_fields=['branch'])
+        self.trainer = Trainer.objects.create(user=self.enroller, branch=self.branch)
 
     def _student_payload(self, fee_template=None):
         payload = {

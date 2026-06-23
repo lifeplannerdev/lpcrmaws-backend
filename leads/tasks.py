@@ -127,21 +127,29 @@ def process_voxbay_webhook(webhook_log_id, payload):
         log = WebhookLog.objects.filter(id=webhook_log_id).first()
         
     try:
-        caller_number = payload.get('caller_number') or payload.get('phone') or payload.get('number')
-        call_status = payload.get('status', '')
+        caller_number = payload.get('callerNumber') or payload.get('callerid') or payload.get('caller_number') or payload.get('phone') or payload.get('number')
+        call_status = payload.get('callStatus') or payload.get('status', '')
+        call_duration = payload.get('callDuration') or payload.get('duration') or payload.get('billsec', '')
+        audio_url = payload.get('recordingUrl') or payload.get('recording_url') or payload.get('callRecordingUrl') or payload.get('audio') or ''
         
         if caller_number:
             lead = Lead.objects.filter(phone=caller_number).first()
             if lead:
                 assignee = lead.current_handler or User.objects.filter(is_superuser=True).first()
                 if assignee:
+                    notes = f"Auto-scheduled from Voxbay call log. Call status: {call_status}"
+                    if call_duration:
+                        notes += f", Duration: {call_duration}s"
+                    if audio_url:
+                        notes += f"\n[Audio Recording: {audio_url}]"
+
                     FollowUp.objects.create(
                         lead=lead,
                         phone_number=lead.phone,
                         name=lead.name,
-                        follow_up_date=(timezone.now() + timedelta(days=1)).date(),
+                        follow_up_date=timezone.localtime(timezone.now()).date(),
                         followup_type='call',
-                        notes=f"Auto-scheduled from Voxbay call log. Call status: {call_status}",
+                        notes=notes,
                         priority='high',
                         status='pending',
                         assigned_to=assignee
