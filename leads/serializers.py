@@ -116,6 +116,9 @@ class LeadCreateSerializer(serializers.ModelSerializer):
         assigned_to_id = validated_data.pop('assigned_to', None)
         request        = self.context.get('request')
         creator        = getattr(request, 'user', None)
+        
+        if not assigned_to_id and creator:
+            assigned_to_id = creator.id
 
         lead = Lead.objects.create(**validated_data)
 
