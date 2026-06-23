@@ -84,6 +84,17 @@ class LeadListView(generics.ListAPIView):
             'assigned_to', 'assigned_by',
             'sub_assigned_to', 'sub_assigned_by',
         )
+
+        from accounts.permissions import has_dynamic_permission
+        if (user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists() or 
+            has_dynamic_permission(user, 'leads:read_any') or 
+            has_dynamic_permission(user, 'leads:read_tenant')):
+            perm_qs = base_qs.all()
+        else:
+            perm_qs = base_qs.filter(
+                models.Q(assigned_to=user) |
+                models.Q(sub_assigned_to=user)
+            )
         
         from django.utils import timezone
         if self.request.query_params.get('daily_agenda') == 'true':
@@ -93,11 +104,9 @@ class LeadListView(generics.ListAPIView):
             today_end = timezone.make_aware(datetime.combine(today, time.max))
             
             from django.db.models import Exists, OuterRef, Q
-            return base_qs.filter(
-                models.Q(assigned_to=user, assigned_date__range=(today_start, today_end)) |
-                models.Q(sub_assigned_to=user, sub_assigned_date__range=(today_start, today_end)) |
-                models.Q(assigned_to=user, followups__follow_up_date=today, followups__status='pending') |
-                models.Q(sub_assigned_to=user, followups__follow_up_date=today, followups__status='pending')
+            return perm_qs.filter(
+                models.Q(created_at__range=(today_start, today_end)) |
+                models.Q(followups__follow_up_date=today, followups__status='pending')
             ).annotate(
                 has_follow_up_today=Exists(
                     FollowUp.objects.filter(
@@ -108,16 +117,7 @@ class LeadListView(generics.ListAPIView):
                 )
             ).distinct()
 
-        from accounts.permissions import has_dynamic_permission
-        if (user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists() or 
-            has_dynamic_permission(user, 'leads:read_any') or 
-            has_dynamic_permission(user, 'leads:read_tenant')):
-            return base_qs.all().distinct()
-            
-        return base_qs.filter(
-            models.Q(assigned_to=user) |
-            models.Q(sub_assigned_to=user)
-        ).distinct()
+        return perm_qs.distinct()
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
