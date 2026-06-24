@@ -143,6 +143,15 @@ def process_voxbay_webhook(webhook_log_id, payload):
             call_duration = payload.get('conversationDuration') or payload.get('totalCallDuration') or payload.get('duration') or payload.get('callDuration', '')
             audio_url = payload.get('recording_URL') or payload.get('recording_url') or payload.get('recordingUrl') or payload.get('audio') or ''
             call_direction_text = "Incoming"
+
+        if not call_status and call_duration:
+            try:
+                if int(call_duration) > 0:
+                    call_status = "ANSWERED"
+                else:
+                    call_status = "MISSED"
+            except ValueError:
+                pass
         
         if lead_number:
             lead = Lead.objects.filter(phone=lead_number).first()

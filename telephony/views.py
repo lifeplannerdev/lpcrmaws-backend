@@ -318,12 +318,20 @@ class VoxbayWebhookView(APIView):
         def _set(key, val):
             if val not in (None, "", "None"):
                 defaults[key] = val
+        
+        duration_val = _safe_int(
+            data.get("totalCallDuration") or data.get("duration") or data.get("callDuration") or data.get("billsec")
+        )
+
+        raw_status = data.get("callStatus") or data.get("status")
+        if not raw_status and duration_val and duration_val > 0:
+            raw_status = "ANSWERED"
+        elif not raw_status:
+            raw_status = "MISSED"
 
         _set("call_type",             call_type)
-        _set("call_status",           data.get("callStatus") or data.get("status"))
-        _set("duration",              _safe_int(
-                                          data.get("totalCallDuration") or data.get("duration") or data.get("callDuration") or data.get("billsec")
-                                      ))
+        _set("call_status",           raw_status)
+        _set("duration",              duration_val)
         _set("conversation_duration", _safe_int(data.get("conversationDuration")))
         _set("recording_url",         _resolve_recording_url(
                                           data.get("recording_URL") or data.get("recording_url") or data.get("recordingUrl") or data.get("callRecordingUrl") or data.get("audio")
