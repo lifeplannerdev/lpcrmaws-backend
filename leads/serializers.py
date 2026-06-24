@@ -255,6 +255,13 @@ class LeadListSerializer(serializers.ModelSerializer):
         if not request or request.query_params.get('daily_agenda') != 'true':
             return 'Normal'
         
+        from django.utils import timezone
+        today = timezone.localtime(timezone.now()).date()
+        
+        # If created today, it's always Fresh
+        if obj.created_at and timezone.localtime(obj.created_at).date() == today:
+            return 'Fresh'
+
         # If we annotated has_follow_up_today, use it
         if getattr(obj, 'has_follow_up_today', False):
             return 'Follow-up'
