@@ -32,6 +32,8 @@ class LeadCreateSerializer(serializers.ModelSerializer):
             'name', 'phone', 'email', 'source', 'custom_source',
             'priority', 'program', 'location', 'remarks', 'status',
             'assigned_to', 'company',
+            'interested_country', 'interested_course', 'previous_qualification', 
+            'work_experience', 'budget',
         ]
 
     def validate_name(self, value):
@@ -242,7 +244,7 @@ class LeadListSerializer(serializers.ModelSerializer):
             'id', 'name', 'phone', 'email', 'location',
             'status', 'priority', 'program', 'source', 'custom_source',
             'interested_country', 'interested_course', 'previous_qualification', 
-            'work_experience', 'budget',
+            'work_experience', 'budget', 'remarks',
             'processing_status',
             'assigned_to', 'assigned_by', 'assigned_date',
             'sub_assigned_to', 'sub_assigned_by', 'sub_assigned_date',
