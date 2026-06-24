@@ -353,6 +353,8 @@ class VoxbayWebhookView(APIView):
             _set("caller_id",     data.get("callerid"))
             _set("caller_number", data.get("callerid"))
 
+        callevent = data.get("Callevent") or data.get("callevent") or data.get("event") or ""
+
         if call_uuid:
             obj, created = VoxbayCallLog.objects.update_or_create(
                 call_uuid=call_uuid,
@@ -360,12 +362,17 @@ class VoxbayWebhookView(APIView):
             )
             logger.info(
                 f"[Voxbay Webhook] {'created' if created else 'updated'} "
-                f"CallLog id={obj.id} uuid={call_uuid}"
+                f"CallLog id={obj.id} uuid={call_uuid} event={callevent}"
             )
-            try:
-                process_voxbay_call_log(obj)
-            except Exception as e:
-                logger.error(f"[Voxbay] Error processing call log for lead generation: {e}")
+            
+            # Skip timeline updates for intermediate events; wait for CDR
+            if callevent.strip().lower() not in ["call start", "start", "connect", "ringing", "disconnect"]:
+                try:
+                    process_voxbay_call_log(obj)
+                except Exception as e:
+                    logger.error(f"[Voxbay] Error processing call log for lead generation: {e}")
+            else:
+                logger.info(f"[Voxbay Webhook] Skipped timeline generation for intermediate event: {callevent}")
         else:
             logger.warning(
                 f"[Voxbay Webhook] no UUID in payload – rejecting. raw_body={raw_body}"

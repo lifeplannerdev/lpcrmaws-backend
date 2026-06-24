@@ -153,6 +153,14 @@ def process_voxbay_webhook(webhook_log_id, payload):
             except ValueError:
                 pass
         
+        callevent = payload.get("Callevent") or payload.get("callevent") or payload.get("event") or ""
+        
+        if callevent.strip().lower() in ["call start", "start", "connect", "ringing", "disconnect"]:
+            if log:
+                log.processed = True
+                log.save()
+            return
+            
         if lead_number:
             lead = Lead.objects.filter(phone=lead_number).first()
             if lead:
