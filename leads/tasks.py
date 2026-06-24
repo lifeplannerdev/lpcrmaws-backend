@@ -133,7 +133,7 @@ def process_voxbay_webhook(webhook_log_id, payload):
             # For outgoing, 'destination' is the lead's number
             lead_number = payload.get('destination') or payload.get('calledNumber') or payload.get('phone') or payload.get('number')
             call_status = payload.get('status') or payload.get('callStatus', '')
-            call_duration = payload.get('duration') or payload.get('conversationDuration') or payload.get('totalCallDuration', '')
+            call_duration = payload.get('duration') or payload.get('conversationDuration') or payload.get('totalCallDuration') or payload.get('callDuration') or payload.get('billsec', '')
             audio_url = payload.get('recording_URL') or payload.get('recording_url') or payload.get('recordingUrl') or payload.get('audio') or ''
             call_direction_text = "Outgoing"
         else:

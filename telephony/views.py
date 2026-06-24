@@ -322,11 +322,11 @@ class VoxbayWebhookView(APIView):
         _set("call_type",             call_type)
         _set("call_status",           data.get("callStatus") or data.get("status"))
         _set("duration",              _safe_int(
-                                          data.get("totalCallDuration") or data.get("duration")
+                                          data.get("totalCallDuration") or data.get("duration") or data.get("callDuration") or data.get("billsec")
                                       ))
         _set("conversation_duration", _safe_int(data.get("conversationDuration")))
         _set("recording_url",         _resolve_recording_url(
-                                          data.get("recording_URL") or data.get("recording_url")
+                                          data.get("recording_URL") or data.get("recording_url") or data.get("recordingUrl") or data.get("callRecordingUrl") or data.get("audio")
                                       ))
         if call_start:
             defaults["call_start"] = call_start
@@ -335,13 +335,13 @@ class VoxbayWebhookView(APIView):
 
         if call_type == "incoming":
             _set("called_number",      data.get("calledNumber"))
-            _set("caller_number",      data.get("callerNumber"))
-            _set("agent_number",       data.get("AgentNumber") or data.get("agentNumber"))
+            _set("caller_number",      data.get("callerNumber") or data.get("callerid") or data.get("caller_number") or data.get("phone") or data.get("number"))
+            _set("agent_number",       data.get("AgentNumber") or data.get("agentNumber") or data.get("extension"))
             _set("dtmf",               data.get("dtmf"))
             _set("transferred_number", data.get("transferredNumber"))
         else:
-            _set("extension",     data.get("extension"))
-            _set("destination",   data.get("destination"))
+            _set("extension",     data.get("extension") or data.get("agentNumber") or data.get("AgentNumber"))
+            _set("destination",   data.get("destination") or data.get("calledNumber") or data.get("phone") or data.get("number"))
             _set("caller_id",     data.get("callerid"))
             _set("caller_number", data.get("callerid"))
 
