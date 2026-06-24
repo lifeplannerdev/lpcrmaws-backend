@@ -127,17 +127,29 @@ def process_voxbay_webhook(webhook_log_id, payload):
         log = WebhookLog.objects.filter(id=webhook_log_id).first()
         
     try:
-        caller_number = payload.get('callerNumber') or payload.get('callerid') or payload.get('caller_number') or payload.get('phone') or payload.get('number')
-        call_status = payload.get('callStatus') or payload.get('status', '')
-        call_duration = payload.get('callDuration') or payload.get('duration') or payload.get('billsec', '')
-        audio_url = payload.get('recordingUrl') or payload.get('recording_url') or payload.get('callRecordingUrl') or payload.get('audio') or ''
+        call_type = payload.get('Calltype') or payload.get('calltype', 'Incoming')
         
-        if caller_number:
-            lead = Lead.objects.filter(phone=caller_number).first()
+        if call_type.lower() == 'outgoing':
+            # For outgoing, 'destination' is the lead's number
+            lead_number = payload.get('destination') or payload.get('calledNumber') or payload.get('phone') or payload.get('number')
+            call_status = payload.get('status') or payload.get('callStatus', '')
+            call_duration = payload.get('duration') or payload.get('conversationDuration') or payload.get('totalCallDuration', '')
+            audio_url = payload.get('recording_URL') or payload.get('recording_url') or payload.get('recordingUrl') or payload.get('audio') or ''
+            call_direction_text = "Outgoing"
+        else:
+            # For incoming, 'callerNumber' is the lead's number
+            lead_number = payload.get('callerNumber') or payload.get('callerid') or payload.get('caller_number') or payload.get('phone') or payload.get('number')
+            call_status = payload.get('callStatus') or payload.get('status', '')
+            call_duration = payload.get('conversationDuration') or payload.get('totalCallDuration') or payload.get('duration') or payload.get('callDuration', '')
+            audio_url = payload.get('recording_URL') or payload.get('recording_url') or payload.get('recordingUrl') or payload.get('audio') or ''
+            call_direction_text = "Incoming"
+        
+        if lead_number:
+            lead = Lead.objects.filter(phone=lead_number).first()
             if lead:
                 assignee = lead.current_handler or User.objects.filter(is_superuser=True).first()
                 if assignee:
-                    notes = f"Auto-scheduled from Voxbay call log. Call status: {call_status}"
+                    notes = f"Auto-scheduled from Voxbay {call_direction_text.lower()} call log. Call status: {call_status}"
                     if call_duration:
                         notes += f", Duration: {call_duration}s"
                     if audio_url:
