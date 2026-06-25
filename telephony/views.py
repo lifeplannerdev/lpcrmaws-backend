@@ -99,7 +99,7 @@ def process_voxbay_call_log(obj):
     existing_lead = Lead.objects.filter(phone=lead_number).first()
 
     if obj.call_status in ['ANSWER', 'ANSWERED']:
-        if not existing_lead and agent_user:
+        if not existing_lead:
             existing_lead = Lead.objects.create(
                 name=f"Voxbay Caller - {lead_number}",
                 phone=lead_number,
@@ -108,23 +108,25 @@ def process_voxbay_call_log(obj):
                 assigned_to=agent_user
             )
 
-        if existing_lead and agent_user:
-            duration_str = str(obj.duration) + 's' if obj.duration else 'Unknown'
-            notes = f"Answered {direction_text} Call\nDuration: {duration_str}\n"
-            if obj.recording_url:
-                notes += f"Recording: {obj.recording_url}\n"
-            notes += f"\nCall UUID: {obj.call_uuid}"
+        if existing_lead:
+            follow_up_user = agent_user or existing_lead.assigned_to
+            if follow_up_user:
+                duration_str = str(obj.duration) + 's' if obj.duration else 'Unknown'
+                notes = f"Answered {direction_text} Call\nDuration: {duration_str}\n"
+                if obj.recording_url:
+                    notes += f"Recording: {obj.recording_url}\n"
+                notes += f"\nCall UUID: {obj.call_uuid}"
 
-            if not FollowUp.objects.filter(lead=existing_lead, assigned_to=agent_user, notes__contains=obj.call_uuid, status='contacted').exists():
-                FollowUp.objects.create(
-                    lead=existing_lead,
-                    assigned_to=agent_user,
-                    follow_up_date=obj.created_at.date() if obj.created_at else timezone.now().date(),
-                    followup_type='call',
-                    status='contacted',
-                    priority='medium',
-                    notes=notes,
-                )
+                if not FollowUp.objects.filter(lead=existing_lead, assigned_to=follow_up_user, notes__contains=obj.call_uuid, status='contacted').exists():
+                    FollowUp.objects.create(
+                        lead=existing_lead,
+                        assigned_to=follow_up_user,
+                        follow_up_date=obj.created_at.date() if obj.created_at else timezone.now().date(),
+                        followup_type='call',
+                        status='contacted',
+                        priority='medium',
+                        notes=notes,
+                    )
     else:
         if existing_lead:
             answered_exists = VoxbayCallLog.objects.filter(call_uuid=obj.call_uuid, call_status__in=['ANSWER', 'ANSWERED']).exists()
