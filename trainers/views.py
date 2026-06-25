@@ -8,6 +8,7 @@ from django.shortcuts import get_object_or_404
 from django.http import HttpResponse
 from django.db.models import Count, Q
 from django.contrib.auth import get_user_model
+from accounts.models import ActivityLog
 import csv
 
 from .models import Trainer, Student, Attendance, Branch, ExamResult, ProcessingStudent, ProcessingDynamicField
@@ -616,6 +617,64 @@ class ExamResultDetailAPIView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class ProcessingStudentActivityLogAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        can_read_any = _has_perm(request.user, 'processing_students:read_any')
+        can_read_own = _has_perm(request.user, 'processing_students:read_own')
+        
+        if not (can_read_any or can_read_own):
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+            
+        student = get_object_or_404(ProcessingStudent, pk=pk)
+        
+        if not can_read_any and can_read_own and student.assigned_to != request.user:
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+
+        logs = ActivityLog.objects.filter(
+            entity_type='ProcessingStudent',
+            entity_id=student.id
+        ).order_by('-created_at')
+        
+        data = []
+        for log in logs:
+            data.append({
+                "id": log.id,
+                "action": log.get_action_display(),
+                "description": log.description,
+                "created_at": log.created_at,
+                "user": log.user.username if log.user else "System"
+            })
+            
+        return Response(data)
+
+class ProcessingStudentNoteAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        can_edit_any = _has_perm(request.user, 'processing_students:edit_any')
+        can_edit_own = _has_perm(request.user, 'processing_students:edit_own')
+        
+        student = get_object_or_404(ProcessingStudent, pk=pk)
+        
+        if not (can_edit_any or (can_edit_own and student.assigned_to == request.user)):
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+
+        note = request.data.get('note')
+        if not note:
+            return Response({"detail": "Note is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        ActivityLog.objects.create(
+            user=request.user,
+            action='PROCESSING_STUDENT_NOTE',
+            entity_type='ProcessingStudent',
+            entity_id=student.id,
+            entity_name=student.name,
+            description=note
+        )
+        return Response({"detail": "Note added successfully"}, status=status.HTTP_201_CREATED)
+
 class ProcessingDynamicFieldListAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -672,7 +731,15 @@ class ProcessingStudentListCreateAPIView(APIView):
 
         serializer = ProcessingStudentSerializer(data=data)
         if serializer.is_valid():
-            serializer.save()
+            student = serializer.save()
+            ActivityLog.objects.create(
+                user=request.user,
+                action='PROCESSING_STUDENT_CREATED',
+                entity_type='ProcessingStudent',
+                entity_id=student.id,
+                entity_name=student.name,
+                description=f"Processing Student {student.name} was created."
+            )
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -711,7 +778,19 @@ class ProcessingStudentDetailAPIView(APIView):
 
         serializer = ProcessingStudentSerializer(student, data=request.data, partial=True)
         if serializer.is_valid():
+            changed_fields = serializer.validated_data.keys()
+            changes_desc = ", ".join(changed_fields) if changed_fields else "fields"
+            
             serializer.save()
+            
+            ActivityLog.objects.create(
+                user=request.user,
+                action='PROCESSING_STUDENT_UPDATED',
+                entity_type='ProcessingStudent',
+                entity_id=student.id,
+                entity_name=student.name,
+                description=f"Processing Student updated: {changes_desc}"
+            )
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -724,6 +803,17 @@ class ProcessingStudentDetailAPIView(APIView):
         if not (can_edit_any or can_edit_own):
             return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
             
+        student_name = student.name
+        student_id = student.id
         student.delete()
+        
+        ActivityLog.objects.create(
+            user=request.user,
+            action='PROCESSING_STUDENT_DELETED',
+            entity_type='ProcessingStudent',
+            entity_id=student_id,
+            entity_name=student_name,
+            description=f"Processing Student {student_name} was deleted."
+        )
         return Response(status=status.HTTP_204_NO_CONTENT)
 

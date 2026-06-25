@@ -150,6 +150,12 @@ class ActivityLog(models.Model):
         ('STUDENT_BATCH_CHANGED',   'Student Batch Changed'),
         ('STUDENT_DELETED',         'Student Deleted'),
  
+        # ── Processing Student ────────────────────────────────
+        ('PROCESSING_STUDENT_CREATED', 'Processing Student Created'),
+        ('PROCESSING_STUDENT_UPDATED', 'Processing Student Updated'),
+        ('PROCESSING_STUDENT_DELETED', 'Processing Student Deleted'),
+        ('PROCESSING_STUDENT_NOTE',    'Processing Student Note Added'),
+ 
         # ── Attendance (Trainer) ───────────────────────────────
         ('ATTENDANCE_MARKED',       'Attendance Marked'),
         ('ATTENDANCE_UPDATED',      'Attendance Updated'),
