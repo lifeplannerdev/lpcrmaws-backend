@@ -237,6 +237,7 @@ class LeadListSerializer(serializers.ModelSerializer):
     sub_assigned_by = UserSimpleSerializer(read_only=True)
     current_handler = serializers.SerializerMethodField()
     agenda_type     = serializers.SerializerMethodField()
+    processing_student = serializers.CharField(read_only=True)
 
     class Meta:
         model  = Lead
@@ -245,7 +246,7 @@ class LeadListSerializer(serializers.ModelSerializer):
             'status', 'priority', 'program', 'source', 'custom_source',
             'interested_country', 'interested_course', 'previous_qualification', 
             'work_experience', 'budget', 'remarks',
-            'processing_status',
+            'processing_status', 'processing_student',
             'assigned_to', 'assigned_by', 'assigned_date',
             'sub_assigned_to', 'sub_assigned_by', 'sub_assigned_date',
             'current_handler', 'company',
@@ -480,6 +481,10 @@ class FollowUpSerializer(serializers.ModelSerializer):
     lead_status     = serializers.CharField(source='lead.status', read_only=True)
     lead_name       = serializers.CharField(source='lead.name', read_only=True)
     lead_phone      = serializers.CharField(source='lead.phone', read_only=True)
+    
+    processing_student_name = serializers.CharField(source='processing_student.name', read_only=True)
+    processing_student_program = serializers.CharField(source='processing_student.program_applied', read_only=True)
+    
     assigned_to     = UserSimpleSerializer(read_only=True) 
     assigned_to_id  = serializers.PrimaryKeyRelatedField(  
         queryset=User.objects.all(),

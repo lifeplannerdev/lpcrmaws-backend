@@ -1,6 +1,8 @@
 from django.db import models
 from django.contrib.auth import get_user_model
 from django.core.validators import MinLengthValidator
+from django.conf import settings
+from storages.backends.s3boto3 import S3Boto3Storage
 
 User = get_user_model()
 
@@ -408,3 +410,17 @@ class ProcessingDynamicField(models.Model):
 
     def __str__(self):
         return self.label
+
+
+class ProcessingStudentDocument(models.Model):
+    student = models.ForeignKey(ProcessingStudent, related_name='documents', on_delete=models.CASCADE)
+    title = models.CharField(max_length=255)
+    file = models.FileField(storage=S3Boto3Storage(), upload_to='processing_students/documents/%Y/%m/')
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+
+    class Meta:
+        ordering = ['-uploaded_at']
+
+    def __str__(self):
+        return f"{self.title} ({self.student.name})"

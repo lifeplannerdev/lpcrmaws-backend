@@ -24,6 +24,8 @@ from .views import (
     ProcessingStudentActivityLogAPIView,
     ProcessingStudentNoteAPIView,
     ProcessingDynamicFieldListAPIView,
+    ProcessingStudentDocumentListCreateAPIView,
+    ProcessingStudentDocumentDeleteAPIView
 )
 
 urlpatterns = [
@@ -50,5 +52,7 @@ urlpatterns = [
     path('processing-students/<int:pk>/', ProcessingStudentDetailAPIView.as_view(), name='processing-student-detail'),
     path('processing-students/<int:pk>/activity/', ProcessingStudentActivityLogAPIView.as_view(), name='processing-student-activity'),
     path('processing-students/<int:pk>/note/', ProcessingStudentNoteAPIView.as_view(), name='processing-student-note'),
+    path('processing-students/<int:pk>/documents/', ProcessingStudentDocumentListCreateAPIView.as_view(), name='processing-student-documents'),
+    path('processing-student-documents/<int:pk>/', ProcessingStudentDocumentDeleteAPIView.as_view(), name='processing-student-document-delete'),
     path('processing-students/dynamic-fields/', ProcessingDynamicFieldListAPIView.as_view(), name='processing-student-dynamic-fields'),
 ]

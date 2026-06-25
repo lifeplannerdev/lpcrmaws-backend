@@ -1,6 +1,6 @@
 from accounts.permissions import has_dynamic_permission
 from rest_framework import serializers
-from .models import Trainer, Student, Attendance, AcademicBatch, Branch, ExamResult, ProcessingStudent, ProcessingDynamicField
+from .models import Trainer, Student, Attendance, AcademicBatch, Branch, ExamResult, ProcessingStudent, ProcessingDynamicField, ProcessingStudentDocument
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.db.models import Count
@@ -266,3 +266,16 @@ class ProcessingStudentSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProcessingStudent
         fields = '__all__'
+
+class ProcessingStudentDocumentSerializer(serializers.ModelSerializer):
+    uploaded_by_name = serializers.CharField(source='uploaded_by.get_full_name', read_only=True)
+    file_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProcessingStudentDocument
+        fields = ['id', 'student', 'title', 'file', 'file_url', 'uploaded_at', 'uploaded_by', 'uploaded_by_name']
+
+    def get_file_url(self, obj):
+        if obj.file:
+            return obj.file.url
+        return None

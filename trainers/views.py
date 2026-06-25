@@ -11,7 +11,7 @@ from django.contrib.auth import get_user_model
 from accounts.models import ActivityLog
 import csv
 
-from .models import Trainer, Student, Attendance, Branch, ExamResult, ProcessingStudent, ProcessingDynamicField
+from .models import Trainer, Student, Attendance, Branch, ExamResult, ProcessingStudent, ProcessingDynamicField, ProcessingStudentDocument
 from .serializers import (
     TrainerSerializer, 
     StudentSerializer, 
@@ -21,7 +21,8 @@ from .serializers import (
     BranchSerializer,
     ExamResultSerializer,
     ProcessingStudentSerializer,
-    ProcessingDynamicFieldSerializer
+    ProcessingDynamicFieldSerializer,
+    ProcessingStudentDocumentSerializer
 )
 from .permissions import IsTrainerOwnStudent
 
@@ -674,6 +675,73 @@ class ProcessingStudentNoteAPIView(APIView):
             description=note
         )
         return Response({"detail": "Note added successfully"}, status=status.HTTP_201_CREATED)
+
+class ProcessingStudentDocumentListCreateAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+    from rest_framework.parsers import MultiPartParser, FormParser
+    parser_classes = [MultiPartParser, FormParser]
+
+    def get(self, request, pk):
+        can_read_any = _has_perm(request.user, 'processing_students:read_any')
+        can_read_own = _has_perm(request.user, 'processing_students:read_own')
+        
+        student = get_object_or_404(ProcessingStudent, pk=pk)
+        if not can_read_any and can_read_own and student.assigned_to != request.user:
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+            
+        docs = student.documents.all()
+        return Response(ProcessingStudentDocumentSerializer(docs, many=True).data)
+
+    def post(self, request, pk):
+        can_edit_any = _has_perm(request.user, 'processing_students:edit_any')
+        can_edit_own = _has_perm(request.user, 'processing_students:edit_own')
+        
+        student = get_object_or_404(ProcessingStudent, pk=pk)
+        if not (can_edit_any or (can_edit_own and student.assigned_to == request.user)):
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+            
+        data = request.data.copy()
+        data['student'] = student.id
+        
+        serializer = ProcessingStudentDocumentSerializer(data=data)
+        if serializer.is_valid():
+            serializer.save(uploaded_by=request.user)
+            ActivityLog.objects.create(
+                user=request.user,
+                action='PROCESSING_STUDENT_UPDATED',
+                entity_type='ProcessingStudent',
+                entity_id=student.id,
+                entity_name=student.name,
+                description=f"Document uploaded: {serializer.validated_data.get('title')}"
+            )
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class ProcessingStudentDocumentDeleteAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, pk):
+        doc = get_object_or_404(ProcessingStudentDocument, pk=pk)
+        student = doc.student
+        
+        can_edit_any = _has_perm(request.user, 'processing_students:edit_any')
+        can_edit_own = _has_perm(request.user, 'processing_students:edit_own')
+        
+        if not (can_edit_any or (can_edit_own and student.assigned_to == request.user)):
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+            
+        doc_title = doc.title
+        doc.delete()
+        
+        ActivityLog.objects.create(
+            user=request.user,
+            action='PROCESSING_STUDENT_UPDATED',
+            entity_type='ProcessingStudent',
+            entity_id=student.id,
+            entity_name=student.name,
+            description=f"Document deleted: {doc_title}"
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 class ProcessingDynamicFieldListAPIView(APIView):
     permission_classes = [IsAuthenticated]

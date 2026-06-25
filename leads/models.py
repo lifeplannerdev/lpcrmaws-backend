@@ -277,6 +277,14 @@ class FollowUp(models.Model):
         blank=True,
         related_name='followups'
     )
+    
+    processing_student = models.ForeignKey(
+        'trainers.ProcessingStudent',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='followups'
+    )
 
 
     phone_number = models.CharField(max_length=20)

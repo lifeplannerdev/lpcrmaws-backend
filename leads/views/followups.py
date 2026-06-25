@@ -65,6 +65,7 @@ class FollowUpListCreateAPIView(APIView):
 
         # rest of your filters stay exactly the same ...
         lead_id       = request.query_params.get('lead')
+        processing_student_id = request.query_params.get('processing_student')
         date          = request.query_params.get('date')
         start_date    = request.query_params.get('start_date')
         end_date      = request.query_params.get('end_date')
@@ -76,6 +77,8 @@ class FollowUpListCreateAPIView(APIView):
 
         if lead_id:
             queryset = queryset.filter(lead_id=lead_id)
+        if processing_student_id:
+            queryset = queryset.filter(processing_student_id=processing_student_id)
         if date:
             queryset = queryset.filter(follow_up_date=date)
         if start_date and end_date:
