@@ -10,7 +10,7 @@ from django.db.models import Count, Q
 from django.contrib.auth import get_user_model
 import csv
 
-from .models import Trainer, Student, Attendance, Branch, ExamResult
+from .models import Trainer, Student, Attendance, Branch, ExamResult, ProcessingStudent, ProcessingDynamicField
 from .serializers import (
     TrainerSerializer, 
     StudentSerializer, 
@@ -18,7 +18,9 @@ from .serializers import (
     TrainerUserSerializer,
     AcademicBatchSerializer,
     BranchSerializer,
-    ExamResultSerializer
+    ExamResultSerializer,
+    ProcessingStudentSerializer,
+    ProcessingDynamicFieldSerializer
 )
 from .permissions import IsTrainerOwnStudent
 
@@ -611,5 +613,117 @@ class ExamResultDetailAPIView(APIView):
     def delete(self, request, pk):
         result = get_object_or_404(ExamResult, pk=pk)
         result.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ProcessingDynamicFieldListAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if not (_has_perm(request.user, 'processing_students:read_any') or _has_perm(request.user, 'processing_students:read_own')):
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+            
+        qs = ProcessingDynamicField.objects.filter(is_active=True).order_by('order')
+        serializer = ProcessingDynamicFieldSerializer(qs, many=True)
+        return Response(serializer.data)
+
+
+class ProcessingStudentListCreateAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        can_read_any = _has_perm(request.user, 'processing_students:read_any')
+        can_read_own = _has_perm(request.user, 'processing_students:read_own')
+        
+        if not (can_read_any or can_read_own):
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+
+        qs = ProcessingStudent.objects.select_related('assigned_to')
+
+        if not can_read_any and can_read_own:
+            qs = qs.filter(assigned_to=request.user)
+
+        category_filter = request.GET.get('category')
+        if category_filter:
+            qs = qs.filter(category=category_filter)
+
+        search = request.GET.get('search')
+        if search:
+            qs = qs.filter(
+                Q(name__icontains=search) |
+                Q(mobile_number__icontains=search) |
+                Q(email__icontains=search)
+            )
+
+        paginator = StandardResultsSetPagination()
+        page = paginator.paginate_queryset(qs, request)
+        serializer = ProcessingStudentSerializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)
+
+    def post(self, request):
+        if not (_has_perm(request.user, 'processing_students:edit_any') or _has_perm(request.user, 'processing_students:edit_own')):
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+
+        data = request.data.copy()
+        
+        # If user can only edit own, enforce assignment
+        if _has_perm(request.user, 'processing_students:edit_own') and not _has_perm(request.user, 'processing_students:edit_any'):
+            data['assigned_to'] = request.user.id
+
+        serializer = ProcessingStudentSerializer(data=data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ProcessingStudentDetailAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get_object(self, request, pk):
+        qs = ProcessingStudent.objects.select_related('assigned_to')
+        can_read_any = _has_perm(request.user, 'processing_students:read_any')
+        can_read_own = _has_perm(request.user, 'processing_students:read_own')
+        
+        if not can_read_any and can_read_own:
+            qs = qs.filter(assigned_to=request.user)
+            
+        return get_object_or_404(qs, pk=pk)
+
+    def get(self, request, pk):
+        if not (_has_perm(request.user, 'processing_students:read_any') or _has_perm(request.user, 'processing_students:read_own')):
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        
+        student = self.get_object(request, pk)
+        return Response(ProcessingStudentSerializer(student).data)
+
+    def put(self, request, pk):
+        return self.patch(request, pk)
+
+    def patch(self, request, pk):
+        student = self.get_object(request, pk)
+        
+        can_edit_any = _has_perm(request.user, 'processing_students:edit_any')
+        can_edit_own = _has_perm(request.user, 'processing_students:edit_own') and student.assigned_to == request.user
+        
+        if not (can_edit_any or can_edit_own):
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = ProcessingStudentSerializer(student, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request, pk):
+        student = self.get_object(request, pk)
+        
+        can_edit_any = _has_perm(request.user, 'processing_students:edit_any')
+        can_edit_own = _has_perm(request.user, 'processing_students:edit_own') and student.assigned_to == request.user
+        
+        if not (can_edit_any or can_edit_own):
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+            
+        student.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 

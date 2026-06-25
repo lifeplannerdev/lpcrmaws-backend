@@ -1,6 +1,6 @@
 from accounts.permissions import has_dynamic_permission
 from rest_framework import serializers
-from .models import Trainer, Student, Attendance, AcademicBatch, Branch, ExamResult
+from .models import Trainer, Student, Attendance, AcademicBatch, Branch, ExamResult, ProcessingStudent, ProcessingDynamicField
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.db.models import Count
@@ -253,3 +253,16 @@ class ExamResultSerializer(serializers.ModelSerializer):
         model = ExamResult
         fields = ['id', 'student', 'student_name', 'academic_batch', 'academic_batch_name', 'exam_type', 'score', 'remarks', 'recorded_at']
 
+
+class ProcessingDynamicFieldSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProcessingDynamicField
+        fields = '__all__'
+
+
+class ProcessingStudentSerializer(serializers.ModelSerializer):
+    assigned_to_name = serializers.CharField(source='assigned_to.get_full_name', read_only=True)
+    
+    class Meta:
+        model = ProcessingStudent
+        fields = '__all__'

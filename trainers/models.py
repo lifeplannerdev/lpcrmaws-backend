@@ -325,3 +325,86 @@ class ExamResult(models.Model):
 
     def __str__(self):
         return f"{self.student.name} - {self.get_exam_type_display()} - {self.score}"
+
+
+class ProcessingStudent(models.Model):
+    # Fixed fields based on requirements
+    name = models.CharField(max_length=200)
+    mobile_number = models.CharField(max_length=20)
+    whatsapp_number = models.CharField(max_length=20, blank=True, null=True)
+    email = models.EmailField(blank=True, null=True)
+    parent_contact = models.CharField(max_length=200, blank=True, null=True, help_text="Contact number of parents (1 & 2)")
+    program_applied = models.CharField(max_length=200, blank=True, null=True)
+    date_of_registration = models.DateField(blank=True, null=True)
+    university = models.CharField(max_length=200, blank=True, null=True)
+    intake = models.CharField(max_length=100, blank=True, null=True)
+
+    REG_FEE_STATUS_CHOICES = [
+        ('Pending', 'Pending'),
+        ('Shared with student', 'Shared with student'),
+        ('Without Tax amount', 'Without Tax amount'),
+    ]
+    registration_fee_status = models.CharField(max_length=50, choices=REG_FEE_STATUS_CHOICES, default='Pending')
+
+    ENROLLMENT_STATUS_CHOICES = [
+        ('Pending', 'Pending'),
+        ('Shared', 'Shared'),
+        ('Completed', 'Completed'),
+    ]
+    enrollment_process_status = models.CharField(max_length=50, choices=ENROLLMENT_STATUS_CHOICES, default='Pending')
+
+    APP_DOCS_STATUS_CHOICES = [
+        ('Pending', 'Pending'),
+        ('Collected', 'Collected'),
+    ]
+    application_documents_status = models.CharField(max_length=50, choices=APP_DOCS_STATUS_CHOICES, default='Pending')
+
+    application_status = models.CharField(max_length=200, blank=True, null=True)
+    offer_letter_status = models.CharField(max_length=200, blank=True, null=True)
+    visa_documentation_info_status = models.CharField(max_length=200, blank=True, null=True)
+    visa_appointment = models.CharField(max_length=200, blank=True, null=True)
+    visa_documentation = models.CharField(max_length=200, blank=True, null=True)
+    accommodation = models.CharField(max_length=200, blank=True, null=True)
+    visa_results = models.CharField(max_length=200, blank=True, null=True)
+
+    # Required relationships and categorizations
+    category = models.CharField(max_length=50, default='All Students', help_text="e.g., GCC Students")
+    assigned_to = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='assigned_processing_students')
+    
+    # Dynamic Fields Data
+    dynamic_data = models.JSONField(default=dict, blank=True, help_text="Stores data for dynamically added fields")
+
+    class Meta:
+        permissions = [
+            ("processing_students:read_any", "Can view any processing student"),
+            ("processing_students:read_own", "Can view own processing students"),
+            ("processing_students:edit_any", "Can edit any processing student"),
+            ("processing_students:edit_own", "Can edit own processing students"),
+        ]
+        ordering = ['-id']
+
+    def __str__(self):
+        return f"{self.name} - {self.category}"
+
+
+class ProcessingDynamicField(models.Model):
+    FIELD_TYPE_CHOICES = [
+        ('text', 'Text'),
+        ('number', 'Number'),
+        ('date', 'Date'),
+        ('boolean', 'Boolean'),
+        ('choice', 'Choice (Dropdown)'),
+    ]
+    
+    name = models.CharField(max_length=100, unique=True, help_text="Internal field name (e.g., 'medical_check_status')")
+    label = models.CharField(max_length=200, help_text="Display label (e.g., 'Medical Check Status')")
+    field_type = models.CharField(max_length=20, choices=FIELD_TYPE_CHOICES, default='text')
+    choices = models.JSONField(blank=True, null=True, help_text="List of choices if type is 'choice' (e.g., [\"Pending\", \"Done\"])")
+    order = models.IntegerField(default=0, help_text="Order in which this field appears in the UI")
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ['order', 'id']
+
+    def __str__(self):
+        return self.label
