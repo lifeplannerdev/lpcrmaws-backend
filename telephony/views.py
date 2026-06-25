@@ -296,12 +296,16 @@ class VoxbayWebhookView(APIView):
             logger.info(f"[Voxbay Webhook] payload={dict(data)}")
         else:
             logger.info(f"[Voxbay Webhook] payload is empty. raw_body={raw_body}")
-
-        call_type = (
-            "outgoing"
-            if (data.get("extension") or data.get("destination"))
-            else "incoming"
-        )
+            
+        direction_payload = data.get("direction") or data.get("callType") or data.get("type")
+        if direction_payload and isinstance(direction_payload, str) and direction_payload.lower() in ["incoming", "outgoing"]:
+            call_type = direction_payload.lower()
+        elif data.get("callerNumber") or data.get("caller_number") or data.get("callernumber") or (data.get("callerid") and not data.get("destination")):
+            call_type = "incoming"
+        elif data.get("destination") or data.get("calledNumber"):
+            call_type = "outgoing"
+        else:
+            call_type = "incoming"
 
         call_uuid = (
             data.get("CallUUID")
