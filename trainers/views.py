@@ -846,19 +846,34 @@ class ProcessingStudentDetailAPIView(APIView):
 
         serializer = ProcessingStudentSerializer(student, data=request.data, partial=True)
         if serializer.is_valid():
-            changed_fields = serializer.validated_data.keys()
-            changes_desc = ", ".join(changed_fields) if changed_fields else "fields"
+            changes_list = []
+            for field, new_val in serializer.validated_data.items():
+                if field == 'dynamic_data':
+                    old_dict = getattr(student, 'dynamic_data', {}) or {}
+                    new_dict = new_val or {}
+                    for k, v in new_dict.items():
+                        old_v = old_dict.get(k, '')
+                        if str(old_v) != str(v):
+                            changes_list.append(f"{k}: '{old_v}' -> '{v}'")
+                else:
+                    old_val = getattr(student, field, '')
+                    if old_val is None: old_val = ''
+                    if str(old_val) != str(new_val):
+                        changes_list.append(f"{field}: '{old_val}' -> '{new_val}'")
+
+            changes_desc = ", ".join(changes_list) if changes_list else "no visible changes"
             
             serializer.save()
             
-            ActivityLog.objects.create(
-                user=request.user,
-                action='PROCESSING_STUDENT_UPDATED',
-                entity_type='ProcessingStudent',
-                entity_id=student.id,
-                entity_name=student.name,
-                description=f"Processing Student updated: {changes_desc}"
-            )
+            if changes_list:
+                ActivityLog.objects.create(
+                    user=request.user,
+                    action='PROCESSING_STUDENT_UPDATED',
+                    entity_type='ProcessingStudent',
+                    entity_id=student.id,
+                    entity_name=student.name,
+                    description=f"Processing Student updated: {changes_desc}"
+                )
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
