@@ -21,6 +21,9 @@ class MessageSerializer(serializers.ModelSerializer):
 
     def get_file(self, obj):
         if obj.file:
+            name = obj.file.name
+            if name and ('raw/upload/' in name or 'image/upload/' in name):
+                return f"https://res.cloudinary.com/dzmvrjvfs/{name}"
             return obj.file.url
         return None
 

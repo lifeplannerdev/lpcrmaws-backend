@@ -210,6 +210,9 @@ class DailyReportAttachment(models.Model):
     def get_download_url(self):
         if not self.attached_file:
             return None
+        name = self.attached_file.name
+        if name and ('raw/upload/' in name or 'image/upload/' in name):
+            return f"https://res.cloudinary.com/dzmvrjvfs/{name}"
         return self.attached_file.url
 
     def __str__(self):

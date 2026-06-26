@@ -345,7 +345,7 @@ class ViewReportFileView(APIView):
 
         attachment_data = []
         for att in attachments:
-            view_url = att.attached_file.url if att.attached_file else None
+            view_url = att.get_download_url()
             if view_url and view_url.startswith("http://"):
                 view_url = view_url.replace("http://", "https://")
 
@@ -387,8 +387,8 @@ class DownloadAttachmentView(APIView):
         if not attachment.attached_file:
             return Response({"error": "No file found"}, status=404)
 
-        file_url = attachment.attached_file.url
-        if file_url.startswith('/'):
+        file_url = attachment.get_download_url()
+        if file_url and file_url.startswith('/'):
             file_url = request.build_absolute_uri(file_url)
 
         original_filename = attachment.original_filename or "download"

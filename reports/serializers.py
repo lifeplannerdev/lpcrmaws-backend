@@ -24,9 +24,7 @@ class DailyReportAttachmentSerializer(serializers.ModelSerializer):
         read_only_fields = ["uploaded_at"]
 
     def get_view_url(self, obj):
-        if obj.attached_file:
-            return obj.attached_file.url
-        return None
+        return obj.get_download_url()
 
     def get_download_url(self, obj):
         return obj.get_download_url()
@@ -74,8 +72,8 @@ class DailyReportSerializer(serializers.ModelSerializer):
 
     def get_view_url(self, obj):
         first = obj.attachments.first()
-        if first and first.attached_file:
-            return first.attached_file.url
+        if first:
+            return first.get_download_url()
         return None
 
     def _save_attachments(self, report, files):
