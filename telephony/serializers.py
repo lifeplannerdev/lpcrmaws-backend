@@ -58,9 +58,21 @@ class VoxbayCallLogSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_agent_name(self, obj):
-        if not obj.agent_number:
+        from django.db.models import Q
+        
+        if not obj.agent_number and not obj.extension:
             return None
-        user = User.objects.filter(voxbay_number=obj.agent_number).first()
+            
+        query = Q()
+        if obj.agent_number:
+            query |= Q(voxbay_number=obj.agent_number) | Q(voxbay_extension=obj.agent_number)
+        if obj.extension:
+            query |= Q(voxbay_number=obj.extension) | Q(voxbay_extension=obj.extension)
+            
+        if not query:
+            return None
+            
+        user = User.objects.filter(query).first()
         if user:
             return user.get_full_name() or user.username
         return None

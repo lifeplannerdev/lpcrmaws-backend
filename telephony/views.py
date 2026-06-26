@@ -281,6 +281,9 @@ class VoxbayWebhookView(APIView):
     permission_classes     = [AllowAny]
     authentication_classes = []
 
+    def get(self, request):
+        return self.post(request)
+
     def post(self, request):
         data = request.data
         if not data:
@@ -407,8 +410,10 @@ class CallLogListView(APIView):
                 ).values_list('phone', flat=True))
                 
                 qs = qs.filter(
-                    Q(agent_number__in=agent_numbers) |
-                    Q(extension__in=agent_numbers) |
+                    (
+                        (Q(agent_number__in=agent_numbers) | Q(extension__in=agent_numbers))
+                        & Q(call_status__in=['ANSWER', 'ANSWERED'])
+                    ) |
                     Q(caller_number__in=assigned_phones) |
                     Q(called_number__in=assigned_phones)
                 )
@@ -508,8 +513,10 @@ class CallStatsView(APIView):
                 ).values_list('phone', flat=True))
                 
                 qs = qs.filter(
-                    Q(agent_number__in=agent_numbers) |
-                    Q(extension__in=agent_numbers) |
+                    (
+                        (Q(agent_number__in=agent_numbers) | Q(extension__in=agent_numbers))
+                        & Q(call_status__in=['ANSWER', 'ANSWERED'])
+                    ) |
                     Q(caller_number__in=assigned_phones) |
                     Q(called_number__in=assigned_phones)
                 )
