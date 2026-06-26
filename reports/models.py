@@ -201,6 +201,7 @@ class DailyReportAttachment(models.Model):
         related_name='attachments'
     )
     attached_file = models.FileField(
+        upload_to="reports/attachments/",
         verbose_name='attached_file',
         null=True, blank=True
     )
