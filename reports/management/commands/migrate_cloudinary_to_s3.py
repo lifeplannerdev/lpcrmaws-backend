@@ -31,7 +31,13 @@ class Command(BaseCommand):
 
         # Using cloudinary SDK to get the URL
         try:
-            url, options = cloudinary.utils.cloudinary_url(file_path_or_url)
+            if file_path_or_url.startswith('http'):
+                url = file_path_or_url
+            elif file_path_or_url.startswith('raw/') or file_path_or_url.startswith('image/'):
+                url = f"https://res.cloudinary.com/{cloud_name}/{file_path_or_url}"
+            else:
+                url, options = cloudinary.utils.cloudinary_url(file_path_or_url)
+            
             # Ensure it's HTTPS
             if url.startswith('http://'):
                 url = url.replace('http://', 'https://')
