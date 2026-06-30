@@ -190,8 +190,10 @@ class StudentFeeAccountCreateSerializer(serializers.ModelSerializer):
         fields = [
             'student', 'template', 'plan_code', 'plan_name', 'plan_type', 'total_due',
             'registration_amount', 'due_day', 'start_date', 'next_due_date', 'notes',
-            'plan_snapshot', 'source_label'
+            'plan_snapshot', 'source_label', 'first_installment_date'
     ]
+
+    first_installment_date = serializers.DateField(required=False, allow_null=True, write_only=True)
 
     def _template_snapshot(self, template):
         if not template:
@@ -231,7 +233,7 @@ class StudentFeeAccountCreateSerializer(serializers.ModelSerializer):
         defaults['plan_snapshot'].setdefault('template', self._template_snapshot(template))
         return defaults
 
-    def _generate_installments(self, account, template):
+    def _generate_installments(self, account, template, first_installment_date=None):
         import datetime
         from decimal import Decimal
         from calendar import monthrange
@@ -266,14 +268,20 @@ class StudentFeeAccountCreateSerializer(serializers.ModelSerializer):
                 amount = template.installment_amount or Decimal('0')
 
             if count > 0 and amount > 0:
+                base_date = first_installment_date or start_date
+                installment_due_day = base_date.day if first_installment_date else due_day
+                
+                # If no first_installment_date provided, start next month
+                base_month_offset = 0 if first_installment_date else 1
+
                 for i in range(count):
-                    month_offset = i
-                    month = start_date.month - 1 + month_offset
-                    year = start_date.year + month // 12
+                    month_offset = base_month_offset + i
+                    month = base_date.month - 1 + month_offset
+                    year = base_date.year + month // 12
                     month = month % 12 + 1
                     
                     days_in_month = monthrange(year, month)[1]
-                    day = min(due_day, days_in_month)
+                    day = min(installment_due_day, days_in_month)
                     
                     due_date = datetime.date(year, month, day)
                     
@@ -292,6 +300,7 @@ class StudentFeeAccountCreateSerializer(serializers.ModelSerializer):
             FeeInstallment.objects.bulk_create(installments)
 
     def create(self, validated_data):
+        first_installment_date = validated_data.pop('first_installment_date', None)
         request = self.context['request']
         student = validated_data['student']
         template = validated_data.get('template')
@@ -318,7 +327,7 @@ class StudentFeeAccountCreateSerializer(serializers.ModelSerializer):
             account.save()
             
             if template:
-                self._generate_installments(account, template)
+                self._generate_installments(account, template, first_installment_date)
 
         account.recalculate(save=True)
         return account
