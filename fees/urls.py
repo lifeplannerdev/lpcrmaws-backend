@@ -37,6 +37,6 @@ urlpatterns = [
     path('fees/students/', FeeStudentsAPIView.as_view(), name='fee-students'),
     path('fees/export/admissions/', ExportAdmissionsReportAPIView.as_view(), name='export-admissions-report'),
 
-    path('analytics/overview/', FeeAnalyticsOverviewAPIView.as_view(), name='fee-analytics-overview'),
-    path('analytics/student/<int:student_id>/', FeeStudent360APIView.as_view(), name='fee-student-360'),
+    path('fees/analytics/overview/', FeeAnalyticsOverviewAPIView.as_view(), name='fee-analytics-overview'),
+    path('fees/analytics/student/<int:student_id>/', FeeStudent360APIView.as_view(), name='fee-student-360'),
 ]
