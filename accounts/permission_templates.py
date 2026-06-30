@@ -4,7 +4,7 @@
 ROLE_PERMISSIONS = {
     'ADMIN': [
         'dashboard:read', 'leads:read_tenant', 'staff:read_tenant', 'tasks:read_all', 
-        'students:read_tenant', 'students:edit_any', 'fees:read_tenant', 'fees:manage', 'fees:restructure',
+        'students:read_tenant', 'students:edit_any', 'fees:read_tenant', 'fees:manage', 'fees:restructure', 'fees:analytics',
         'fees:partial_payment', 'fees:issue_notice', 'fees:view_reports',
         'reports:read_all', 'voxbay:read_all', 'voxbay:admin',
         'tasks:edit_any', 'penalties:edit_any', 'candidates:edit_any', 'staff:edit_any', 'staff:delete_any',
@@ -13,7 +13,7 @@ ROLE_PERMISSIONS = {
     ],
     'CEO': [
         'dashboard:read', 'leads:read_tenant', 'staff:read_tenant', 'tasks:read_all', 
-        'students:read_tenant', 'students:edit_any', 'fees:read_tenant', 'fees:manage', 'fees:view_reports',
+        'students:read_tenant', 'students:edit_any', 'fees:read_tenant', 'fees:manage', 'fees:view_reports', 'fees:analytics',
         'reports:read_own', 'reports:read_all', 'voxbay:read_all',
         'tasks:edit_any', 'staff:access_flag',
         'credentials:view', 'credentials:manage', 'credentials:share'

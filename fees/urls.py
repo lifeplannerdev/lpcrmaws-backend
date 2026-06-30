@@ -1,6 +1,8 @@
 from django.urls import path
 
 from .views import (
+    FeeAnalyticsOverviewAPIView,
+    FeeStudent360APIView,
     FeePlanTemplateListCreateAPIView,
     FeePlanTemplateDetailAPIView,
     FeeAccountListCreateAPIView,
@@ -34,4 +36,7 @@ urlpatterns = [
     path('fees/summary/', FeeSummaryAPIView.as_view(), name='fee-summary'),
     path('fees/students/', FeeStudentsAPIView.as_view(), name='fee-students'),
     path('fees/export/admissions/', ExportAdmissionsReportAPIView.as_view(), name='export-admissions-report'),
+
+    path('analytics/overview/', FeeAnalyticsOverviewAPIView.as_view(), name='fee-analytics-overview'),
+    path('analytics/student/<int:student_id>/', FeeStudent360APIView.as_view(), name='fee-student-360'),
 ]
