@@ -598,3 +598,23 @@ class ExportAdmissionsReportAPIView(APIView):
 
         return response
 
+
+
+from .models import FeePolicy
+from .serializers import FeePolicySerializer
+
+class FeePolicyAPIView(APIView):
+    permission_classes = [IsAuthenticated, CanManageFees]
+
+    def get(self, request):
+        company = request.user.company or 'LP'
+        policy, created = FeePolicy.objects.get_or_create(company=company)
+        return Response(FeePolicySerializer(policy).data)
+
+    def patch(self, request):
+        company = request.user.company or 'LP'
+        policy, created = FeePolicy.objects.get_or_create(company=company)
+        serializer = FeePolicySerializer(policy, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)

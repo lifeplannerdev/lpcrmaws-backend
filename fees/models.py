@@ -237,3 +237,15 @@ class FeeAdjustment(models.Model):
 
     def __str__(self):
         return f"{self.account.student.name} - {self.adjustment_type}"
+
+
+class FeePolicy(models.Model):
+    company = models.CharField(max_length=10, unique=True, default='LP')
+    block_without_fee_account = models.BooleanField(default=False)
+    pending_if_overdue = models.BooleanField(default=False)
+
+    class Meta:
+        verbose_name_plural = 'Fee Policies'
+
+    def __str__(self):
+        return f"{self.company} Fee Policy"

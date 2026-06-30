@@ -349,3 +349,10 @@ class FeeRestructureSerializer(serializers.Serializer):
                 raise serializers.ValidationError(f'Installment #{idx} requires due_date and scheduled_amount.')
         return value
 
+
+
+from .models import FeePolicy
+class FeePolicySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FeePolicy
+        fields = '__all__'

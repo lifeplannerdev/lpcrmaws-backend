@@ -15,10 +15,11 @@ from .views import (
     FeeCatalogSeedAPIView,
     FeeStudentsAPIView,
     ExportAdmissionsReportAPIView,
+    FeePolicyAPIView,
 )
 
-
 urlpatterns = [
+    path('fees/policy/', FeePolicyAPIView.as_view(), name='fee-policy'),
     path('fees/catalog/', FeePlanTemplateListCreateAPIView.as_view(), name='fee-catalog-list-create'),
     path('fees/catalog/<int:pk>/', FeePlanTemplateDetailAPIView.as_view(), name='fee-catalog-detail'),
     path('fees/catalog/seed/', FeeCatalogSeedAPIView.as_view(), name='fee-catalog-seed'),
