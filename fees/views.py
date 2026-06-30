@@ -646,8 +646,10 @@ class FeeAnalyticsOverviewAPIView(APIView):
     permission_classes = [IsAuthenticated, CanViewAnalytics]
 
     def get(self, request):
-        company = request.GET.get('company') or 'LP'
-        qs = StudentFeeAccount.objects.select_related('student', 'student__branch', 'student__academic_batch').filter(company=company)
+        company = request.GET.get('company')
+        qs = StudentFeeAccount.objects.select_related('student', 'student__branch', 'student__academic_batch')
+        if company:
+            qs = qs.filter(company=company)
         
         branch_id = request.GET.get('branch')
         batch_id = request.GET.get('batch')
