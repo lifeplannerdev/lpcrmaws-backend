@@ -640,7 +640,7 @@ class FeePolicyAPIView(APIView):
 from rest_framework.permissions import BasePermission
 class CanViewAnalytics(BasePermission):
     def has_permission(self, request, view):
-        return has_dynamic_permission(request.user, 'fees:analytics')
+        return has_dynamic_permission(request.user, 'fees:analytics') or has_dynamic_permission(request.user, 'fees:manage') or has_dynamic_permission(request.user, 'fees:view_reports')
 
 class FeeAnalyticsOverviewAPIView(APIView):
     permission_classes = [IsAuthenticated, CanViewAnalytics]
