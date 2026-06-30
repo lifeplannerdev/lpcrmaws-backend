@@ -646,6 +646,7 @@ class FeeAnalyticsOverviewAPIView(APIView):
     permission_classes = [IsAuthenticated, CanViewAnalytics]
 
     def get(self, request):
+        from decimal import Decimal
         company = request.GET.get('company')
         qs = StudentFeeAccount.objects.select_related('student', 'student__branch', 'student__academic_batch')
         if company:
@@ -660,17 +661,24 @@ class FeeAnalyticsOverviewAPIView(APIView):
 
         data = []
         for acc in qs:
+            overdue = acc.overdue_amount or Decimal('0.00')
+            t_due = acc.total_due or Decimal('0.00')
+            t_paid = acc.total_paid or Decimal('0.00')
+            
+            branch_name = acc.student.branch.name if hasattr(acc.student, 'branch') and acc.student.branch else ''
+            batch_name = acc.student.academic_batch.name if hasattr(acc.student, 'academic_batch') and acc.student.academic_batch else ''
+
             data.append({
                 'id': acc.student_id,
                 'student_name': acc.student.name,
-                'branch_name': acc.student.branch.name if acc.student.branch else '',
-                'batch_name': acc.student.academic_batch.name if acc.student.academic_batch else '',
-                'plan_name': acc.plan_name,
-                'total_due': acc.total_due,
-                'total_paid': acc.total_paid,
-                'overdue_amount': acc.overdue_amount,
-                'status': acc.status,
-                'is_on_track': acc.overdue_amount <= 0
+                'branch_name': branch_name,
+                'batch_name': batch_name,
+                'plan_name': acc.plan_name or '',
+                'total_due': t_due,
+                'total_paid': t_paid,
+                'overdue_amount': overdue,
+                'status': acc.status or '',
+                'is_on_track': overdue <= 0
             })
             
         summary = {
@@ -689,7 +697,7 @@ class FeeStudent360APIView(APIView):
     permission_classes = [IsAuthenticated, CanViewAnalytics]
 
     def get(self, request, student_id):
-        from students.models import Student
+        from trainers.models import Student
         from trainers.models import Attendance
         
         student = get_object_or_404(Student, id=student_id)
