@@ -227,6 +227,17 @@ class Student(models.Model):
         help_text="Class type for the student (manual entry)"
     )
 
+    FEE_ATTENDANCE_POLICY_CHOICES = [
+        ('STRICT', 'Strict (Requires Fee Approval if Overdue)'),
+        ('FLEXIBLE', 'Flexible'),
+    ]
+    fee_attendance_policy = models.CharField(
+        max_length=20,
+        choices=FEE_ATTENDANCE_POLICY_CHOICES,
+        default='FLEXIBLE',
+        help_text="Attendance policy regarding unpaid fees"
+    )
+
     class Meta:
         ordering = ['batch', 'name']
 
@@ -372,6 +383,18 @@ class ProcessingStudent(models.Model):
     # Required relationships and categorizations
     category = models.CharField(max_length=50, default='All Students', help_text="e.g., GCC Students")
     assigned_to = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='assigned_processing_students')
+
+    # Fee tracking fields
+    processing_fee_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    processing_fee_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    
+    PROCESSING_FEE_STATUS_CHOICES = [
+        ('PENDING', 'Pending'),
+        ('PARTIAL', 'Partial'),
+        ('PAID', 'Paid'),
+    ]
+    processing_fee_status = models.CharField(max_length=20, choices=PROCESSING_FEE_STATUS_CHOICES, default='PENDING')
+
     
     # Dynamic Fields Data
     dynamic_data = models.JSONField(default=dict, blank=True, help_text="Stores data for dynamically added fields")
@@ -382,6 +405,7 @@ class ProcessingStudent(models.Model):
             ("processing_students:read_own", "Can view own processing students"),
             ("processing_students:edit_any", "Can edit any processing student"),
             ("processing_students:edit_own", "Can edit own processing students"),
+            ("processing_students:manage_fees", "Can manage processing student fees"),
         ]
         ordering = ['-id']
 

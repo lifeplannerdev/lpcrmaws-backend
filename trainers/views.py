@@ -282,7 +282,7 @@ class AttendanceListCreateAPIView(APIView):
         if serializer.is_valid():
             approval_status = 'APPROVED'
             try:
-                if student.fee_account and student.fee_account.is_overdue:
+                if student.fee_attendance_policy == 'STRICT' and student.fee_account and student.fee_account.is_overdue:
                     approval_status = 'PENDING_FEE_APPROVAL'
             except Exception:
                 pass
@@ -367,7 +367,7 @@ class QuickMarkAttendanceAPIView(APIView):
 
                 approval_status = 'APPROVED'
                 try:
-                    if student.fee_account and student.fee_account.is_overdue:
+                    if student.fee_attendance_policy == 'STRICT' and student.fee_account and student.fee_account.is_overdue:
                         approval_status = 'PENDING_FEE_APPROVAL'
                 except Exception:
                     pass

@@ -8,13 +8,13 @@ def _has_perm(user, perm):
 
 class CanViewFees(BasePermission):
     def has_permission(self, request, view):
-        return _has_perm(request.user, 'fees:read_tenant') or _has_perm(request.user, 'fees:manage') or _has_perm(request.user, 'fees:view_reports')
+        return _has_perm(request.user, 'fees:read_tenant') or _has_perm(request.user, 'fees:manage') or _has_perm(request.user, 'fees:view_reports') or _has_perm(request.user, 'fees:read_own')
 
 
 class CanManageFees(BasePermission):
     def has_permission(self, request, view):
         if request.method in ('GET', 'HEAD', 'OPTIONS'):
-            return _has_perm(request.user, 'fees:read_tenant') or _has_perm(request.user, 'fees:manage') or _has_perm(request.user, 'fees:view_reports')
+            return _has_perm(request.user, 'fees:read_tenant') or _has_perm(request.user, 'fees:manage') or _has_perm(request.user, 'fees:view_reports') or _has_perm(request.user, 'fees:read_own')
         return _has_perm(request.user, 'fees:manage')
 
 

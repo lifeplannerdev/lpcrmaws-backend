@@ -49,7 +49,8 @@ class StudentSerializer(serializers.ModelSerializer):
             'status', 'admission_date', 'notes',
             'email', 'phone_number', 'drive_link', 'student_class', 'company',
             'fee_summary', 'attendance_summary', 'fee_setup_status', 'fee_template',
-            'parent_name', 'parent_phone', 'mode_of_study', 'preferred_level'
+            'parent_name', 'parent_phone', 'mode_of_study', 'preferred_level',
+            'fee_attendance_policy'
         ]
         extra_kwargs = {
             'fee_template': {'write_only': True},
@@ -266,6 +267,19 @@ class ProcessingStudentSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProcessingStudent
         fields = '__all__'
+
+    def update(self, instance, validated_data):
+        fee_fields = ['processing_fee_amount', 'processing_fee_paid', 'processing_fee_status']
+        request = self.context.get('request')
+        
+        updating_fees = any(field in validated_data for field in fee_fields)
+        if updating_fees:
+            if not (request and getattr(request, 'user', None) and has_dynamic_permission(request.user, 'processing_students:manage_fees')):
+                for field in fee_fields:
+                    validated_data.pop(field, None)
+                    
+        return super().update(instance, validated_data)
+
 
 class ProcessingStudentDocumentSerializer(serializers.ModelSerializer):
     uploaded_by_name = serializers.CharField(source='uploaded_by.get_full_name', read_only=True)
