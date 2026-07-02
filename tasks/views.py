@@ -58,18 +58,19 @@ def _task_queryset_for_user(user, base_qs=None):
 
 
 def _apply_status_ordering(qs):
-    """Order tasks: OVERDUE → PENDING → IN_PROGRESS → COMPLETED → CANCELLED."""
+    """Order tasks: OVERDUE → QUERIED → PENDING → IN_PROGRESS → COMPLETED → CANCELLED."""
     return qs.annotate(
         status_priority=Case(
-            When(status='OVERDUE',     then=1),
-            When(status='PENDING',     then=2),
-            When(status='IN_PROGRESS', then=3),
-            When(status='COMPLETED',   then=4),
-            When(status='CANCELLED',   then=5),
-            default=6,
+            When(status='OVERDUE', then=1),
+            When(requires_attention_from__isnull=False, then=2),
+            When(status='PENDING', then=3),
+            When(status='IN_PROGRESS', then=4),
+            When(status='COMPLETED', then=5),
+            When(status='CANCELLED', then=6),
+            default=7,
             output_field=IntegerField(),
         )
-    ).order_by('status_priority', '-created_at')
+    ).order_by('status_priority', '-updated_at')
 
 
 def _apply_priority_ordering(qs):
@@ -321,18 +322,44 @@ class TaskUpdateListCreateAPIView(generics.ListCreateAPIView):
     def perform_create(self, serializer):
         task = self._get_task()
 
-        if task.assigned_to != self.request.user:
-            raise PermissionDenied("Only the assigned employee can post updates on this task.")
+        user = self.request.user
+        
+        # Check permission to post update
+        can_post = False
+        if task.assigned_to == user or task.assigned_by == user:
+            can_post = True
+        elif user.db_roles.filter(name__in=TOP_MANAGEMENT).exists():
+            can_post = True
+        elif has_dynamic_permission(user, 'tasks:edit_any'):
+            can_post = True
+            
+        if not can_post:
+            raise PermissionDenied("You do not have permission to post updates on this task.")
 
         old_status = task.status
 
         # Notes-only update — status changes go through /tasks/<id>/status/
-        serializer.save(
+        update = serializer.save(
             task=task,
-            updated_by=self.request.user,
+            updated_by=user,
             previous_status=old_status,
             new_status=old_status,  # status unchanged here
         )
+        
+        # Determine who needs to reply based on who posted the remark
+        if user == task.assigned_to:
+            task.requires_attention_from = task.assigned_by
+        else:
+            task.requires_attention_from = task.assigned_to
+            
+        task.save(update_fields=['requires_attention_from', 'updated_at'])
+        
+        # Notify the other party
+        try:
+            from utils import notify_task_remark
+            notify_task_remark(task, update)
+        except Exception as e:
+            logger.error(f"Failed to send remark notification: {e}")
 
 
 # ── Tasks Assigned By Me ──────────────────────────────────────────────────────
@@ -407,7 +434,8 @@ class TaskStatusUpdateAPIView(generics.GenericAPIView):
 
         try:
             task.status = new_status
-            task.save(update_fields=['status', 'updated_at'])
+            task.requires_attention_from = None # Clear attention flag on status change
+            task.save(update_fields=['status', 'requires_attention_from', 'updated_at'])
         except Exception as e:
             logger.error(f"Error updating task status: {str(e)}", exc_info=True)
             return Response(

@@ -35,6 +35,15 @@ class Task(models.Model):
         related_name='tasks'
     )
 
+    requires_attention_from = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='tasks_needing_attention',
+        help_text="User who needs to reply to the latest query"
+    )
+
     status = models.CharField(
         max_length=20,
         choices=STATUS_CHOICES,

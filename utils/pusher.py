@@ -93,6 +93,34 @@ def notify_task_status_updated(task, updated_by, old_status, new_status, notes):
         }
     )
 
+def notify_task_remark(task, update):
+    by_name = update.updated_by.get_full_name() or update.updated_by.username
+    message = f"New remark on \"{task.title}\" by {by_name}"
+    
+    # Notify the person who needs attention
+    target_user_id = task.requires_attention_from_id
+    if not target_user_id:
+        return
+        
+    save_notification.delay(
+        user_id=target_user_id,
+        type='task',
+        message=message,
+        by=by_name,
+    )
+
+    trigger_pusher.delay(
+        channel=f"private-user-{target_user_id}",
+        event="task.remark_added",
+        data={
+            "task_id":         task.id,
+            "title":           task.title,
+            "updated_by_id":   update.updated_by.id,
+            "updated_by_name": by_name,
+            "notes":           update.notes or "",
+            "message":         message,
+        }
+    )
 
 # ── Lead helpers ──────────────────────────────────────
 

@@ -5,6 +5,7 @@ from .pusher import (
     notify_lead_assigned,
     notify_new_message,
     notify_new_conversation,
+    notify_task_remark,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "notify_lead_assigned",
     "notify_new_message",
     "notify_new_conversation",
+    "notify_task_remark",
 ]

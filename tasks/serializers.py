@@ -31,6 +31,8 @@ class TaskSerializer(serializers.ModelSerializer):
     is_overdue = serializers.BooleanField(read_only=True)
     overdue_days = serializers.SerializerMethodField()
     days_until_deadline = serializers.SerializerMethodField()
+    requires_attention_from = serializers.PrimaryKeyRelatedField(read_only=True)
+    requires_attention_from_name = serializers.CharField(source='requires_attention_from.username', read_only=True)
     
     class Meta:
         model = Task
@@ -65,6 +67,8 @@ class TaskUpdateSerializer(serializers.ModelSerializer):
     updated_by_name = serializers.CharField(source='updated_by.username', read_only=True)
     updated_by = serializers.PrimaryKeyRelatedField(read_only=True)
     task = serializers.PrimaryKeyRelatedField(read_only=True)  # Set in view context
+    new_status = serializers.CharField(required=False)
+    previous_status = serializers.CharField(required=False)
 
     class Meta:
         model = TaskUpdate
