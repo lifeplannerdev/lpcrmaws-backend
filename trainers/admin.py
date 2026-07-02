@@ -1,9 +1,10 @@
 from django.contrib import admin
-from .models import Trainer, Student, Attendance, ProcessingStudent, ProcessingDynamicField
+from .models import Trainer, Student, Attendance, ProcessingStudent, ProcessingDynamicField, AcademicBatch
 
 admin.site.register(Trainer)
 admin.site.register(Student)
 admin.site.register(Attendance)
+admin.site.register(AcademicBatch)
 
 @admin.register(ProcessingStudent)
 class ProcessingStudentAdmin(admin.ModelAdmin):
