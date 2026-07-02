@@ -199,7 +199,7 @@ class StaffListView(generics.ListAPIView):
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, CompanyFilterBackend]
     search_fields = [
         'username', 'first_name', 'last_name',
-        'email', 'role', 'phone', 'location', 'team'
+        'email', 'db_roles__name', 'phone', 'location', 'team'
     ]
     ordering_fields = ['date_joined', 'username']
     ordering = ['-date_joined']
