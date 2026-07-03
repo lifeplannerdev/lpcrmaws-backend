@@ -674,14 +674,28 @@ class UnassignedMissedCallsView(APIView):
         
         if logs_to_check:
             from leads.models import Lead
-            caller_numbers = [log.caller_number for log in logs_to_check if log.caller_number]
+            
+            # Voxbay often includes '91' country code, but Lead DB might just have 10 digits
+            caller_numbers = []
+            for log in logs_to_check:
+                if log.caller_number:
+                    caller_numbers.append(log.caller_number)
+                    if log.caller_number.startswith('91') and len(log.caller_number) == 12:
+                        caller_numbers.append(log.caller_number[2:])
+
             assigned_lead_phones = set(Lead.objects.filter(
                 phone__in=caller_numbers,
                 assigned_to__isnull=False
             ).values_list('phone', flat=True))
             
             for log in logs_to_check:
-                if log.caller_number and log.caller_number in assigned_lead_phones:
+                if not log.caller_number:
+                    logs_to_return.append(log)
+                    continue
+                    
+                num_no_91 = log.caller_number[2:] if log.caller_number.startswith('91') and len(log.caller_number) == 12 else log.caller_number
+                
+                if log.caller_number in assigned_lead_phones or num_no_91 in assigned_lead_phones:
                     continue
                 logs_to_return.append(log)
 
