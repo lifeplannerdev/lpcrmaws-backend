@@ -669,7 +669,22 @@ class UnassignedMissedCallsView(APIView):
             if key and key not in unique_missed_dict:
                 unique_missed_dict[key] = log
 
-        logs_to_return = list(unique_missed_dict.values())
+        logs_to_check = list(unique_missed_dict.values())
+        logs_to_return = []
+        
+        if logs_to_check:
+            from leads.models import Lead
+            caller_numbers = [log.caller_number for log in logs_to_check if log.caller_number]
+            assigned_lead_phones = set(Lead.objects.filter(
+                phone__in=caller_numbers,
+                assigned_to__isnull=False
+            ).values_list('phone', flat=True))
+            
+            for log in logs_to_check:
+                if log.caller_number and log.caller_number in assigned_lead_phones:
+                    continue
+                logs_to_return.append(log)
+
         serializer = VoxbayCallLogSerializer(logs_to_return, many=True)
         return Response(serializer.data)
 
