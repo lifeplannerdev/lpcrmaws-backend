@@ -661,6 +661,9 @@ class UnassignedMissedCallsView(APIView):
         # Exclude those that were eventually answered
         unique_missed = missed_logs.exclude(call_uuid__in=answered_uuids).order_by('-created_at')
 
+        from leads.models import FollowUp
+        from django.db.models import Q
+
         # To avoid showing the same caller multiple times if they called repeatedly:
         # We group by caller_number (or call_uuid as fallback) and return the latest
         unique_missed_dict = {}
@@ -669,7 +672,28 @@ class UnassignedMissedCallsView(APIView):
             if key and key not in unique_missed_dict:
                 unique_missed_dict[key] = log
 
-        logs_to_return = list(unique_missed_dict.values())
+        logs_to_check = list(unique_missed_dict.values())
+        logs_to_return = []
+        
+        if logs_to_check:
+            q_objects = Q()
+            for log in logs_to_check:
+                if log.call_uuid:
+                    q_objects |= Q(notes__contains=log.call_uuid)
+                    
+            assigned_uuids = set()
+            if q_objects:
+                assigned_notes = FollowUp.objects.filter(q_objects).values_list('notes', flat=True)
+                for note in assigned_notes:
+                    if not note: continue
+                    for log in logs_to_check:
+                        if log.call_uuid and log.call_uuid in note:
+                            assigned_uuids.add(log.call_uuid)
+                            
+            for log in logs_to_check:
+                if log.call_uuid not in assigned_uuids:
+                    logs_to_return.append(log)
+
         serializer = VoxbayCallLogSerializer(logs_to_return, many=True)
         return Response(serializer.data)
 
@@ -709,7 +733,8 @@ class AssignMissedCallView(APIView):
                 assigned_to=agent
             )
         
-        notes = f"Missed Call assigned by Admin\nCall UUID: {log.call_uuid}"
+        assigner_name = request.user.get_full_name() or request.user.username
+        notes = f"Missed Call assigned by {assigner_name}\nCall UUID: {log.call_uuid}"
         
         lead_owner = existing_lead.assigned_to
         if not FollowUp.objects.filter(lead=existing_lead, status='pending', notes__contains=log.call_uuid).exists():
