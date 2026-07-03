@@ -661,12 +661,13 @@ class UnassignedMissedCallsView(APIView):
         # Exclude those that were eventually answered
         unique_missed = missed_logs.exclude(call_uuid__in=answered_uuids).order_by('-created_at')
 
-        # To avoid showing the same ring multiple times if it rang 3 agents and none answered:
-        # We can group by CallUUID and return the latest
+        # To avoid showing the same caller multiple times if they called repeatedly:
+        # We group by caller_number (or call_uuid as fallback) and return the latest
         unique_missed_dict = {}
         for log in unique_missed:
-            if log.call_uuid not in unique_missed_dict:
-                unique_missed_dict[log.call_uuid] = log
+            key = log.caller_number or log.call_uuid
+            if key and key not in unique_missed_dict:
+                unique_missed_dict[key] = log
 
         logs_to_return = list(unique_missed_dict.values())
         serializer = VoxbayCallLogSerializer(logs_to_return, many=True)
