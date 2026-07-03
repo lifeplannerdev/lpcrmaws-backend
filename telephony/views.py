@@ -714,6 +714,7 @@ class AssignMissedCallView(APIView):
 
         caller_number = log.caller_number
         existing_lead = Lead.objects.filter(phone=caller_number).first()
+        remarks_text = "assigned from missed"
 
         if not existing_lead:
             existing_lead = Lead.objects.create(
@@ -721,8 +722,17 @@ class AssignMissedCallView(APIView):
                 phone=caller_number,
                 source='VOXBAY CALL',
                 status='ENQUIRY',
-                assigned_to=agent
+                assigned_to=agent,
+                remarks=remarks_text
             )
+        else:
+            existing_lead.assigned_to = agent
+            if existing_lead.remarks:
+                if remarks_text not in existing_lead.remarks:
+                    existing_lead.remarks = f"{existing_lead.remarks} | {remarks_text}"
+            else:
+                existing_lead.remarks = remarks_text
+            existing_lead.save()
         
         assigner_name = request.user.get_full_name() or request.user.username
         notes = f"Missed Call assigned by {assigner_name}\nCall UUID: {log.call_uuid}"
