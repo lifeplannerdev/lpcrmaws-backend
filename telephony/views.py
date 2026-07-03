@@ -652,11 +652,11 @@ class UnassignedMissedCallsView(APIView):
             return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
         # Get all incoming missed calls (not ANSWER)
-        missed_logs = VoxbayCallLog.objects.filter(call_type='incoming').exclude(call_status='ANSWER')
+        missed_logs = VoxbayCallLog.objects.filter(call_type='incoming').exclude(call_status__in=['ANSWER', 'ANSWERED'])
         missed_logs = _date_filter(missed_logs, request)
         
         # Get all CallUUIDs that HAVE been answered
-        answered_uuids = VoxbayCallLog.objects.filter(call_type='incoming', call_status='ANSWER').values_list('call_uuid', flat=True)
+        answered_uuids = VoxbayCallLog.objects.filter(call_type='incoming', call_status__in=['ANSWER', 'ANSWERED']).values_list('call_uuid', flat=True)
         
         # Exclude those that were eventually answered
         unique_missed = missed_logs.exclude(call_uuid__in=answered_uuids).order_by('-created_at')
@@ -674,28 +674,14 @@ class UnassignedMissedCallsView(APIView):
         
         if logs_to_check:
             from leads.models import Lead
-            
-            # Voxbay often includes '91' country code, but Lead DB might just have 10 digits
-            caller_numbers = []
-            for log in logs_to_check:
-                if log.caller_number:
-                    caller_numbers.append(log.caller_number)
-                    if log.caller_number.startswith('91') and len(log.caller_number) == 12:
-                        caller_numbers.append(log.caller_number[2:])
-
+            caller_numbers = [log.caller_number for log in logs_to_check if log.caller_number]
             assigned_lead_phones = set(Lead.objects.filter(
                 phone__in=caller_numbers,
                 assigned_to__isnull=False
             ).values_list('phone', flat=True))
             
             for log in logs_to_check:
-                if not log.caller_number:
-                    logs_to_return.append(log)
-                    continue
-                    
-                num_no_91 = log.caller_number[2:] if log.caller_number.startswith('91') and len(log.caller_number) == 12 else log.caller_number
-                
-                if log.caller_number in assigned_lead_phones or num_no_91 in assigned_lead_phones:
+                if log.caller_number and log.caller_number in assigned_lead_phones:
                     continue
                 logs_to_return.append(log)
 
