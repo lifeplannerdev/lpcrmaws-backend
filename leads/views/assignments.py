@@ -237,6 +237,7 @@ class AvailableUsersForAssignmentView(APIView):
         ASSIGNABLE_ROLES = [
             'OPS', 'ADM_MANAGER', 'ADM_EXEC',
             'CM', 'BDM', 'FOE', 'ADM_COUNSELLOR',
+            'FLAG COORDINATOR'
         ]
         users = User.objects.filter(
             db_roles__name__in=ASSIGNABLE_ROLES,
