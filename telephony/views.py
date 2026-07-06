@@ -598,6 +598,115 @@ class ClickToCallView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+# ─── Call Agent Stats ─────────────────────────────────────────────────────────
+
+class CallAgentStatsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if not has_dynamic_permission(request.user, 'voxbay:admin'):
+            return Response({"error": "Admin access required"}, status=403)
+            
+        qs = VoxbayCallLog.objects.all()
+        qs = _date_filter(qs, request)
+
+        call_type = request.query_params.get("call_type")
+        if call_type in ("incoming", "outgoing"):
+            qs = qs.filter(call_type=call_type)
+            
+        logs = qs.values(
+            'call_type', 'call_status', 'agent_number', 'extension', 'conversation_duration'
+        )
+        
+        agents_map = {}
+        
+        def get_agent_dict(identifier):
+            if not identifier:
+                return None
+            if identifier not in agents_map:
+                agents_map[identifier] = {
+                    'identifier': identifier,
+                    'incoming_calls_received': 0,
+                    'incoming_calls_answered': 0,
+                    'incoming_duration_total': 0,
+                    'outgoing_calls_made': 0,
+                    'outgoing_calls_answered': 0,
+                    'outgoing_duration_total': 0,
+                    'total_cancelled_missed': 0,
+                }
+            return agents_map[identifier]
+        
+        overall = {
+            'identifier': 'OVERALL_SYSTEM',
+            'incoming_calls_received': 0,
+            'incoming_calls_answered': 0,
+            'incoming_duration_total': 0,
+            'outgoing_calls_made': 0,
+            'outgoing_calls_answered': 0,
+            'outgoing_duration_total': 0,
+            'total_cancelled_missed': 0,
+        }
+
+        for log in logs:
+            ctype = log['call_type']
+            status = log['call_status']
+            dur = log['conversation_duration'] or 0
+            
+            # Determine agent identifier for this log
+            agent_id = log['agent_number'] if ctype == 'incoming' else log['extension']
+            
+            # We process 'overall' unconditionally
+            if ctype == 'incoming':
+                overall['incoming_calls_received'] += 1
+                if status == 'ANSWERED':
+                    overall['incoming_calls_answered'] += 1
+                    overall['incoming_duration_total'] += dur
+                elif status in ['MISSED', 'NOANSWER', 'CANCEL']:
+                    overall['total_cancelled_missed'] += 1
+            elif ctype == 'outgoing':
+                overall['outgoing_calls_made'] += 1
+                if status == 'ANSWERED':
+                    overall['outgoing_calls_answered'] += 1
+                    overall['outgoing_duration_total'] += dur
+                elif status in ['MISSED', 'NOANSWER', 'CANCEL']:
+                    overall['total_cancelled_missed'] += 1
+
+            if agent_id:
+                ad = get_agent_dict(agent_id)
+                if ctype == 'incoming':
+                    ad['incoming_calls_received'] += 1
+                    if status == 'ANSWERED':
+                        ad['incoming_calls_answered'] += 1
+                        ad['incoming_duration_total'] += dur
+                    elif status in ['MISSED', 'NOANSWER', 'CANCEL']:
+                        ad['total_cancelled_missed'] += 1
+                elif ctype == 'outgoing':
+                    ad['outgoing_calls_made'] += 1
+                    if status == 'ANSWERED':
+                        ad['outgoing_calls_answered'] += 1
+                        ad['outgoing_duration_total'] += dur
+                    elif status in ['MISSED', 'NOANSWER', 'CANCEL']:
+                        ad['total_cancelled_missed'] += 1
+                        
+        def compute_avgs(d):
+            d['incoming_avg_duration'] = round(d['incoming_duration_total'] / d['incoming_calls_answered'], 1) if d['incoming_calls_answered'] else 0
+            d['outgoing_avg_duration'] = round(d['outgoing_duration_total'] / d['outgoing_calls_answered'], 1) if d['outgoing_calls_answered'] else 0
+            return d
+            
+        compute_avgs(overall)
+        
+        agent_results = []
+        for k, v in agents_map.items():
+            compute_avgs(v)
+            agent_results.append(v)
+            
+        agent_results.sort(key=lambda x: (x['incoming_calls_answered'] + x['outgoing_calls_answered']), reverse=True)
+        
+        return Response({
+            "overall_system": overall,
+            "agents": agent_results
+        })
+
         params = {
             "id_dept":     0,
             "uid":         voxbay_uid,
