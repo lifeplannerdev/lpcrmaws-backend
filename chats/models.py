@@ -31,6 +31,10 @@ class Message(models.Model):
 
     file = models.FileField(upload_to='chats/messages/', blank=True, null=True, verbose_name='file')
 
+    client_id = models.CharField(max_length=255, blank=True, null=True)
+    delivered_to = models.ManyToManyField(User, related_name="delivered_messages", blank=True)
+    read_by = models.ManyToManyField(User, related_name="read_messages", blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

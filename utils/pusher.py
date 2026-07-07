@@ -184,6 +184,20 @@ def notify_new_message(conversation_id, message_data):
         data=message_data
     )
 
+def notify_messages_delivered(conversation_id, user_id, message_ids):
+    trigger_pusher.delay(
+        channel=f"private-chat-{conversation_id}",
+        event="messages-delivered",
+        data={"conversation_id": conversation_id, "user_id": user_id, "message_ids": message_ids}
+    )
+
+def notify_messages_read(conversation_id, user_id, message_ids):
+    trigger_pusher.delay(
+        channel=f"private-chat-{conversation_id}",
+        event="messages-read",
+        data={"conversation_id": conversation_id, "user_id": user_id, "message_ids": message_ids}
+    )
+
 def notify_new_conversation(user_id, conversation_id, conversation_type, name=None):
     message = (
         f"Added to group: \"{name}\"" if conversation_type == 'GROUP'

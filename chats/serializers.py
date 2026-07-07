@@ -23,13 +23,17 @@ class MessageSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Message
-        fields = ["id", "sender", "text", "file", "created_at"]
+        fields = ["id", "client_id", "sender", "text", "file", "delivered_to", "read_by", "created_at"]
 
     def get_file(self, obj):
         if obj.file:
             name = obj.file.name
             if name and ('raw/upload/' in name or 'image/upload/' in name):
                 return f"https://res.cloudinary.com/dzmvrjvfs/{name}"
+            
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.file.url)
             return obj.file.url
         return None
 

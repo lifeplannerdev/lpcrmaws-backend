@@ -11,6 +11,7 @@ from .models import Conversation, Message
 from .serializers import ConversationSerializer, MessageSerializer
 from utils.pusher import pusher_client
 from utils import notify_new_message, notify_new_conversation
+from utils.pusher import notify_messages_delivered, notify_messages_read
 
 User = get_user_model()
 
@@ -58,6 +59,7 @@ class SendMessageView(APIView):
         conversation_id = request.data.get("conversation_id")
         text = request.data.get("text", "").strip()
         file = request.FILES.get("file")
+        client_id = request.data.get("client_id")
 
         if not conversation_id or not str(conversation_id).isdigit():
             return Response(
@@ -81,7 +83,8 @@ class SendMessageView(APIView):
             conversation=conversation,
             sender=request.user,
             text=text or None,
-            file=file
+            file=file,
+            client_id=client_id
         )
 
         # Re-fetch with sender to avoid N+1
@@ -140,6 +143,51 @@ class CreateDirectConversationView(APIView):
             {"conversation_id": conversation.id},
             status=status.HTTP_201_CREATED
         )
+
+
+class MessageDeliveredView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        conversation_id = request.data.get("conversation_id")
+        if not conversation_id:
+            return Response({"error": "Conversation ID required"}, status=400)
+            
+        try:
+            conversation = Conversation.objects.get(id=conversation_id, participants=request.user)
+            messages = conversation.messages.exclude(sender=request.user).exclude(delivered_to=request.user)
+            if messages.exists():
+                message_ids = []
+                for msg in messages:
+                    msg.delivered_to.add(request.user)
+                    message_ids.append(msg.id)
+                notify_messages_delivered(conversation.id, request.user.id, message_ids)
+            return Response({"status": "ok"})
+        except Conversation.DoesNotExist:
+            return Response({"error": "Conversation not found"}, status=404)
+
+
+class MessageReadView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        conversation_id = request.data.get("conversation_id")
+        if not conversation_id:
+            return Response({"error": "Conversation ID required"}, status=400)
+            
+        try:
+            conversation = Conversation.objects.get(id=conversation_id, participants=request.user)
+            messages = conversation.messages.exclude(sender=request.user).exclude(read_by=request.user)
+            if messages.exists():
+                message_ids = []
+                for msg in messages:
+                    msg.read_by.add(request.user)
+                    msg.delivered_to.add(request.user)
+                    message_ids.append(msg.id)
+                notify_messages_read(conversation.id, request.user.id, message_ids)
+            return Response({"status": "ok"})
+        except Conversation.DoesNotExist:
+            return Response({"error": "Conversation not found"}, status=404)
 
 
 #  Create Group Conversation
