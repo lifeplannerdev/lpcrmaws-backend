@@ -620,7 +620,7 @@ class CallAgentStatsView(APIView):
             'call_type', 'call_status', 'agent_number', 'extension', 'conversation_duration'
         )
         
-        valid_roles = ['ADM_MANAGER', 'ADM_COUNSELLOR', 'FLAG_COORDINATOR']
+        valid_roles = ['ADM_MANAGER', 'ADM_COUNSELLOR', 'FLAG_COORDINATOR', 'FLAG COORDINATOR']
         users = User.objects.filter(is_active=True, db_roles__name__in=valid_roles).distinct()
 
         agents_map = {}
