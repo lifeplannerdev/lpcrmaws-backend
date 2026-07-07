@@ -600,6 +600,8 @@ class ClickToCallView(APIView):
 
 # ─── Call Agent Stats ─────────────────────────────────────────────────────────
 
+from accounts.models import User
+
 class CallAgentStatsView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -618,26 +620,35 @@ class CallAgentStatsView(APIView):
             'call_type', 'call_status', 'agent_number', 'extension', 'conversation_duration'
         )
         
+        valid_roles = ['ADM_MANAGER', 'ADM_COUNSELLOR', 'FLAG_COORDINATOR']
+        users = User.objects.filter(is_active=True, db_roles__name__in=valid_roles).distinct()
+
         agents_map = {}
-        
-        def get_agent_dict(identifier):
-            if not identifier:
-                return None
-            if identifier not in agents_map:
-                agents_map[identifier] = {
-                    'identifier': identifier,
-                    'incoming_calls_received': 0,
-                    'incoming_calls_answered': 0,
-                    'incoming_duration_total': 0,
-                    'outgoing_calls_made': 0,
-                    'outgoing_calls_answered': 0,
-                    'outgoing_duration_total': 0,
-                    'total_cancelled_missed': 0,
-                }
-            return agents_map[identifier]
+        user_by_incoming = {}
+        user_by_outgoing = {}
+
+        for u in users:
+            uid = str(u.id)
+            name = f"{u.first_name} {u.last_name}".strip() or u.username
+            agents_map[uid] = {
+                'identifier': uid,
+                'agent_name': name,
+                'incoming_calls_received': 0,
+                'incoming_calls_answered': 0,
+                'incoming_duration_total': 0,
+                'outgoing_calls_made': 0,
+                'outgoing_calls_answered': 0,
+                'outgoing_duration_total': 0,
+                'total_cancelled_missed': 0,
+            }
+            if u.voxbay_number:
+                user_by_incoming[u.voxbay_number] = uid
+            if u.voxbay_extension:
+                user_by_outgoing[u.voxbay_extension] = uid
         
         overall = {
             'identifier': 'OVERALL_SYSTEM',
+            'agent_name': 'OVERALL SYSTEM',
             'incoming_calls_received': 0,
             'incoming_calls_answered': 0,
             'incoming_duration_total': 0,
@@ -652,8 +663,12 @@ class CallAgentStatsView(APIView):
             status = log['call_status']
             dur = log['conversation_duration'] or 0
             
-            # Determine agent identifier for this log
-            agent_id = log['agent_number'] if ctype == 'incoming' else log['extension']
+            # Determine agent identifier for this log based on active users in roles
+            agent_id = None
+            if ctype == 'incoming':
+                agent_id = user_by_incoming.get(log['agent_number'])
+            elif ctype == 'outgoing':
+                agent_id = user_by_outgoing.get(log['extension'])
             
             # We process 'overall' unconditionally
             if ctype == 'incoming':
@@ -671,8 +686,8 @@ class CallAgentStatsView(APIView):
                 elif status in ['MISSED', 'NOANSWER', 'CANCEL']:
                     overall['total_cancelled_missed'] += 1
 
-            if agent_id:
-                ad = get_agent_dict(agent_id)
+            if agent_id and agent_id in agents_map:
+                ad = agents_map[agent_id]
                 if ctype == 'incoming':
                     ad['incoming_calls_received'] += 1
                     if status == 'ANSWERED':
