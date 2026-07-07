@@ -27,7 +27,7 @@ class ConversationListView(APIView):
             Prefetch("messages", queryset=Message.objects.order_by("-created_at"))
         ).order_by("-created_at")
 
-        serializer = ConversationSerializer(qs, many=True)
+        serializer = ConversationSerializer(qs, many=True, context={'request': request})
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
@@ -46,7 +46,7 @@ class MessageListView(APIView):
             conversation=conversation
         ).select_related("sender").order_by("created_at")
 
-        serializer = MessageSerializer(messages, many=True)
+        serializer = MessageSerializer(messages, many=True, context={'request': request})
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
@@ -87,7 +87,7 @@ class SendMessageView(APIView):
         # Re-fetch with sender to avoid N+1
         message = Message.objects.select_related("sender").get(id=message.id)
 
-        serialized_message = MessageSerializer(message).data
+        serialized_message = MessageSerializer(message, context={'request': request}).data
 
         # 🔔 Notify all participants via Pusher
         notify_new_message(conversation.id, serialized_message)
