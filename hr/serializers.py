@@ -79,9 +79,9 @@ class AssetSerializer(serializers.ModelSerializer):
 
     def get_attachment_url(self, obj):
         if obj.attachment:
-            name = obj.attachment.name
-            if name and ('raw/upload/' in name or 'image/upload/' in name):
-                return f"https://res.cloudinary.com/dzmvrjvfs/{name}"
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.attachment.url)
             return obj.attachment.url
         return None
 
@@ -170,9 +170,9 @@ class AttendanceDocumentSerializer(serializers.ModelSerializer):
     
     def get_document_url(self, obj):
         if obj.document:
-            name = obj.document.name
-            if name and ('raw/upload/' in name or 'image/upload/' in name):
-                return f"https://res.cloudinary.com/dzmvrjvfs/{name}"
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.document.url)
             return obj.document.url
         return None
 
@@ -230,8 +230,8 @@ class CandidateSerializer(serializers.ModelSerializer):
 
     def get_resume_url(self, obj):
         if obj.resume:
-            name = obj.resume.name
-            if name and ('raw/upload/' in name or 'image/upload/' in name):
-                return f"https://res.cloudinary.com/dzmvrjvfs/{name}"
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.resume.url)
             return obj.resume.url
         return None

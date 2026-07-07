@@ -27,10 +27,6 @@ class MessageSerializer(serializers.ModelSerializer):
 
     def get_file(self, obj):
         if obj.file:
-            name = obj.file.name
-            if name and ('raw/upload/' in name or 'image/upload/' in name):
-                return f"https://res.cloudinary.com/dzmvrjvfs/{name}"
-            
             request = self.context.get('request')
             if request:
                 return request.build_absolute_uri(obj.file.url)

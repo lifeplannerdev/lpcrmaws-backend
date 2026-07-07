@@ -37,7 +37,6 @@ INSTALLED_APPS = [
     'hr.apps.HrConfig',
     'fees.apps.FeesConfig',
     'storages',
-    'cloudinary',
     'corsheaders',
     'rest_framework',
     'rest_framework_simplejwt',
@@ -345,20 +344,6 @@ PUSHER_APP_ID = config("PUSHER_APP_ID", "2135420")
 PUSHER_KEY = config("PUSHER_KEY", "a8ecd560b1c203ba4cdf")
 PUSHER_SECRET = config("PUSHER_SECRET", "9da391240e3535b95cb0")
 PUSHER_CLUSTER = config("PUSHER_CLUSTER", "ap2")
-
-# Cloudinary Configuration
-import cloudinary
-import cloudinary.uploader
-import cloudinary.api
-
-CLOUDINARY_URL = config('CLOUDINARY_URL', default='')
-if CLOUDINARY_URL:
-    cloudinary.config(
-        cloud_name=CLOUDINARY_URL.split('@')[-1],
-        api_key=CLOUDINARY_URL.split('//')[1].split(':')[0],
-        api_secret=CLOUDINARY_URL.split(':')[2].split('@')[0],
-        secure=True
-    )
 
 # Voxbay config
 import os
