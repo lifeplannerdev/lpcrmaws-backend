@@ -238,6 +238,7 @@ class LeadListSerializer(serializers.ModelSerializer):
     current_handler = serializers.SerializerMethodField()
     agenda_type     = serializers.SerializerMethodField()
     processing_student = serializers.CharField(read_only=True)
+    assignment_source = serializers.SerializerMethodField()
 
     class Meta:
         model  = Lead
@@ -249,9 +250,16 @@ class LeadListSerializer(serializers.ModelSerializer):
             'processing_status', 'processing_student',
             'assigned_to', 'assigned_by', 'assigned_date',
             'sub_assigned_to', 'sub_assigned_by', 'sub_assigned_date',
-            'current_handler', 'company',
-            'created_at', 'agenda_type',
+            'current_handler', 'created_at', 'updated_at',
+            'agenda_type', 'company', 'assignment_source'
         ]
+
+    def get_assignment_source(self, obj):
+        if obj.custom_source == 'MISSED CALL':
+            return 'Assigned from Missed Calls'
+        if obj.assigned_by:
+            return 'Assigned by Admin/Staff'
+        return 'System Auto-Assigned'
 
     def get_agenda_type(self, obj):
         request = self.context.get('request')

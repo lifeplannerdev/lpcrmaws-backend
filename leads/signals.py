@@ -39,10 +39,24 @@ def capture_lead_old_state(sender, instance, **kwargs):
  
 @receiver(post_save, sender=Lead)
 def log_lead_activity(sender, instance, created, **kwargs):
+    from utils.pusher import notify_lead_created, notify_lead_updated
+    from leads.serializers import LeadListSerializer
+    
     label = instance.name
     # Use assigned_by as the acting user (whoever created/modified)
     acting_user = instance.assigned_by or instance.assigned_to
- 
+    
+    # Trigger pusher
+    try:
+        # Pass a mock context for the serializer to avoid requiring full request context if possible
+        lead_data = LeadListSerializer(instance).data
+        if created:
+            notify_lead_created(lead_data)
+        else:
+            notify_lead_updated(lead_data)
+    except Exception as e:
+        print(f"[Pusher Signal Error] {e}")
+
     if created:
         log_activity(
             action='LEAD_CREATED',
@@ -59,7 +73,7 @@ def log_lead_activity(sender, instance, created, **kwargs):
             },
         )
         return
- 
+
     if getattr(instance, '_old_status', None) != instance.status:
         log_activity(
             action='LEAD_STATUS_CHANGED',
@@ -70,7 +84,7 @@ def log_lead_activity(sender, instance, created, **kwargs):
             description=f'Lead "{label}" status changed from {instance._old_status} → {instance.status}.',
             metadata={'old_status': instance._old_status, 'new_status': instance.status},
         )
- 
+
     if getattr(instance, '_old_processing_status', None) != instance.processing_status:
         log_activity(
             action='LEAD_PROCESSING_UPDATED',
@@ -84,7 +98,7 @@ def log_lead_activity(sender, instance, created, **kwargs):
                 'new_processing_status': instance.processing_status,
             },
         )
- 
+
     if getattr(instance, '_old_assigned_to', None) != instance.assigned_to_id:
         assignee = _user_label(instance.assigned_to)
         log_activity(
@@ -96,7 +110,7 @@ def log_lead_activity(sender, instance, created, **kwargs):
             description=f'Lead "{label}" was assigned to "{assignee}".',
             metadata={'assigned_to': assignee},
         )
- 
+
     if getattr(instance, '_old_sub_assigned_to', None) != instance.sub_assigned_to_id:
         if instance.sub_assigned_to:
             sub = _user_label(instance.sub_assigned_to)
@@ -118,7 +132,7 @@ def log_lead_activity(sender, instance, created, **kwargs):
                 user=acting_user,
                 description=f'Lead "{label}" sub-assignment was removed.',
             )
- 
+
     if getattr(instance, '_old_remarks', None) != instance.remarks:
         log_activity(
             action='LEAD_REMARK_UPDATED',
@@ -129,10 +143,16 @@ def log_lead_activity(sender, instance, created, **kwargs):
             description=f'Remarks updated for lead "{label}".',
             metadata={'old_remarks': instance._old_remarks, 'new_remarks': instance.remarks},
         )
- 
- 
+
+
 @receiver(post_delete, sender=Lead)
 def log_lead_deleted(sender, instance, **kwargs):
+    from utils.pusher import notify_lead_deleted
+    try:
+        notify_lead_deleted(instance.pk)
+    except Exception as e:
+        print(f"[Pusher Signal Error] {e}")
+
     log_activity(
         action='LEAD_DELETED',
         entity_type='Lead',

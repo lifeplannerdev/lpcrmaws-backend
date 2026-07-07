@@ -154,6 +154,26 @@ def notify_lead_assigned(assignee, assigned_by, lead, assignment_type):
         }
     )
 
+def notify_lead_created(lead_data):
+    trigger_pusher.delay(
+        channel="private-leads-updates",
+        event="lead.created",
+        data={"lead": lead_data}
+    )
+
+def notify_lead_updated(lead_data):
+    trigger_pusher.delay(
+        channel="private-leads-updates",
+        event="lead.updated",
+        data={"lead": lead_data}
+    )
+
+def notify_lead_deleted(lead_id):
+    trigger_pusher.delay(
+        channel="private-leads-updates",
+        event="lead.deleted",
+        data={"lead_id": lead_id}
+    )
 
 # ── Chat helpers ──────────────────────────────────────
 

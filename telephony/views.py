@@ -76,7 +76,7 @@ def _resolve_recording_url(raw_url):
 
 
 def process_voxbay_call_log(obj):
-    from leads.models import Lead, FollowUp
+    from leads.models import Lead, FollowUp, LeadAssignment
     from accounts.models import User
     from django.utils import timezone
 
@@ -84,10 +84,12 @@ def process_voxbay_call_log(obj):
         lead_number = obj.destination
         agent_phone = obj.extension
         direction_text = "Outgoing"
+        new_lead_name = f"Voxbay Called - {lead_number}"
     else:
         lead_number = obj.caller_number
         agent_phone = obj.agent_number
         direction_text = "Incoming"
+        new_lead_name = f"Voxbay Caller - {lead_number}"
 
     if not lead_number:
         return
@@ -101,11 +103,20 @@ def process_voxbay_call_log(obj):
     if obj.call_status in ['ANSWER', 'ANSWERED']:
         if not existing_lead and agent_user:
             existing_lead = Lead.objects.create(
-                name=f"Voxbay Caller - {lead_number}",
+                name=new_lead_name,
                 phone=lead_number,
                 source='VOXBAY CALL',
                 status='ENQUIRY',
-                assigned_to=agent_user
+                assigned_to=agent_user,
+                assigned_by=None,
+                assigned_date=timezone.now()
+            )
+            LeadAssignment.objects.create(
+                lead=existing_lead,
+                assigned_to=agent_user,
+                assigned_by=None,
+                assignment_type='PRIMARY',
+                notes="Auto-assigned on Answered Voxbay Call"
             )
 
         if existing_lead and agent_user:
@@ -126,6 +137,16 @@ def process_voxbay_call_log(obj):
                     notes=notes,
                 )
     else:
+        if not existing_lead and direction_text == "Incoming":
+            existing_lead = Lead.objects.create(
+                name=f"Missed Caller - {lead_number}",
+                phone=lead_number,
+                source='VOXBAY CALL',
+                custom_source='MISSED CALL',
+                status='ENQUIRY',
+                assigned_to=None
+            )
+
         if existing_lead:
             answered_exists = VoxbayCallLog.objects.filter(call_uuid=obj.call_uuid, call_status__in=['ANSWER', 'ANSWERED']).exists()
             if not answered_exists:
