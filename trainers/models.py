@@ -91,6 +91,8 @@ class Student(models.Model):
     ]
 
     STATUS_CHOICES = [
+        ('PENDING_ENROLLMENT', 'Pending Enrollment'),
+        ('PENDING_BATCH_ASSIGNMENT', 'Pending Batch Assignment'),
         ('ACTIVE', 'Active'),
         ('PAUSED', 'Paused'),
         ('COMPLETED', 'Completed'),
@@ -174,9 +176,9 @@ class Student(models.Model):
     )
 
     status = models.CharField(
-        max_length=10,
+        max_length=30,
         choices=STATUS_CHOICES,
-        default='ACTIVE'
+        default='PENDING_ENROLLMENT'
     )
 
     admission_date = models.DateField(

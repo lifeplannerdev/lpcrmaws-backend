@@ -283,7 +283,9 @@ class AttendanceListCreateAPIView(APIView):
         
         has_fee_account = hasattr(student, 'fee_account') and student.fee_account is not None
         
-        if policy and policy.block_without_fee_account and not has_fee_account:
+        is_flexible = getattr(student, 'fee_attendance_policy', 'STRICT') == 'FLEXIBLE'
+        
+        if not is_flexible and policy and policy.block_without_fee_account and not has_fee_account:
             return Response(
                 {"detail": "Attendance blocked: Student has no fee structure assigned."},
                 status=403
@@ -293,7 +295,7 @@ class AttendanceListCreateAPIView(APIView):
         if serializer.is_valid():
             approval_status = 'APPROVED'
             
-            if policy and policy.pending_if_overdue:
+            if not is_flexible and policy and policy.pending_if_overdue:
                 # If marked PRESENT, check for overdue fees
                 if serializer.validated_data.get('status', 'PRESENT') == 'PRESENT':
                     if has_fee_account and getattr(student.fee_account, 'is_overdue', False):
@@ -383,7 +385,9 @@ class QuickMarkAttendanceAPIView(APIView):
 
                 has_fee_account = hasattr(student, 'fee_account') and student.fee_account is not None
                 
-                if policy and policy.block_without_fee_account and not has_fee_account:
+                is_flexible = getattr(student, 'fee_attendance_policy', 'STRICT') == 'FLEXIBLE'
+                
+                if not is_flexible and policy and policy.block_without_fee_account and not has_fee_account:
                     errors.append({
                         'student_id': r.get('student'),
                         'error': 'Attendance blocked: Student has no fee structure assigned.'
@@ -391,7 +395,7 @@ class QuickMarkAttendanceAPIView(APIView):
                     continue
 
                 approval_status = 'APPROVED'
-                if policy and policy.pending_if_overdue:
+                if not is_flexible and policy and policy.pending_if_overdue:
                     if r.get('status', 'PRESENT') == 'PRESENT':
                         if has_fee_account and getattr(student.fee_account, 'is_overdue', False):
                             approval_status = 'PENDING_FEE_APPROVAL'
