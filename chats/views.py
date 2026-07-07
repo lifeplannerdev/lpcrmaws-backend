@@ -221,6 +221,10 @@ class PusherAuthView(APIView):
 
             if not is_participant:
                 return Response({'error': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
+                
+        elif channel_name == 'private-leads-updates':
+            # Anyone authenticated can listen to leads updates
+            pass
 
         else:
             return Response({'error': 'Channel not allowed'}, status=status.HTTP_403_FORBIDDEN)
