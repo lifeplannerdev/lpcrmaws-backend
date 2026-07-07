@@ -184,6 +184,13 @@ def notify_new_message(conversation_id, message_data):
         data=message_data
     )
 
+def notify_message_deleted(conversation_id, message_id):
+    trigger_pusher.delay(
+        channel=f"private-chat-{conversation_id}",
+        event="message-deleted",
+        data={"message_id": message_id, "conversation_id": conversation_id}
+    )
+
 def notify_messages_delivered(conversation_id, user_id, message_ids):
     trigger_pusher.delay(
         channel=f"private-chat-{conversation_id}",

@@ -98,6 +98,29 @@ class SendMessageView(APIView):
         return Response(serialized_message, status=status.HTTP_201_CREATED)
 
 
+class DeleteMessageView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, message_id):
+        message = get_object_or_404(Message, id=message_id)
+        
+        # Only the sender can delete their message
+        if message.sender != request.user:
+            return Response(
+                {"error": "You can only delete your own messages"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+            
+        conversation_id = message.conversation.id
+        message.delete()
+        
+        # Notify clients
+        from utils.pusher import notify_message_deleted
+        notify_message_deleted(conversation_id, message_id)
+        
+        return Response({"status": "deleted"}, status=status.HTTP_204_NO_CONTENT)
+
+
 #  Create Direct Conversation
 class CreateDirectConversationView(APIView):
     permission_classes = [IsAuthenticated]
