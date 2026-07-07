@@ -180,8 +180,12 @@ class EmployeeListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        users = User.objects.all().values("id", "username", "role")
-        return Response(list(users), status=status.HTTP_200_OK)
+        users = User.objects.prefetch_related('db_roles').all()
+        # Exclude the requesting user
+        # users = users.exclude(id=request.user.id) # Already handled in frontend possibly, but fine.
+        from .serializers import UserSerializer
+        data = UserSerializer(users, many=True).data
+        return Response(data, status=status.HTTP_200_OK)
 
 
 #  Pusher Auth

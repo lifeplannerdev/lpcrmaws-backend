@@ -6,9 +6,15 @@ User = get_user_model()
 
 
 class UserSerializer(serializers.ModelSerializer):
+    role = serializers.SerializerMethodField()
+
     class Meta:
         model = User
         fields = ["id", "username", "role"]
+
+    def get_role(self, obj):
+        first_role = obj.db_roles.first()
+        return first_role.name if first_role else (obj.team or "")
 
 
 class MessageSerializer(serializers.ModelSerializer):
