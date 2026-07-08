@@ -7,7 +7,7 @@ User = get_user_model()
 class UserBasicSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['id', 'username', 'first_name', 'last_name', 'avatar']
+        fields = ['id', 'username', 'first_name', 'last_name']
 
 class FeedReactionSerializer(serializers.ModelSerializer):
     user = UserBasicSerializer(read_only=True)
