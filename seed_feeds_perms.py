@@ -33,5 +33,4 @@ def seed_feeds_permissions():
         except Exception as e:
             print(f"Error updating role {role_name}: {e}")
 
-if __name__ == "__main__":
-    seed_feeds_permissions()
+seed_feeds_permissions()
