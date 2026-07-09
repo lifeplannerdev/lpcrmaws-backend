@@ -59,7 +59,9 @@ class FeedReactView(generics.GenericAPIView):
             trigger_pusher('feeds', 'remove_reaction', {'post_id': post.id, 'user_id': user.id, 'emoji': emoji})
             return Response({"status": "Reaction removed"}, status=status.HTTP_200_OK)
         else:
-            trigger_pusher('feeds', 'new_reaction', FeedReactionSerializer(reaction).data)
+            reaction_data = FeedReactionSerializer(reaction).data
+            reaction_data['post'] = post.id
+            trigger_pusher('feeds', 'new_reaction', reaction_data)
             return Response(FeedReactionSerializer(reaction).data, status=status.HTTP_201_CREATED)
 
 class FeedCommentListCreateView(generics.ListCreateAPIView):
@@ -73,7 +75,9 @@ class FeedCommentListCreateView(generics.ListCreateAPIView):
         post = get_object_or_404(FeedPost, pk=self.kwargs['pk'])
         comment = serializer.save(author=self.request.user, post=post)
         
-        trigger_pusher('feeds', 'new_comment', FeedCommentSerializer(comment).data)
+        comment_data = FeedCommentSerializer(comment).data
+        comment_data['post'] = post.id
+        trigger_pusher('feeds', 'new_comment', comment_data)
 
 class FeedCommentDetailView(generics.DestroyAPIView):
     queryset = FeedComment.objects.all()
