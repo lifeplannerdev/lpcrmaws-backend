@@ -11,7 +11,7 @@ from django.contrib.auth import get_user_model
 from accounts.models import ActivityLog
 import csv
 
-from .models import Trainer, Student, Attendance, Branch, ExamResult, ProcessingStudent, ProcessingDynamicField, ProcessingStudentDocument
+from .models import Trainer, Student, Attendance, Branch, ExamResult, ProcessingStudent, ProcessingDynamicField, ProcessingStudentDocument, AcademicBatch
 from .serializers import (
     TrainerSerializer, 
     StudentSerializer, 
