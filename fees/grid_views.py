@@ -5,7 +5,6 @@ from django.db.models import Sum, Q, Prefetch
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import BasePermission
-from core.permissions import require_permission
 
 from fees.models import StudentFeeAccount, FeePayment, FeeAdjustment
 from trainers.models import Student

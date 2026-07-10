@@ -619,6 +619,50 @@ class ClickToCallView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+        params = {
+            "id_dept":     0,
+            "uid":         voxbay_uid,
+            "upin":        voxbay_upin,
+            "user_no":     voxbay_extension,
+            "destination": validated["destination"],
+            "callerid":    voxbay_extension,
+        }
+        if validated.get("source"):
+            params["source"] = validated["source"]
+
+        logger.info(f"[Click-to-Call] params={params}")
+
+        try:
+            resp = requests.get(VOXBAY_CLICK_TO_CALL_URL, params=params, timeout=10)
+            resp.raise_for_status()
+            return Response({
+                "success":         True,
+                "voxbay_response": resp.text,
+                "status_code":     resp.status_code,
+            })
+        except requests.Timeout:
+            logger.error("[Click-to-Call] Voxbay API timed out")
+            return Response(
+                {"error": "Voxbay API timed out"},
+                status=status.HTTP_504_GATEWAY_TIMEOUT,
+            )
+        except requests.HTTPError as e:
+            logger.error(f"[Click-to-Call] HTTP error: {e}")
+            return Response(
+                {
+                    "success":         False,
+                    "voxbay_response": resp.text,
+                    "status_code":     resp.status_code,
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        except requests.RequestException as e:
+            logger.error(f"[Click-to-Call] RequestException: {e}")
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
 # ─── Call Agent Stats ─────────────────────────────────────────────────────────
 
 from accounts.models import User
@@ -742,50 +786,6 @@ class CallAgentStatsView(APIView):
             "overall_system": overall,
             "agents": agent_results
         })
-
-        params = {
-            "id_dept":     0,
-            "uid":         voxbay_uid,
-            "upin":        voxbay_upin,
-            "user_no":     voxbay_extension,
-            "destination": validated["destination"],
-            "callerid":    voxbay_extension,
-        }
-        if validated.get("source"):
-            params["source"] = validated["source"]
-
-        logger.info(f"[Click-to-Call] params={params}")
-
-        try:
-            resp = requests.get(VOXBAY_CLICK_TO_CALL_URL, params=params, timeout=10)
-            resp.raise_for_status()
-            return Response({
-                "success":         True,
-                "voxbay_response": resp.text,
-                "status_code":     resp.status_code,
-            })
-        except requests.Timeout:
-            logger.error("[Click-to-Call] Voxbay API timed out")
-            return Response(
-                {"error": "Voxbay API timed out"},
-                status=status.HTTP_504_GATEWAY_TIMEOUT,
-            )
-        except requests.HTTPError as e:
-            logger.error(f"[Click-to-Call] HTTP error: {e}")
-            return Response(
-                {
-                    "success":         False,
-                    "voxbay_response": resp.text,
-                    "status_code":     resp.status_code,
-                },
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
-        except requests.RequestException as e:
-            logger.error(f"[Click-to-Call] RequestException: {e}")
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
 
 # ─── Unique Missed Calls ──────────────────────────────────────────────────────
 

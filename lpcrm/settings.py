@@ -347,7 +347,6 @@ PUSHER_SECRET = config("PUSHER_SECRET", "9da391240e3535b95cb0")
 PUSHER_CLUSTER = config("PUSHER_CLUSTER", "ap2")
 
 # Voxbay config
-import os
-VOXBAY_UID = os.environ.get('VOXBAY_UID')
-VOXBAY_UPIN = os.environ.get('VOXBAY_UPIN')
+VOXBAY_UID = config('VOXBAY_UID', default=None)
+VOXBAY_UPIN = config('VOXBAY_UPIN', default=None)
 
