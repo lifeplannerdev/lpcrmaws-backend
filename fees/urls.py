@@ -1,5 +1,6 @@
 from django.urls import path
 
+from .grid_views import FeeGridListAPIView, FeeGridExportAPIView
 from .views import (
     FeeAnalyticsOverviewAPIView,
     FeeStudent360APIView,
@@ -39,4 +40,7 @@ urlpatterns = [
 
     path('fees/analytics/overview/', FeeAnalyticsOverviewAPIView.as_view(), name='fee-analytics-overview'),
     path('fees/analytics/student/<int:student_id>/', FeeStudent360APIView.as_view(), name='fee-student-360'),
+
+    path('fees/grid/', FeeGridListAPIView.as_view(), name='fee-grid-list'),
+    path('fees/grid/export/', FeeGridExportAPIView.as_view(), name='fee-grid-export'),
 ]

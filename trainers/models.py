@@ -129,6 +129,20 @@ class Student(models.Model):
         default='OFFLINE'
     )
 
+    qualification = models.CharField(
+        max_length=150,
+        blank=True,
+        null=True,
+        help_text="Student's highest qualification"
+    )
+
+    preferred_country = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        help_text="Student's preferred country for studies"
+    )
+
     PREFERRED_LEVEL_CHOICES = [
         ('A1', 'A1'),
         ('A2', 'A2'),
