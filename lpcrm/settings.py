@@ -304,6 +304,10 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'fees.tasks.send_daily_fee_reminders',
         'schedule': crontab(hour=8, minute=0),
     },
+    'update_overdue_fees_daily': {
+        'task': 'fees.tasks.update_overdue_fees',
+        'schedule': crontab(hour=0, minute=5),
+    },
 }
 
 # Default primary key field type

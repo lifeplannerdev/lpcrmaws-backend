@@ -42,3 +42,28 @@ def send_daily_fee_reminders():
         count += 1
             
     return f"Sent reminders for {count} upcoming installments."
+
+@shared_task
+def update_overdue_fees():
+    today = timezone.localdate()
+    
+    # An installment is overdue if due_date is strictly in the past
+    # and status is PENDING or PARTIAL
+    installments = FeeInstallment.objects.filter(
+        status__in=['PENDING', 'PARTIAL'],
+        due_date__lt=today
+    )
+    
+    count = 0
+    accounts_to_recalc = set()
+    for installment in installments:
+        installment.status = 'OVERDUE'
+        installment.save(update_fields=['status', 'updated_at'])
+        accounts_to_recalc.add(installment.account)
+        count += 1
+        
+    # Recalculate fee accounts to update their overdue_amount and status
+    for account in accounts_to_recalc:
+        account.recalculate()
+        
+    return f"Marked {count} installments as overdue."
