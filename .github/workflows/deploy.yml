@@ -15,6 +15,7 @@ jobs:
           username: lpcrm
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
+            set -e
             cd /home/lpcrm/lpcrmaws-backend
             git pull origin main
             source venv/bin/activate
