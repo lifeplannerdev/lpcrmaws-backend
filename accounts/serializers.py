@@ -97,13 +97,15 @@ class StaffDetailSerializer(serializers.ModelSerializer):
             'role_names',
             'is_on_leave',
             'voxbay_number',
-            'voxbay_extension'
+            'voxbay_extension',
+            'branch_id'
         ]
         read_only_fields = ['date_joined', 'last_login']
 
     assets = serializers.SerializerMethodField()
     permissions = serializers.SerializerMethodField()
     role_names = serializers.SerializerMethodField()
+    branch_id = serializers.SerializerMethodField()
 
     def get_assets(self, obj):
         from hr.serializers import AssetSerializer
@@ -116,6 +118,11 @@ class StaffDetailSerializer(serializers.ModelSerializer):
 
     def get_role_names(self, obj):
         return list(obj.db_roles.values_list('name', flat=True))
+
+    def get_branch_id(self, obj):
+        if hasattr(obj, 'trainer_profile') and obj.trainer_profile.branch_id:
+            return obj.trainer_profile.branch_id
+        return None
 
 
 #  Staff Create/Update Serializer 

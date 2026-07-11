@@ -240,20 +240,21 @@ class StaffCreateView(generics.CreateAPIView):
     def create(self, request, *args, **kwargs):
         response = super().create(request, *args, **kwargs)
         
-        # If user is a trainer and a branch_id was provided, update the trainer profile
-        branch_id = request.data.get('branch_id')
-        username = request.data.get('username')
-        if branch_id and username:
-            try:
-                # The user was created in super().create(), let's fetch it by username
-                user = User.objects.get(username=username)
-                
-                # Signal has already created trainer_profile
-                if user.db_roles.filter(name='TRAINER').exists() and hasattr(user, 'trainer_profile'):
-                    user.trainer_profile.branch_id = branch_id
-                    user.trainer_profile.save()
-            except Exception as e:
-                print(f"Error setting branch for trainer: {e}")
+        # If user is a trainer and a branch_id is in request, update the trainer profile
+        if 'branch_id' in request.data:
+            branch_id = request.data.get('branch_id')
+            username = request.data.get('username')
+            if username:
+                try:
+                    # The user was created in super().create(), let's fetch it by username
+                    user = User.objects.get(username=username)
+                    
+                    # Signal has already created trainer_profile
+                    if user.db_roles.filter(name='TRAINER').exists() and hasattr(user, 'trainer_profile'):
+                        user.trainer_profile.branch_id = branch_id if branch_id else None
+                        user.trainer_profile.save()
+                except Exception as e:
+                    print(f"Error setting branch for trainer: {e}")
 
         response.data = {"message": "Staff created successfully"}
         return response
@@ -274,14 +275,15 @@ class StaffUpdateView(generics.UpdateAPIView):
         self.perform_update(serializer)
 
         # Handle branch update for trainers
-        branch_id = request.data.get('branch_id')
-        if instance.db_roles.filter(name='TRAINER').exists() and branch_id:
-            try:
-                if hasattr(instance, 'trainer_profile'):
-                    instance.trainer_profile.branch_id = branch_id
-                    instance.trainer_profile.save()
-            except Exception as e:
-                print(f"Error setting branch for trainer: {e}")
+        if 'branch_id' in request.data:
+            branch_id = request.data.get('branch_id')
+            if instance.db_roles.filter(name='TRAINER').exists():
+                try:
+                    if hasattr(instance, 'trainer_profile'):
+                        instance.trainer_profile.branch_id = branch_id if branch_id else None
+                        instance.trainer_profile.save()
+                except Exception as e:
+                    print(f"Error setting branch for trainer: {e}")
 
         return Response(
             {"message": "Staff updated successfully"},
