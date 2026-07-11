@@ -1,10 +1,11 @@
 from django.contrib import admin
-from .models import Trainer, Student, Attendance, ProcessingStudent, ProcessingDynamicField, AcademicBatch
+from .models import Trainer, Student, Attendance, ProcessingStudent, ProcessingDynamicField, AcademicBatch, Branch
 
 admin.site.register(Trainer)
 admin.site.register(Student)
 admin.site.register(Attendance)
 admin.site.register(AcademicBatch)
+admin.site.register(Branch)
 
 @admin.register(ProcessingStudent)
 class ProcessingStudentAdmin(admin.ModelAdmin):

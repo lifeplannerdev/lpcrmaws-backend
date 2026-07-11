@@ -1,6 +1,6 @@
 from accounts.permissions import has_dynamic_permission
 from rest_framework import serializers
-from .models import Trainer, Student, Attendance, AcademicBatch, Branch, ExamResult, ProcessingStudent, ProcessingDynamicField, ProcessingStudentDocument
+from .models import Trainer, Student, Attendance, AcademicBatch, Branch, ExamResult, ProcessingStudent, ProcessingDynamicField, ProcessingStudentDocument, StudentTimeline
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.db.models import Count
@@ -30,6 +30,15 @@ class AcademicBatchSerializer(serializers.ModelSerializer):
     class Meta:
         model = AcademicBatch
         fields = ['id', 'name', 'academic_year', 'grade', 'admission_date', 'model_exam_date', 'final_exam_date', 'default_fee_template']
+
+# Student Timeline Serializer
+class StudentTimelineSerializer(serializers.ModelSerializer):
+    created_by_name = serializers.CharField(source='created_by.get_full_name', read_only=True)
+    
+    class Meta:
+        model = StudentTimeline
+        fields = ['id', 'student', 'event_type', 'description', 'created_at', 'created_by', 'created_by_name']
+        read_only_fields = ['created_at']
 
 # Student Serializer
 class StudentSerializer(serializers.ModelSerializer):
@@ -172,6 +181,11 @@ class StudentSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         fee_template_id = validated_data.pop('fee_template', None)
         request = self.context.get('request')
+        
+        # Auto-assign branch if missing
+        if not validated_data.get('branch') and validated_data.get('trainer'):
+            validated_data['branch'] = validated_data['trainer'].branch
+            
         with transaction.atomic():
             student = Student.objects.create(**validated_data)
 

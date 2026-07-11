@@ -79,21 +79,13 @@ class Student(models.Model):
         ('A2', 'A2 (Elementary)'),
         ('B1', 'B1 (Intermediate)'),
         ('B2', 'B2 (Upper Intermediate)'),
-        ('A1 ONLINE', 'A1 (Online)'),
-        ('A2 ONLINE', 'A2 (Online)'),
-        ('B1 ONLINE', 'B1 (Online)'),
-        ('B2 ONLINE', 'B2 (Online)'),
-        ('ONLINE', 'Online'),
-        ('A1 EXAM PREPERATION', 'A1 (Exam Preparation)'),
-        ('A2 EXAM PREPERATION', 'A2 (Exam Preparation)'),
-        ('B1 EXAM PREPERATION', 'B1 (Exam Preparation)'),
-        ('B2 EXAM PREPERATION', 'B2 (Exam Preparation)'),
     ]
 
     STATUS_CHOICES = [
         ('PENDING_ENROLLMENT', 'Pending Enrollment'),
         ('PENDING_BATCH_ASSIGNMENT', 'Pending Batch Assignment'),
         ('ACTIVE', 'Active'),
+        ('EXAM_PREPARATION', 'Exam Preparation'),
         ('PAUSED', 'Paused'),
         ('COMPLETED', 'Completed'),
         ('DROPPED', 'Dropped'),
@@ -259,6 +251,38 @@ class Student(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.get_batch_display()})"
+
+
+class StudentTimeline(models.Model):
+    EVENT_CHOICES = [
+        ('BATCH_ASSIGNMENT', 'Batch Assignment'),
+        ('PROMOTE', 'Promote'),
+        ('FALLBACK', 'Fallback'),
+        ('STATUS_CHANGE', 'Status Change'),
+        ('NOTE', 'Note'),
+    ]
+
+    student = models.ForeignKey(
+        Student,
+        on_delete=models.CASCADE,
+        related_name='timeline'
+    )
+    event_type = models.CharField(max_length=50, choices=EVENT_CHOICES)
+    description = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True
+    )
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.student.name} - {self.get_event_type_display()} - {self.created_at.strftime('%Y-%m-%d %H:%M')}"
+
 
 
 class Attendance(models.Model):
