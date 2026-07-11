@@ -22,7 +22,7 @@ class CanExportFees(BasePermission):
 
 def get_grid_data(request):
     """Helper to fetch and shape the data based on request filters"""
-    company = request.headers.get('X-Company', 'LP')
+    company = getattr(request.user, 'company', 'LP')
     
     # Optional filters
     start_date = request.query_params.get('start_date')
