@@ -320,7 +320,8 @@ class AttendanceListCreateAPIView(APIView):
         if serializer.is_valid():
             approval_status = 'APPROVED'
             
-            if not is_flexible and policy and policy.pending_if_overdue:
+            pending_enabled = policy.pending_if_overdue if policy else True
+            if not is_flexible and pending_enabled:
                 # If marked PRESENT, check for overdue fees
                 if serializer.validated_data.get('status', 'PRESENT') == 'PRESENT':
                     if has_fee_account and getattr(student.fee_account, 'is_overdue', False):
@@ -420,7 +421,8 @@ class QuickMarkAttendanceAPIView(APIView):
                     continue
 
                 approval_status = 'APPROVED'
-                if not is_flexible and policy and policy.pending_if_overdue:
+                pending_enabled = policy.pending_if_overdue if policy else True
+                if not is_flexible and pending_enabled:
                     if r.get('status', 'PRESENT') == 'PRESENT':
                         if has_fee_account and getattr(student.fee_account, 'is_overdue', False):
                             approval_status = 'PENDING_FEE_APPROVAL'
