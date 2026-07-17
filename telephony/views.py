@@ -96,7 +96,7 @@ def process_voxbay_call_log(obj):
 
     agent_user = None
     if agent_phone:
-        agent_user = User.objects.filter(Q(voxbay_number=agent_phone) | Q(voxbay_extension=agent_phone)).first()
+        agent_user = User.objects.filter(Q(phone=agent_phone) | Q(personal_phone=agent_phone)).first()
 
     existing_lead = Lead.objects.filter(phone=lead_number).first()
 
@@ -420,11 +420,11 @@ class CallLogListView(APIView):
 
         if not has_dynamic_permission(request.user, 'voxbay:read_all'):
             if has_dynamic_permission(request.user, 'voxbay:read_own'):
-                voxbay_number = getattr(request.user, 'voxbay_number', None)
+                phone = getattr(request.user, 'phone', None)
                 voxbay_extension = getattr(request.user, 'voxbay_extension', None)
                 agent_numbers = []
-                if voxbay_number:
-                    agent_numbers.append(voxbay_number)
+                if phone:
+                    agent_numbers.append(phone)
                 if voxbay_extension:
                     agent_numbers.append(voxbay_extension)
                 
@@ -522,18 +522,17 @@ class CallStatsView(APIView):
         if not has_dynamic_permission(request.user, 'voxbay:read_all'):
             if has_dynamic_permission(request.user, 'voxbay:read_own'):
                 user_phone = getattr(request.user, 'phone', None)
-                voxbay_number = getattr(request.user, 'voxbay_number', None)
-                voxbay_extension = getattr(request.user, 'voxbay_extension', None)
+                personal_phone = getattr(request.user, 'personal_phone', None)
                 agent_numbers = []
                 if user_phone:
                     base_phone = user_phone[-10:] if len(user_phone) >= 10 else user_phone
                     agents = VoxbayAgent.objects.filter(phone_number__endswith=base_phone)
                     agent_numbers = list(agents.values_list('phone_number', flat=True))
                     agent_numbers.extend([e for e in agents.values_list('extension', flat=True) if e])
-                if voxbay_number and voxbay_number not in agent_numbers:
-                    agent_numbers.append(voxbay_number)
-                if voxbay_extension and voxbay_extension not in agent_numbers:
-                    agent_numbers.append(voxbay_extension)
+                    if user_phone not in agent_numbers:
+                        agent_numbers.append(user_phone)
+                if personal_phone and personal_phone not in agent_numbers:
+                    agent_numbers.append(personal_phone)
                 
                 from leads.models import Lead
                 assigned_phones = list(Lead.objects.filter(
@@ -706,8 +705,10 @@ class CallAgentStatsView(APIView):
                 'outgoing_duration_total': 0,
                 'total_cancelled_missed': 0,
             }
-            if u.voxbay_number:
-                user_by_incoming[u.voxbay_number] = uid
+            if u.phone:
+                user_by_incoming[u.phone] = uid
+            if u.personal_phone:
+                user_by_incoming[u.personal_phone] = uid
             if u.voxbay_extension:
                 user_by_outgoing[u.voxbay_extension] = uid
         
