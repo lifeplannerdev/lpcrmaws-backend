@@ -119,6 +119,14 @@ class Location(models.Model):
     name = models.CharField(max_length=255)
     company = models.CharField(max_length=10, choices=COMPANY_CHOICES, default='LP', db_index=True)
     branch = models.ForeignKey(Branch, on_delete=models.SET_NULL, null=True, blank=True, related_name='locations')
+    assigned_to = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='managed_locations',
+        help_text="Person responsible for this space"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -126,6 +134,12 @@ class Location(models.Model):
 
     def __str__(self):
         return f"{self.name} - {self.company}"
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        # Auto-assign all assets in this location to the location manager
+        if self.assigned_to:
+            self.assets.update(assigned_to=self.assigned_to)
 
 
 class AssetCategory(models.Model):
@@ -204,6 +218,10 @@ class Asset(models.Model):
         return f"{self.name} ({category_name}) - {self.company}"
         
     def save(self, *args, **kwargs):
+        # If asset is placed in a location with a manager, it inherits that manager
+        if self.assigned_location and self.assigned_location.assigned_to:
+            self.assigned_to = self.assigned_location.assigned_to
+
         super().save(*args, **kwargs)
 
         # Sync assigned_to with primary_sim and secondary_sim

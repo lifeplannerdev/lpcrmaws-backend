@@ -14,6 +14,8 @@ from django.http import JsonResponse, StreamingHttpResponse, HttpResponse
 from django.db.models import Case, When, Value, IntegerField
 import urllib.parse
 import urllib.request
+from utils.pusher import save_notification, trigger_pusher
+from accounts.models import User
 
 
 class DailyReportPagination(PageNumberPagination):
@@ -50,7 +52,7 @@ class DailyReportCreateView(generics.CreateAPIView):
                 next_day_agenda = yesterday_report.next_day_agenda
                 agenda_submitted_at = yesterday_report.agenda_submitted_at
 
-        serializer.save(
+        report = serializer.save(
             user=user,
             status="pending",
             company=user.company,
@@ -59,6 +61,30 @@ class DailyReportCreateView(generics.CreateAPIView):
             agenda_heading=agenda_heading,
             next_day_agenda=next_day_agenda
         )
+
+        # Notify reviewers
+        reviewer_users = User.objects.filter(
+            db_roles__name__in=REPORT_REVIEWERS,
+            is_active=True
+        ).distinct()
+
+        for reviewer in reviewer_users:
+            message = f"New report submitted by {user.get_full_name() or user.username}"
+            save_notification.delay(
+                user_id=reviewer.id,
+                type='report',
+                message=message,
+                by=user.get_full_name() or user.username
+            )
+            trigger_pusher.delay(
+                channel=f"private-user-{reviewer.id}",
+                event="report.submitted",
+                data={
+                    "report_id": report.id,
+                    "user_name": user.get_full_name() or user.username,
+                    "message": message
+                }
+            )
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
@@ -247,6 +273,25 @@ class ReviewDailyReportView(APIView):
         report.review_comment = comment
         report.reviewed_by = request.user
         report.save()
+
+        # Notify report owner
+        by_name = request.user.get_full_name() or request.user.username
+        message = f"Your daily report was {status_value} by {by_name}"
+        save_notification.delay(
+            user_id=report.user.id,
+            type='report',
+            message=message,
+            by=by_name
+        )
+        trigger_pusher.delay(
+            channel=f"private-user-{report.user.id}",
+            event="report.reviewed",
+            data={
+                "report_id": report.id,
+                "status": status_value,
+                "message": message
+            }
+        )
 
         serializer = DailyReportSerializer(
             report, context={"request": request}

@@ -221,6 +221,40 @@ class AppPermissionSerializer(serializers.ModelSerializer):
         model = AppPermission
         fields = ['id', 'name', 'description']
 
+class RoleDetailSerializer(serializers.ModelSerializer):
+    permissions = AppPermissionSerializer(many=True, read_only=True)
+    permission_ids = serializers.ListField(
+        child=serializers.IntegerField(), write_only=True, required=False
+    )
+
+    class Meta:
+        model = Role
+        fields = ['id', 'name', 'description', 'permissions', 'permission_ids']
+
+    def update(self, instance, validated_data):
+        permission_ids = validated_data.pop('permission_ids', None)
+        instance = super().update(instance, validated_data)
+
+        if permission_ids is not None:
+            instance.permissions.set(permission_ids)
+        
+        return instance
+
+class UserProfileUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['first_name', 'last_name', 'phone', 'profile_picture']
+        extra_kwargs = {
+            'first_name': {'required': False},
+            'last_name': {'required': False},
+            'phone': {'required': False},
+            'profile_picture': {'required': False},
+        }
+
+class ChangePasswordSerializer(serializers.Serializer):
+    old_password = serializers.CharField(required=True)
+    new_password = serializers.CharField(required=True)
+
 class RoleSerializer(serializers.ModelSerializer):
     permissions = AppPermissionSerializer(many=True, read_only=True)
     permission_ids = serializers.ListField(

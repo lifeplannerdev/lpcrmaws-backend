@@ -1,8 +1,10 @@
 from django.contrib.auth.models import AbstractUser, Group, Permission
 from django.contrib.auth import get_user_model
 from django.conf import settings
+from django.conf import settings
 from django.db import models
 from django.utils import timezone
+from storages.backends.s3boto3 import S3Boto3Storage
 
 import os
 
@@ -53,6 +55,7 @@ class User(AbstractUser):
     location = models.CharField(max_length=100, blank=True, null=True)
     salary = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
     join_date = models.DateField(blank=True, null=True)
+    profile_picture = models.ImageField(storage=S3Boto3Storage(), upload_to='profile_pics/%Y/%m/', blank=True, null=True)
     permissions = models.JSONField(default=list, blank=True)
     extra_permissions = models.TextField(default='[]', blank=True)
     db_roles = models.ManyToManyField(Role, related_name='users', blank=True, db_table='user_roles')

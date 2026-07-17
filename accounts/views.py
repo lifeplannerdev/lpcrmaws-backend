@@ -112,6 +112,7 @@ class CurrentUserAPIView(APIView):
             "permissions": PermissionService.get_user_permissions(user),
             "phone": user.phone if hasattr(user, 'phone') else None,
             "location": user.location if hasattr(user, 'location') else None,
+            "profile_picture": request.build_absolute_uri(user.profile_picture.url) if user.profile_picture else None
         })
 
 
@@ -138,7 +139,8 @@ class LoginAPIView(APIView):
                 "last_name": user.last_name,
                 "role_names": list(user.db_roles.values_list('name', flat=True)),
                 "company": user.company,
-                "permissions": PermissionService.get_user_permissions(user)
+                "permissions": PermissionService.get_user_permissions(user),
+                "profile_picture": request.build_absolute_uri(user.profile_picture.url) if user.profile_picture else None
             }
         }, status=status.HTTP_200_OK)
 
@@ -334,7 +336,7 @@ class EmployeeListAPI(APIView):
         return Response(data)
 
 from .models import Role, AppPermission
-from .serializers import RoleSerializer, AppPermissionSerializer
+from .serializers import RoleSerializer, AppPermissionSerializer, RoleDetailSerializer, UserProfileUpdateSerializer, ChangePasswordSerializer
 
 class AppPermissionListView(generics.ListAPIView):
     queryset = AppPermission.objects.all().order_by('name')
@@ -349,5 +351,45 @@ class RoleListCreateView(generics.ListCreateAPIView):
 
 class RoleDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Role.objects.all()
-    serializer_class = RoleSerializer
-    permission_classes = [IsManagement]
+    serializer_class = RoleDetailSerializer
+    permission_classes = [IsSuperAdmin]
+
+class UserProfileUpdateAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request):
+        serializer = UserProfileUpdateSerializer(request.user, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            user = request.user
+            return Response({
+                "message": "Profile updated successfully",
+                "user": {
+                    "id": user.id,
+                    "username": user.username,
+                    "email": user.email,
+                    "first_name": user.first_name,
+                    "last_name": user.last_name,
+                    "role_names": list(user.db_roles.values_list('name', flat=True)),
+                    "company": user.company,
+                    "permissions": PermissionService.get_user_permissions(user),
+                    "profile_picture": request.build_absolute_uri(user.profile_picture.url) if user.profile_picture else None,
+                    "phone": user.phone
+                }
+            }, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class ChangePasswordAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = ChangePasswordSerializer(data=request.data)
+        if serializer.is_valid():
+            user = request.user
+            if not user.check_password(serializer.validated_data['old_password']):
+                return Response({"old_password": ["Wrong password."]}, status=status.HTTP_400_BAD_REQUEST)
+            
+            user.set_password(serializer.validated_data['new_password'])
+            user.save()
+            return Response({"message": "Password updated successfully"}, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

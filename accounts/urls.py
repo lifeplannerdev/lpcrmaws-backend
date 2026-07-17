@@ -15,7 +15,9 @@ from .views import (
     StaffAssetTimelineView,
     AppPermissionListView,
     RoleListCreateView,
-    RoleDetailView
+    RoleDetailView,
+    UserProfileUpdateAPIView,
+    ChangePasswordAPIView
 )
 
 urlpatterns = [
@@ -23,6 +25,8 @@ urlpatterns = [
     path('token/refresh/', RefreshTokenAPIView.as_view(), name='token_refresh'),
     path('logout/', LogoutAPIView.as_view(), name='logout'),
     path('user/me/', CurrentUserAPIView.as_view(), name='current_user'),
+    path('user/me/update/', UserProfileUpdateAPIView.as_view(), name='user_profile_update'),
+    path('user/me/change-password/', ChangePasswordAPIView.as_view(), name='change_password'),
     path('stats/', DashboardStatsAPIView.as_view(), name='dashboard_stats'),
     path('activities/', ActivityLogListView.as_view(), name='activity_log'),
     path('staff/', StaffListView.as_view(), name='staff_list'),

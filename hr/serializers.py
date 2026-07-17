@@ -30,6 +30,7 @@ class BranchSerializer(serializers.ModelSerializer):
 
 class LocationSerializer(serializers.ModelSerializer):
     branch_details = BranchSerializer(source='branch', read_only=True)
+    assigned_to_details = UserMinimalSerializer(source='assigned_to', read_only=True)
     assigned_staff = serializers.SerializerMethodField(read_only=True)
     assigned_assets = serializers.SerializerMethodField(read_only=True)
 
