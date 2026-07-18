@@ -36,13 +36,15 @@ class CredentialSerializer(serializers.ModelSerializer):
         shared_users = validated_data.pop('shared_users', [])
         shared_roles = validated_data.pop('shared_roles', [])
         
-        credential = Credential.objects.create(**validated_data)
+        credential = Credential(**validated_data)
         if password:
             credential.set_password(password)
-            credential.save()
+        credential.save()
             
-        credential.shared_users.set(shared_users)
-        credential.shared_roles.set(shared_roles)
+        if shared_users:
+            credential.shared_users.set(shared_users)
+        if shared_roles:
+            credential.shared_roles.set(shared_roles)
         return credential
 
     def update(self, instance, validated_data):
