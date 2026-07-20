@@ -5,7 +5,7 @@ from django.utils.timezone import now
 from rest_framework.permissions import IsAuthenticated
 from .models import DailyReport, DailyReportAttachment, ReportTimingSettings
 from .serializers import DailyReportSerializer, ReportTimingSettingsSerializer
-from .permissions import REPORT_REVIEWERS, IsReportReviewer, IsReportOwner
+from .permissions import REPORT_REVIEWERS, IsReportReviewer, IsReportOwner, IsReportSettingsManager
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404
@@ -532,12 +532,12 @@ class PreviousEveningAgendaView(APIView):
 
 class AdminReportSettingsListView(generics.ListCreateAPIView):
     serializer_class = ReportTimingSettingsSerializer
-    permission_classes = [IsReportReviewer]
+    permission_classes = [IsReportSettingsManager]
     
     def get_queryset(self):
         return ReportTimingSettings.objects.all().select_related('user')
 
 class AdminReportSettingsDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = ReportTimingSettingsSerializer
-    permission_classes = [IsReportReviewer]
+    permission_classes = [IsReportSettingsManager]
     queryset = ReportTimingSettings.objects.all()
