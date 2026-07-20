@@ -104,7 +104,11 @@ class MyDailyReportsView(generics.ListAPIView):
         if company:
             qs = qs.filter(user__company=company)
             
-        return qs.order_by("-report_date")
+        status = self.request.query_params.get("status")
+        if status and status != 'all':
+            qs = qs.filter(status=status)
+            
+        return qs.order_by("-report_date", "-created_at")
 
     def filter_lateness(self, queryset):
         lateness = self.request.query_params.get("lateness")
