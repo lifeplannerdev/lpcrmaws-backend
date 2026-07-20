@@ -117,6 +117,8 @@ class MyDailyReportsView(generics.ListAPIView):
                 results.append(r)
             elif lateness == 'late_report' and r.is_report_late:
                 results.append(r)
+            elif lateness == 'late' and (r.is_report_late or r.is_agenda_late):
+                results.append(r)
             elif lateness == 'on_time' and not r.is_report_late and not r.is_agenda_late and r.completion_percentage == 100:
                 results.append(r)
             elif lateness == 'incomplete' and r.completion_percentage < 100:
@@ -235,6 +237,8 @@ class AllDailyReportsView(generics.ListAPIView):
                 results.append(r)
             elif lateness == 'late_report' and r.is_report_late:
                 results.append(r)
+            elif lateness == 'late' and (r.is_report_late or r.is_agenda_late):
+                results.append(r)
             elif lateness == 'on_time' and not r.is_report_late and not r.is_agenda_late and r.completion_percentage == 100:
                 results.append(r)
             elif lateness == 'incomplete' and r.completion_percentage < 100:
@@ -297,6 +301,40 @@ class ReviewDailyReportView(APIView):
             report, context={"request": request}
         )
         return Response(serializer.data)
+
+
+class MissingReportsView(APIView):
+    permission_classes = [IsReportReviewer]
+
+    def get(self, request):
+        date_param = request.query_params.get("date")
+        if not date_param or date_param == 'today':
+            date = now().date()
+        elif date_param == 'yesterday':
+            date = (now() - timezone.timedelta(days=1)).date()
+        else:
+            from django.utils.dateparse import parse_date
+            date = parse_date(date_param)
+            if not date:
+                date = now().date()
+
+        users = User.objects.filter(is_active=True)
+        company = request.query_params.get("company")
+        if company and company != 'all':
+            users = users.filter(company=company)
+            
+        submitted_user_ids = DailyReport.objects.filter(report_date=date).values_list('user_id', flat=True)
+        missing_users = users.exclude(id__in=submitted_user_ids)
+        
+        data = [
+            {
+                "id": u.id,
+                "name": u.get_full_name() or u.username,
+                "role": ", ".join([r.name for r in u.db_roles.all()]) if hasattr(u, 'db_roles') else ""
+            }
+            for u in missing_users
+        ]
+        return Response(data)
 
 
 class AdminReportStatsView(APIView):

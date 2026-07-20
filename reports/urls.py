@@ -12,6 +12,7 @@ from .views import (
     PreviousEveningAgendaView,
     AdminReportSettingsListView,
     AdminReportSettingsDetailView,
+    MissingReportsView,
 )
 
 urlpatterns = [
@@ -22,6 +23,7 @@ urlpatterns = [
     path("reports/<int:pk>/",DailyReportDetailView.as_view(),name="report-detail"),
     path("reports/attachments/<int:pk>/download/",DownloadAttachmentView.as_view(), name="attachment-download"), 
     path("admin/reports/",AllDailyReportsView.as_view(),name="all-reports"),
+    path("admin/reports/missing/",MissingReportsView.as_view(),name="missing-reports"),
     path("admin/reports/settings/", AdminReportSettingsListView.as_view(), name="report-settings-list"),
     path("admin/reports/settings/<int:pk>/", AdminReportSettingsDetailView.as_view(), name="report-settings-detail"),
     path("admin/reports/<int:pk>/review/", ReviewDailyReportView.as_view(),name="report-review"),
