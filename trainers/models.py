@@ -15,6 +15,30 @@ class Branch(models.Model):
         return self.name
 
 
+class CourseLevel(models.Model):
+    name = models.CharField(max_length=50, unique=True, help_text="e.g. A1, A2, B1, B2")
+    order = models.IntegerField(default=0, help_text="Order for promotion (1 for A1, 2 for A2, etc.)")
+    
+    class Meta:
+        ordering = ['order']
+
+    def __str__(self):
+        return self.name
+
+
+class CourseModule(models.Model):
+    level = models.ForeignKey(CourseLevel, on_delete=models.CASCADE, related_name='modules')
+    name = models.CharField(max_length=100, help_text="e.g. A1.1, A1.2")
+    order = models.IntegerField(default=0)
+    
+    class Meta:
+        ordering = ['level__order', 'order']
+        unique_together = ['level', 'name']
+
+    def __str__(self):
+        return f"{self.level.name} - {self.name}"
+
+
 class Trainer(models.Model):
     user = models.OneToOneField(
         User,
@@ -174,6 +198,15 @@ class Student(models.Model):
         blank=True,
         related_name='students'
     )
+    
+    current_level = models.ForeignKey(
+        CourseLevel,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='students',
+        help_text="Current academic level in the revamped system"
+    )
 
     trainer = models.ForeignKey(
         Trainer,
@@ -284,6 +317,43 @@ class StudentTimeline(models.Model):
         return f"{self.student.name} - {self.get_event_type_display()} - {self.created_at.strftime('%Y-%m-%d %H:%M')}"
 
 
+class StudentModuleProgress(models.Model):
+    STATUS_CHOICES = [
+        ('PENDING', 'Pending'),
+        ('PASSED', 'Passed'),
+        ('FAILED', 'Failed'),
+    ]
+
+    student = models.ForeignKey(
+        Student,
+        on_delete=models.CASCADE,
+        related_name='module_progress'
+    )
+    module = models.ForeignKey(
+        CourseModule,
+        on_delete=models.CASCADE,
+        related_name='student_progress'
+    )
+    academic_batch = models.ForeignKey(
+        AcademicBatch,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='module_progress'
+    )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
+    score = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    remarks = models.TextField(blank=True, null=True)
+    evaluated_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    recorded_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ['student', 'module', 'academic_batch']
+
+    def __str__(self):
+        return f"{self.student.name} - {self.module.name} - {self.status}"
+
+
 
 class Attendance(models.Model):
     STATUS_CHOICES = [
@@ -305,6 +375,15 @@ class Attendance(models.Model):
         Student,
         on_delete=models.CASCADE,
         related_name='attendance_records'
+    )
+
+    academic_batch = models.ForeignKey(
+        AcademicBatch,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='attendance_records',
+        help_text="The batch this student was in when attendance was marked"
     )
 
     status = models.CharField(

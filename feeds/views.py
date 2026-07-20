@@ -8,10 +8,21 @@ from utils.pusher import trigger_pusher
 from accounts.permissions import has_dynamic_permission
 from rest_framework.exceptions import PermissionDenied
 
+from django.utils import timezone
+from django.db.models import Q
+
 class FeedPostListCreateView(generics.ListCreateAPIView):
-    queryset = FeedPost.objects.all().prefetch_related('reactions__user', 'comments__author', 'author')
     serializer_class = FeedPostSerializer
     permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        qs = FeedPost.objects.all().prefetch_related('reactions__user', 'comments__author', 'author')
+        if self.request.query_params.get('dashboard') == 'true':
+            now = timezone.now()
+            qs = qs.filter(valid_from__lte=now).filter(
+                Q(valid_until__isnull=True) | Q(valid_until__gte=now)
+            )
+        return qs
 
     def perform_create(self, serializer):
         user = self.request.user
@@ -22,7 +33,14 @@ class FeedPostListCreateView(generics.ListCreateAPIView):
         media = self.request.FILES.get('media', None)
         media_type = self.request.data.get('media_type', 'none')
         
-        post = serializer.save(author=user, media=media, media_type=media_type)
+        valid_from = self.request.data.get('valid_from', None)
+        valid_until = self.request.data.get('valid_until', None)
+        
+        save_kwargs = {'author': user, 'media': media, 'media_type': media_type}
+        if valid_from: save_kwargs['valid_from'] = valid_from
+        if valid_until: save_kwargs['valid_until'] = valid_until
+        
+        post = serializer.save(**save_kwargs)
         
         # Trigger pusher event
         trigger_pusher('feeds', 'new_post', FeedPostSerializer(post).data)

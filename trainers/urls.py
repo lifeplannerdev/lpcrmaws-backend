@@ -27,7 +27,9 @@ from .views import (
     ProcessingStudentDocumentListCreateAPIView,
     ProcessingStudentDocumentDeleteAPIView,
     StudentTimelineAPIView,
-    StudentAcademicActionAPIView
+    StudentAcademicActionAPIView,
+    CourseLevelListAPIView,
+    StudentModuleProgressAPIView
 )
 
 urlpatterns = [
@@ -40,6 +42,8 @@ urlpatterns = [
     path('students/<int:pk>/', StudentDetailAPIView.as_view(), name='student-detail'),
     path('students/<int:pk>/timeline/', StudentTimelineAPIView.as_view(), name='student-timeline'),
     path('students/<int:pk>/academic-action/', StudentAcademicActionAPIView.as_view(), name='student-academic-action'),
+    path('students/<int:pk>/module-progress/', StudentModuleProgressAPIView.as_view(), name='student-module-progress'),
+    path('course-levels/', CourseLevelListAPIView.as_view(), name='course-levels'),
     path('attendance/', AttendanceListCreateAPIView.as_view(), name='attendance-list-create'),
     path('attendance/detail/', AttendanceDetailAPIView.as_view(), name='attendance-detail'),
     path('attendance/quick-mark/', QuickMarkAttendanceAPIView.as_view(), name='attendance-quick-mark'),

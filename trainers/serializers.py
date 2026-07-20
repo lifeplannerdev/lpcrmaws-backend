@@ -1,6 +1,6 @@
 from accounts.permissions import has_dynamic_permission
 from rest_framework import serializers
-from .models import Trainer, Student, Attendance, AcademicBatch, Branch, ExamResult, ProcessingStudent, ProcessingDynamicField, ProcessingStudentDocument, StudentTimeline
+from .models import Trainer, Student, Attendance, AcademicBatch, Branch, ExamResult, ProcessingStudent, ProcessingDynamicField, ProcessingStudentDocument, StudentTimeline, CourseLevel, CourseModule, StudentModuleProgress
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.db.models import Count
@@ -40,11 +40,32 @@ class StudentTimelineSerializer(serializers.ModelSerializer):
         fields = ['id', 'student', 'event_type', 'description', 'created_at', 'created_by', 'created_by_name']
         read_only_fields = ['created_at']
 
+# Academics Serializers
+class CourseModuleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CourseModule
+        fields = ['id', 'name', 'order']
+
+class CourseLevelSerializer(serializers.ModelSerializer):
+    modules = CourseModuleSerializer(many=True, read_only=True)
+    
+    class Meta:
+        model = CourseLevel
+        fields = ['id', 'name', 'order', 'modules']
+
+class StudentModuleProgressSerializer(serializers.ModelSerializer):
+    module_name = serializers.CharField(source='module.name', read_only=True)
+    
+    class Meta:
+        model = StudentModuleProgress
+        fields = ['id', 'student', 'module', 'module_name', 'academic_batch', 'status', 'score', 'remarks', 'recorded_at']
+
 # Student Serializer
 class StudentSerializer(serializers.ModelSerializer):
     trainer_name = serializers.CharField(source='trainer.user.get_full_name', read_only=True)
     academic_batch_details = AcademicBatchSerializer(source='academic_batch', read_only=True)
     branch_name = serializers.CharField(source='branch.name', read_only=True)
+    current_level_details = CourseLevelSerializer(source='current_level', read_only=True)
     fee_summary = serializers.SerializerMethodField()
     attendance_summary = serializers.SerializerMethodField()
     fee_setup_status = serializers.SerializerMethodField()
@@ -54,6 +75,7 @@ class StudentSerializer(serializers.ModelSerializer):
         model = Student
         fields = [
             'id', 'name', 'batch', 'academic_batch', 'academic_batch_details', 
+            'current_level', 'current_level_details',
             'trainer', 'trainer_name', 'branch', 'branch_name',
             'status', 'admission_date', 'notes',
             'email', 'phone_number', 'drive_link', 'student_class', 'company',
@@ -232,7 +254,7 @@ class AttendanceSerializer(serializers.ModelSerializer):
         model = Attendance
         fields = [
             'id', 'date', 'trainer', 'trainer_name',
-            'student', 'student_name',
+            'student', 'student_name', 'academic_batch',
             'status', 'marked_at', 'company',
             'approval_status', 'approved_by', 'approval_notes'
         ]

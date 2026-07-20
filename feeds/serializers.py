@@ -30,7 +30,7 @@ class FeedPostSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = FeedPost
-        fields = ['id', 'author', 'content', 'media', 'media_type', 'created_at', 'reactions', 'comments']
+        fields = ['id', 'author', 'content', 'media', 'media_type', 'created_at', 'valid_from', 'valid_until', 'reactions', 'comments']
         
     def to_representation(self, instance):
         repr = super().to_representation(instance)

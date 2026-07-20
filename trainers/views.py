@@ -11,7 +11,7 @@ from django.contrib.auth import get_user_model
 from accounts.models import ActivityLog
 import csv
 
-from .models import Trainer, Student, Attendance, Branch, ExamResult, ProcessingStudent, ProcessingDynamicField, ProcessingStudentDocument, AcademicBatch, StudentTimeline
+from .models import Trainer, Student, Attendance, AcademicBatch, Branch, ExamResult, ProcessingStudent, ProcessingDynamicField, ProcessingStudentDocument, StudentTimeline, CourseLevel, CourseModule, StudentModuleProgress
 from .serializers import (
     TrainerSerializer, 
     StudentSerializer, 
@@ -23,7 +23,10 @@ from .serializers import (
     ExamResultSerializer,
     ProcessingStudentSerializer,
     ProcessingDynamicFieldSerializer,
-    ProcessingStudentDocumentSerializer
+    ProcessingStudentDocumentSerializer,
+    CourseLevelSerializer,
+    CourseModuleSerializer,
+    StudentModuleProgressSerializer
 )
 from .permissions import IsTrainerOwnStudent
 
@@ -987,7 +990,7 @@ class StudentAcademicActionAPIView(APIView):
 
         action = request.data.get('action')
         new_academic_batch_id = request.data.get('academic_batch_id')
-        new_batch = request.data.get('batch') # For promote
+        new_level_id = request.data.get('level_id') # For promote
 
         if not action or not new_academic_batch_id:
             return Response({"error": "action and academic_batch_id are required"}, status=400)
@@ -996,18 +999,23 @@ class StudentAcademicActionAPIView(APIView):
 
         desc = ""
         if action == 'PROMOTE':
-            if not new_batch:
-                return Response({"error": "batch is required for PROMOTE action"}, status=400)
-            old_batch = student.batch
+            if not new_level_id:
+                return Response({"error": "level_id is required for PROMOTE action"}, status=400)
+            
+            new_level = get_object_or_404(CourseLevel, pk=new_level_id)
+            old_level_name = student.current_level.name if student.current_level else (student.batch or 'None')
             old_acad = student.academic_batch.name if student.academic_batch else 'None'
-            student.batch = new_batch
+            
+            student.current_level = new_level
+            student.batch = new_level.name  # For backwards compatibility
             student.academic_batch = academic_batch
             student.status = 'PENDING_BATCH_ASSIGNMENT'
-            desc = f"Promoted from {old_batch} ({old_acad}) to {new_batch} ({academic_batch.name})"
+            desc = f"Promoted from {old_level_name} ({old_acad}) to {new_level.name} ({academic_batch.name})"
         elif action == 'FALLBACK':
             old_acad = student.academic_batch.name if student.academic_batch else 'None'
             student.academic_batch = academic_batch
-            desc = f"Fallbacked from {old_acad} to {academic_batch.name} within {student.batch}"
+            level_name = student.current_level.name if student.current_level else (student.batch or 'None')
+            desc = f"Fallbacked from {old_acad} to {academic_batch.name} within {level_name}"
         elif action == 'EXAM_PREP':
             student.status = 'EXAM_PREPARATION'
             desc = "Marked for Exam Preparation"
@@ -1025,3 +1033,57 @@ class StudentAcademicActionAPIView(APIView):
         )
 
         return Response({"message": "Success", "student": StudentSerializer(student).data})
+
+
+class CourseLevelListAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        qs = CourseLevel.objects.all().order_by('order')
+        serializer = CourseLevelSerializer(qs, many=True)
+        return Response(serializer.data)
+
+
+class StudentModuleProgressAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        student = get_object_or_404(Student, pk=pk)
+        
+        if not (_has_perm(request.user, 'students:read_any') or (hasattr(request.user, 'trainer_profile') and student.trainer == request.user.trainer_profile)):
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+            
+        progress = StudentModuleProgress.objects.filter(student=student)
+        serializer = StudentModuleProgressSerializer(progress, many=True)
+        return Response(serializer.data)
+
+    def post(self, request, pk):
+        student = get_object_or_404(Student, pk=pk)
+        
+        if not (_has_perm(request.user, 'students:edit_any') or (hasattr(request.user, 'trainer_profile') and student.trainer == request.user.trainer_profile)):
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+            
+        module_id = request.data.get('module_id')
+        progress_status = request.data.get('status')
+        score = request.data.get('score')
+        remarks = request.data.get('remarks')
+        
+        if not module_id or not progress_status:
+            return Response({"error": "module_id and status are required"}, status=400)
+            
+        module = get_object_or_404(CourseModule, pk=module_id)
+        
+        progress, created = StudentModuleProgress.objects.update_or_create(
+            student=student,
+            module=module,
+            academic_batch=student.academic_batch,
+            defaults={
+                'status': progress_status,
+                'score': score,
+                'remarks': remarks,
+                'evaluated_by': request.user
+            }
+        )
+        
+        return Response(StudentModuleProgressSerializer(progress).data)
+

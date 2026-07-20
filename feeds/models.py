@@ -1,5 +1,6 @@
 from django.db import models
 from django.conf import settings
+from django.utils import timezone
 from storages.backends.s3boto3 import S3Boto3Storage
 
 class FeedPost(models.Model):
@@ -13,6 +14,8 @@ class FeedPost(models.Model):
     )
     media_type = models.CharField(max_length=10, choices=MEDIA_CHOICES, default='none')
     created_at = models.DateTimeField(auto_now_add=True)
+    valid_from = models.DateTimeField(default=timezone.now)
+    valid_until = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ['-created_at']
@@ -25,6 +28,8 @@ class FeedReaction(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='feed_reactions')
     emoji = models.CharField(max_length=50)
     created_at = models.DateTimeField(auto_now_add=True)
+    valid_from = models.DateTimeField(default=timezone.now)
+    valid_until = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         unique_together = ('post', 'user', 'emoji') # Can have multiple emojis but only one of each type per user
@@ -37,6 +42,8 @@ class FeedComment(models.Model):
     author = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='feed_comments')
     content = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
+    valid_from = models.DateTimeField(default=timezone.now)
+    valid_until = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ['created_at']
