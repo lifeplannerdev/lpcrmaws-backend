@@ -13,6 +13,7 @@ class CredentialSerializer(serializers.ModelSerializer):
     shared_roles_list = RoleSerializer(source='shared_roles', many=True, read_only=True)
     password = serializers.CharField(write_only=True, required=False, allow_blank=True) # Used for writing only
     category_detail = CredentialCategorySerializer(source='category', read_only=True)
+    has_password = serializers.SerializerMethodField()
 
     class Meta:
         model = Credential
@@ -20,9 +21,12 @@ class CredentialSerializer(serializers.ModelSerializer):
             'id', 'title', 'username', 'web_mail', 'url', 'notes', 'category', 'category_detail',
             'created_by', 'created_by_name', 'created_at', 'updated_at',
             'shared_users', 'shared_roles', 'shared_users_list', 'shared_roles_list',
-            'password'
+            'password', 'has_password'
         ]
         read_only_fields = ['id', 'created_by', 'created_at', 'updated_at']
+
+    def get_has_password(self, obj):
+        return bool(obj.encrypted_password)
 
     def validate(self, data):
         # Enforce password on creation

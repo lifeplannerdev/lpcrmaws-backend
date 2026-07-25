@@ -6,12 +6,20 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_object_or_404
 from django.http import HttpResponse
+from django.db.models.deletion import ProtectedError
 from django.db.models import Count, Q
 from django.contrib.auth import get_user_model
+from django.utils import timezone
+from django.utils.dateparse import parse_date
 from accounts.models import ActivityLog
 import csv
 
-from .models import Trainer, Student, Attendance, AcademicBatch, Branch, ExamResult, ProcessingStudent, ProcessingDynamicField, ProcessingStudentDocument, StudentTimeline, CourseLevel, CourseModule, StudentModuleProgress
+from .models import (
+    Trainer, Student, Attendance, AcademicBatch, AcademicPackage, Branch,
+    ExamResult, ProcessingStudent, ProcessingDynamicField, ProcessingStudentDocument,
+    StudentTimeline, CourseLevel, CourseModule, StudentModuleProgress,
+    StudentPackageEnrollment, StudentAcademicPlacement,
+)
 from .serializers import (
     TrainerSerializer, 
     StudentSerializer, 
@@ -26,15 +34,34 @@ from .serializers import (
     ProcessingStudentDocumentSerializer,
     CourseLevelSerializer,
     CourseModuleSerializer,
-    StudentModuleProgressSerializer
+    StudentModuleProgressSerializer,
+    AcademicPackageSerializer,
+    StudentPackageEnrollmentSerializer,
+    StudentAcademicPlacementSerializer
 )
 from .permissions import IsTrainerOwnStudent
+from .academic_services import (
+    AcademicWorkflowError,
+    finalize_batch_level,
+    placement_for_attendance,
+    transfer_failed_student,
+    upgrade_academic_package,
+)
 
 User = get_user_model()
 
 
 def _has_perm(user, perm):
     return user.is_authenticated and has_dynamic_permission(user, perm)
+
+
+def _parse_effective_date(value):
+    if not value:
+        return timezone.localdate()
+    parsed = parse_date(str(value))
+    if not parsed:
+        raise AcademicWorkflowError('effective_date must use YYYY-MM-DD format.')
+    return parsed
 
 
 class StandardResultsSetPagination(PageNumberPagination):
@@ -116,7 +143,9 @@ class StudentListCreateAPIView(APIView):
         if not (_has_perm(request.user, 'students:read_tenant') or _has_perm(request.user, 'manage_students') or hasattr(request.user, 'trainer_profile')):
             return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
-        qs = Student.objects.select_related('trainer', 'trainer__user', 'academic_batch', 'branch')
+        qs = Student.objects.select_related(
+            'trainer', 'trainer__user', 'academic_batch', 'branch', 'current_level'
+        )
         qs = qs.select_related('fee_account')
 
         if hasattr(request.user, 'trainer_profile'):
@@ -125,6 +154,7 @@ class StudentListCreateAPIView(APIView):
         status_filter = request.GET.get('status')
         batch_filter = request.GET.get('batch')
         academic_batch = request.GET.get('academic_batch')
+        level_id = request.GET.get('level_id')
         trainer_filter = request.GET.get('trainer')
         branch_id = request.GET.get('branch_id')
         search = request.GET.get('search')
@@ -135,6 +165,8 @@ class StudentListCreateAPIView(APIView):
             qs = qs.filter(batch=batch_filter)
         if academic_batch:
             qs = qs.filter(academic_batch_id=academic_batch)
+        if level_id:
+            qs = qs.filter(current_level_id=level_id)
         if trainer_filter:
             qs = qs.filter(trainer_id=trainer_filter)
         if branch_id:
@@ -155,7 +187,8 @@ class StudentListCreateAPIView(APIView):
         if not _has_perm(request.user, 'students:edit_any'):
             return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
-        serializer = StudentSerializer(data=request.data)
+        serializer = StudentSerializer(data=request.data, context={'request': request})
+        if serializer.is_valid():
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=201)
@@ -166,10 +199,9 @@ class AcademicBatchListCreateAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        if not (_has_perm(request.user, 'students:read_tenant') or _has_perm(request.user, 'manage_students') or hasattr(request.user, 'trainer_profile')):
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
-
-        qs = AcademicBatch.objects.all()
+        qs = AcademicBatch.objects.select_related('starting_level', 'branch')
+        if hasattr(request.user, 'trainer_profile'):
+            qs = qs.filter(branch=request.user.trainer_profile.branch)
         academic_year = request.GET.get('academic_year')
         if academic_year:
             qs = qs.filter(academic_year=academic_year)
@@ -177,6 +209,8 @@ class AcademicBatchListCreateAPIView(APIView):
         return Response(serializer.data)
 
     def post(self, request):
+        if not (_has_perm(request.user, 'students:edit_any') or _has_perm(request.user, 'manage_students') or request.user.is_staff or request.user.is_superuser):
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
         serializer = AcademicBatchSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save()
@@ -188,13 +222,17 @@ class AcademicBatchDetailAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get_object(self, pk):
-        return get_object_or_404(AcademicBatch, pk=pk)
+        return get_object_or_404(AcademicBatch.objects.select_related('starting_level', 'branch'), pk=pk)
 
     def get(self, request, pk):
         batch = self.get_object(pk)
+        if hasattr(request.user, 'trainer_profile') and batch.branch_id != request.user.trainer_profile.branch_id:
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
         return Response(AcademicBatchSerializer(batch).data)
 
     def put(self, request, pk):
+        if not (_has_perm(request.user, 'students:edit_any') or _has_perm(request.user, 'manage_students') or request.user.is_staff or request.user.is_superuser):
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
         batch = self.get_object(pk)
         serializer = AcademicBatchSerializer(batch, data=request.data)
         if serializer.is_valid():
@@ -203,9 +241,64 @@ class AcademicBatchDetailAPIView(APIView):
         return Response(serializer.errors, status=400)
 
     def delete(self, request, pk):
+        if not (_has_perm(request.user, 'students:edit_any') or _has_perm(request.user, 'manage_students') or request.user.is_staff or request.user.is_superuser):
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
         batch = self.get_object(pk)
         batch.delete()
         return Response({"message": "Batch deleted"}, status=status.HTTP_204_NO_CONTENT)
+
+
+class AcademicPackageListCreateAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        packages = AcademicPackage.objects.select_related('minimum_level', 'maximum_level')
+        if request.GET.get('active_only', '').lower() in ('1', 'true', 'yes'):
+            packages = packages.filter(is_active=True)
+        return Response(AcademicPackageSerializer(packages, many=True).data)
+
+    def post(self, request):
+        if not (_has_perm(request.user, 'students:edit_any') or _has_perm(request.user, 'manage_students') or request.user.is_staff or request.user.is_superuser):
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        serializer = AcademicPackageSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class AcademicPackageDetailAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get_object(self, pk):
+        return get_object_or_404(
+            AcademicPackage.objects.select_related('minimum_level', 'maximum_level'), pk=pk
+        )
+
+    def get(self, request, pk):
+        return Response(AcademicPackageSerializer(self.get_object(pk)).data)
+
+    def put(self, request, pk):
+        if not (_has_perm(request.user, 'students:edit_any') or _has_perm(request.user, 'manage_students') or request.user.is_staff or request.user.is_superuser):
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        package = self.get_object(pk)
+        serializer = AcademicPackageSerializer(package, data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request, pk):
+        if not (_has_perm(request.user, 'students:edit_any') or _has_perm(request.user, 'manage_students') or request.user.is_staff or request.user.is_superuser):
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        package = self.get_object(pk)
+        try:
+            package.delete()
+        except ProtectedError:
+            return Response(
+                {"detail": "Packages assigned to students cannot be deleted; deactivate them instead."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class StudentDetailAPIView(APIView):
@@ -231,7 +324,7 @@ class StudentDetailAPIView(APIView):
         old_status = student.status
         old_batch = student.academic_batch_id
         
-        serializer = StudentSerializer(student, data=request.data)
+        serializer = StudentSerializer(student, data=request.data, context={'request': request})
         if serializer.is_valid():
             student = serializer.save()
             
@@ -276,10 +369,33 @@ class AttendanceListCreateAPIView(APIView):
         if not (_has_perm(request.user, 'students:read_tenant') or _has_perm(request.user, 'attendance:mark') or hasattr(request.user, 'trainer_profile')):
             return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
         qs = Attendance.objects.select_related(
-            'student', 'trainer', 'trainer__user'
+            'student', 'trainer', 'trainer__user', 'placement',
+            'placement__academic_batch', 'placement__level'
         ).order_by('-date')
         if hasattr(request.user, 'trainer_profile'):
             qs = qs.filter(trainer=request.user.trainer_profile)
+
+        student_id = request.GET.get('student_id') or request.GET.get('student')
+        academic_batch_id = request.GET.get('academic_batch_id')
+        level_id = request.GET.get('level_id')
+        placement_id = request.GET.get('placement_id')
+        branch_id = request.GET.get('branch_id')
+        date_from = request.GET.get('date_from')
+        date_to = request.GET.get('date_to')
+        if student_id:
+            qs = qs.filter(student_id=student_id)
+        if academic_batch_id:
+            qs = qs.filter(placement__academic_batch_id=academic_batch_id)
+        if level_id:
+            qs = qs.filter(placement__level_id=level_id)
+        if placement_id:
+            qs = qs.filter(placement_id=placement_id)
+        if branch_id:
+            qs = qs.filter(placement__academic_batch__branch_id=branch_id)
+        if date_from:
+            qs = qs.filter(date__gte=date_from)
+        if date_to:
+            qs = qs.filter(date__lte=date_to)
 
         paginator = StandardResultsSetPagination()
         page = paginator.paginate_queryset(qs, request)
@@ -307,7 +423,7 @@ class AttendanceListCreateAPIView(APIView):
             )
 
         from fees.models import FeePolicy
-        policy = FeePolicy.objects.filter(company=trainer.company).first()
+        policy = FeePolicy.objects.filter(company=student.company).first()
         
         has_fee_account = hasattr(student, 'fee_account') and student.fee_account is not None
         
@@ -330,7 +446,16 @@ class AttendanceListCreateAPIView(APIView):
                     if has_fee_account and getattr(student.fee_account, 'is_overdue', False):
                         approval_status = 'PENDING_FEE_APPROVAL'
 
-            serializer.save(trainer=trainer, approval_status=approval_status)
+            try:
+                placement = placement_for_attendance(student, serializer.validated_data['date'])
+            except AcademicWorkflowError as exc:
+                return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+            serializer.save(
+                trainer=trainer,
+                placement=placement,
+                approval_status=approval_status,
+            )
             return Response(serializer.data, status=201)
         return Response(serializer.errors, status=400)
         
@@ -342,7 +467,8 @@ class AttendanceDetailAPIView(APIView):
         if not (_has_perm(request.user, 'students:read_tenant') or _has_perm(request.user, 'attendance:mark') or hasattr(request.user, 'trainer_profile')):
             return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
         records = Attendance.objects.select_related(
-            'student', 'trainer', 'trainer__user'
+            'student', 'trainer', 'trainer__user', 'placement',
+            'placement__academic_batch', 'placement__level'
         ).order_by('-date')
 
         if hasattr(request.user, 'trainer_profile'):
@@ -353,6 +479,11 @@ class AttendanceDetailAPIView(APIView):
         branch_id = request.GET.get('branch_id')
         date = request.GET.get('date')
         approval_status = request.GET.get('approval_status')
+        academic_batch_id = request.GET.get('academic_batch_id')
+        level_id = request.GET.get('level_id')
+        placement_id = request.GET.get('placement_id')
+        date_from = request.GET.get('date_from')
+        date_to = request.GET.get('date_to')
 
         if student_id:
             records = records.filter(student_id=student_id)
@@ -364,6 +495,16 @@ class AttendanceDetailAPIView(APIView):
             records = records.filter(date=date)
         if approval_status:
             records = records.filter(approval_status=approval_status)
+        if academic_batch_id:
+            records = records.filter(placement__academic_batch_id=academic_batch_id)
+        if level_id:
+            records = records.filter(placement__level_id=level_id)
+        if placement_id:
+            records = records.filter(placement_id=placement_id)
+        if date_from:
+            records = records.filter(date__gte=date_from)
+        if date_to:
+            records = records.filter(date__lte=date_to)
 
         
         if date:
@@ -430,10 +571,17 @@ class QuickMarkAttendanceAPIView(APIView):
                         if has_fee_account and getattr(student.fee_account, 'is_overdue', False):
                             approval_status = 'PENDING_FEE_APPROVAL'
 
+                try:
+                    placement = placement_for_attendance(student, date)
+                except AcademicWorkflowError as exc:
+                    errors.append({'student_id': student_id, 'error': str(exc)})
+                    continue
+
                 obj, created = Attendance.objects.update_or_create(
-                    student=student, 
+                    placement=placement,
                     date=date,
                     defaults={
+                        'student': student,
                         'trainer': trainer_to_assign,
                         'status': r.get('status', 'PRESENT'),
                         'approval_status': approval_status
@@ -467,7 +615,13 @@ class AttendanceRecordsAPIView(APIView):
     def get(self, request, student_id):
         if not (_has_perm(request.user, 'students:read_tenant') or _has_perm(request.user, 'attendance:mark') or hasattr(request.user, 'trainer_profile')):
             return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
-        qs = Attendance.objects.filter(student_id=student_id).order_by('-date')
+        qs = Attendance.objects.select_related(
+            'placement', 'placement__academic_batch', 'placement__level', 'trainer', 'trainer__user'
+        ).filter(student_id=student_id).order_by('-date')
+
+        placement_id = request.GET.get('placement_id')
+        if placement_id:
+            qs = qs.filter(placement_id=placement_id)
 
         if hasattr(request.user, 'trainer_profile'):
             qs = qs.filter(trainer=request.user.trainer_profile)
@@ -484,7 +638,9 @@ class ExportStudentAttendanceAPIView(APIView):
     def get(self, request, student_id):
         if not (_has_perm(request.user, 'students:read_tenant') or _has_perm(request.user, 'attendance:mark') or hasattr(request.user, 'trainer_profile')):
             return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
-        qs = Attendance.objects.filter(student_id=student_id).order_by('date')
+        qs = Attendance.objects.select_related(
+            'placement', 'placement__academic_batch', 'placement__level', 'trainer', 'trainer__user'
+        ).filter(student_id=student_id).order_by('date')
 
         if hasattr(request.user, 'trainer_profile'):
             qs = qs.filter(trainer=request.user.trainer_profile)
@@ -495,11 +651,13 @@ class ExportStudentAttendanceAPIView(APIView):
         )
 
         writer = csv.writer(response)
-        writer.writerow(['Date', 'Trainer', 'Status'])
+        writer.writerow(['Date', 'Academic Batch', 'Grade', 'Trainer', 'Status'])
 
         for r in qs:
             writer.writerow([
                 r.date,
+                r.placement.academic_batch.name,
+                r.placement.level.name,
                 r.trainer.user.get_full_name(),
                 r.status
             ])
@@ -532,9 +690,11 @@ class AttendanceStudentsAPIView(APIView):
     def get(self, request):
         if not (_has_perm(request.user, 'students:read_tenant') or _has_perm(request.user, 'attendance:mark') or hasattr(request.user, 'trainer_profile')):
             return Response({"error": "Only authorized users can access this endpoint"}, status=403)
-        students = Student.objects.exclude(
-            status__in=['COMPLETED', 'DROPPED']
-        ).select_related('trainer', 'trainer__user').order_by('name')
+        students = Student.objects.filter(
+            academic_placements__status='ACTIVE'
+        ).exclude(
+            status__in=['COMPLETED', 'DROPPED', 'AWAITING_REPEAT_TRANSFER', 'AWAITING_PACKAGE_UPGRADE']
+        ).select_related('trainer', 'trainer__user', 'academic_batch', 'current_level').order_by('name').distinct()
 
         if hasattr(request.user, 'trainer_profile'):
             students = students.filter(trainer=request.user.trainer_profile)
@@ -544,6 +704,8 @@ class AttendanceStudentsAPIView(APIView):
         trainer_id = request.GET.get('trainer')
         branch_id = request.GET.get('branch_id')
         location = request.GET.get('location')
+        academic_batch_id = request.GET.get('academic_batch_id')
+        level_id = request.GET.get('level_id')
         
         if batch:
             students = students.filter(batch=batch)
@@ -555,12 +717,62 @@ class AttendanceStudentsAPIView(APIView):
             students = students.filter(branch_id=branch_id)
         if location:
             students = students.filter(trainer__user__location=location)
+        if academic_batch_id:
+            students = students.filter(academic_placements__academic_batch_id=academic_batch_id)
+        if level_id:
+            students = students.filter(academic_placements__level_id=level_id)
 
         serializer = StudentSerializer(students, many=True)
         return Response({
             'count': students.count(),
             'results': serializer.data
         })
+
+
+class AttendanceReportAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if not (_has_perm(request.user, 'students:read_tenant') or _has_perm(request.user, 'attendance:mark') or hasattr(request.user, 'trainer_profile')):
+            return Response({'detail': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
+
+        records = Attendance.objects.select_related(
+            'student', 'placement__academic_batch', 'placement__level'
+        )
+        if hasattr(request.user, 'trainer_profile'):
+            records = records.filter(trainer=request.user.trainer_profile)
+
+        filters = {
+            'academic_batch_id': 'placement__academic_batch_id',
+            'level_id': 'placement__level_id',
+            'student_id': 'student_id',
+            'branch_id': 'placement__academic_batch__branch_id',
+        }
+        for query_key, lookup in filters.items():
+            value = request.GET.get(query_key)
+            if value:
+                records = records.filter(**{lookup: value})
+        if request.GET.get('date_from'):
+            records = records.filter(date__gte=request.GET['date_from'])
+        if request.GET.get('date_to'):
+            records = records.filter(date__lte=request.GET['date_to'])
+
+        group_by = request.GET.get('group_by', 'academic_batch')
+        group_fields = {
+            'academic_batch': ['placement__academic_batch_id', 'placement__academic_batch__name'],
+            'grade': ['placement__level_id', 'placement__level__name'],
+            'student': ['student_id', 'student__name'],
+        }.get(group_by)
+        if not group_fields:
+            return Response({'detail': 'group_by must be academic_batch, grade, or student.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        summary = records.values(*group_fields).annotate(
+            total=Count('id'),
+            present=Count('id', filter=Q(status='PRESENT')),
+            absent=Count('id', filter=Q(status='ABSENT')),
+            no_session=Count('id', filter=Q(status='NO_SESSION')),
+        ).order_by(*group_fields)
+        return Response({'group_by': group_by, 'results': list(summary)})
 
 
 
@@ -630,11 +842,19 @@ class ExamResultListCreateAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        qs = ExamResult.objects.select_related('student', 'academic_batch')
+        if not (_has_perm(request.user, 'students:read_tenant') or _has_perm(request.user, 'manage_students') or hasattr(request.user, 'trainer_profile')):
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        qs = ExamResult.objects.select_related(
+            'student', 'academic_batch', 'placement', 'placement__level'
+        )
+        if hasattr(request.user, 'trainer_profile'):
+            qs = qs.filter(student__trainer=request.user.trainer_profile)
         
         student_id = request.GET.get('student_id')
         academic_batch_id = request.GET.get('academic_batch_id')
         exam_type = request.GET.get('exam_type')
+        level_id = request.GET.get('level_id')
+        placement_id = request.GET.get('placement_id')
 
         if student_id:
             qs = qs.filter(student_id=student_id)
@@ -642,13 +862,22 @@ class ExamResultListCreateAPIView(APIView):
             qs = qs.filter(academic_batch_id=academic_batch_id)
         if exam_type:
             qs = qs.filter(exam_type=exam_type.upper())
+        if level_id:
+            qs = qs.filter(placement__level_id=level_id)
+        if placement_id:
+            qs = qs.filter(placement_id=placement_id)
 
         serializer = ExamResultSerializer(qs, many=True)
         return Response(serializer.data)
 
     def post(self, request):
+        if not (_has_perm(request.user, 'students:edit_any') or hasattr(request.user, 'trainer_profile')):
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
         serializer = ExamResultSerializer(data=request.data)
         if serializer.is_valid():
+            placement = serializer.validated_data['placement']
+            if hasattr(request.user, 'trainer_profile') and placement.student.trainer != request.user.trainer_profile:
+                return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -658,12 +887,22 @@ class ExamResultDetailAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, pk):
-        result = get_object_or_404(ExamResult, pk=pk)
+        if not (_has_perm(request.user, 'students:read_tenant') or _has_perm(request.user, 'manage_students') or hasattr(request.user, 'trainer_profile')):
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        result = get_object_or_404(ExamResult.objects.select_related('student__trainer', 'placement__level'), pk=pk)
+        if hasattr(request.user, 'trainer_profile') and result.student.trainer != request.user.trainer_profile:
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
         serializer = ExamResultSerializer(result)
         return Response(serializer.data)
 
     def put(self, request, pk):
-        result = get_object_or_404(ExamResult, pk=pk)
+        if not (_has_perm(request.user, 'students:edit_any') or hasattr(request.user, 'trainer_profile')):
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        result = get_object_or_404(ExamResult.objects.select_related('student__trainer'), pk=pk)
+        if result.processed_at:
+            return Response({"detail": "Finalized exam results cannot be edited."}, status=status.HTTP_400_BAD_REQUEST)
+        if hasattr(request.user, 'trainer_profile') and result.student.trainer != request.user.trainer_profile:
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
         serializer = ExamResultSerializer(result, data=request.data)
         if serializer.is_valid():
             serializer.save()
@@ -671,7 +910,11 @@ class ExamResultDetailAPIView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request, pk):
+        if not _has_perm(request.user, 'students:edit_any'):
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
         result = get_object_or_404(ExamResult, pk=pk)
+        if result.processed_at:
+            return Response({"detail": "Finalized exam results cannot be deleted."}, status=status.HTTP_400_BAD_REQUEST)
         result.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -975,6 +1218,118 @@ class StudentTimelineAPIView(APIView):
         timeline = student.timeline.all()
         serializer = StudentTimelineSerializer(timeline, many=True)
         return Response(serializer.data)
+
+
+class StudentAcademicHistoryAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        if not (_has_perm(request.user, 'students:read_tenant') or _has_perm(request.user, 'manage_students') or hasattr(request.user, 'trainer_profile')):
+            return Response({'detail': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
+        student = get_object_or_404(Student.objects.select_related('trainer', 'trainer__user'), pk=pk)
+        if hasattr(request.user, 'trainer_profile') and student.trainer != request.user.trainer_profile:
+            return Response({'detail': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
+
+        package_enrollments = StudentPackageEnrollment.objects.select_related(
+            'package', 'package__minimum_level', 'package__maximum_level'
+        ).filter(student=student)
+        placements = StudentAcademicPlacement.objects.select_related(
+            'academic_batch', 'academic_batch__branch', 'level',
+            'package_enrollment__package'
+        ).filter(student=student).order_by('-entered_on', '-id')
+
+        placement_data = []
+        for placement in placements:
+            serialized = StudentAcademicPlacementSerializer(placement).data
+            records = Attendance.objects.select_related(
+                'trainer', 'trainer__user', 'placement__academic_batch', 'placement__level'
+            ).filter(placement=placement).order_by('-date', '-id')
+            serialized['attendance_records'] = AttendanceSerializer(records, many=True).data
+            placement_data.append(serialized)
+
+        return Response({
+            'student_id': student.id,
+            'package_enrollments': StudentPackageEnrollmentSerializer(package_enrollments, many=True).data,
+            'placements': placement_data,
+        })
+
+
+class StudentPackageUpgradeAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        if not _has_perm(request.user, 'students:edit_any'):
+            return Response({'detail': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
+        student = get_object_or_404(Student, pk=pk)
+        package_id = request.data.get('academic_package_id')
+        if not package_id:
+            return Response({'academic_package_id': 'This field is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        package = get_object_or_404(AcademicPackage.objects.select_related('minimum_level', 'maximum_level'), pk=package_id)
+        try:
+            effective_date = _parse_effective_date(request.data.get('effective_date'))
+            enrollment, resumed_placement = upgrade_academic_package(
+                student,
+                package,
+                actor=request.user,
+                effective_date=effective_date,
+            )
+        except AcademicWorkflowError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({
+            'package_enrollment': StudentPackageEnrollmentSerializer(enrollment).data,
+            'resumed_placement': StudentAcademicPlacementSerializer(resumed_placement).data if resumed_placement else None,
+            'student': StudentSerializer(student).data,
+        })
+
+
+class AcademicBatchLevelFinalizeAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, batch_id, level_id):
+        if not _has_perm(request.user, 'students:edit_any'):
+            return Response({'detail': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
+        academic_batch = get_object_or_404(AcademicBatch.objects.select_related('branch'), pk=batch_id)
+        level = get_object_or_404(CourseLevel, pk=level_id)
+        try:
+            effective_date = _parse_effective_date(request.data.get('effective_date'))
+            result = finalize_batch_level(
+                academic_batch,
+                level,
+                actor=request.user,
+                effective_date=effective_date,
+            )
+        except AcademicWorkflowError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(result)
+
+
+class StudentRepeatTransferAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        if not _has_perm(request.user, 'students:edit_any'):
+            return Response({'detail': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
+        student = get_object_or_404(Student, pk=pk)
+        target_batch_id = request.data.get('academic_batch_id')
+        if not target_batch_id:
+            return Response({'academic_batch_id': 'This field is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        target_batch = get_object_or_404(
+            AcademicBatch.objects.select_related('branch', 'starting_level'), pk=target_batch_id
+        )
+        try:
+            effective_date = _parse_effective_date(request.data.get('effective_date'))
+            placement = transfer_failed_student(
+                student,
+                target_batch,
+                actor=request.user,
+                effective_date=effective_date,
+            )
+        except AcademicWorkflowError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({
+            'placement': StudentAcademicPlacementSerializer(placement).data,
+            'student': StudentSerializer(student).data,
+        }, status=status.HTTP_201_CREATED)
 
 class StudentAcademicActionAPIView(APIView):
     permission_classes = [IsAuthenticated]

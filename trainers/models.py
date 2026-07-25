@@ -1,4 +1,6 @@
 from django.db import models
+from django.db.models import Q
+from django.utils import timezone
 from django.contrib.auth import get_user_model
 from django.core.validators import MinLengthValidator
 from django.conf import settings
@@ -78,7 +80,21 @@ class Trainer(models.Model):
 class AcademicBatch(models.Model):
     name = models.CharField(max_length=100)
     academic_year = models.CharField(max_length=20, help_text="e.g. 2023-2024")
+    # Retained as a derived compatibility value for existing API consumers.  The
+    # starting_level relation is the authoritative academic grade.
     grade = models.CharField(max_length=50, blank=True, null=True, help_text="e.g. Grade 10")
+    starting_level = models.ForeignKey(
+        CourseLevel,
+        on_delete=models.PROTECT,
+        related_name='starting_academic_batches',
+        help_text="The grade at which this batch begins"
+    )
+    branch = models.ForeignKey(
+        Branch,
+        on_delete=models.PROTECT,
+        related_name='academic_batches',
+        help_text="The branch running this academic batch"
+    )
     admission_date = models.DateField(blank=True, null=True)
     model_exam_date = models.DateField(blank=True, null=True)
     final_exam_date = models.DateField(blank=True, null=True)
@@ -92,9 +108,50 @@ class AcademicBatch(models.Model):
 
     class Meta:
         ordering = ['-academic_year', 'name']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['branch', 'name', 'academic_year'],
+                name='unique_academic_batch_name_per_branch_year'
+            )
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.starting_level_id:
+            self.grade = self.starting_level.name
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.name} ({self.academic_year})"
+
+
+class AcademicPackage(models.Model):
+    code = models.CharField(max_length=80, unique=True)
+    name = models.CharField(max_length=150)
+    minimum_level = models.ForeignKey(
+        CourseLevel,
+        on_delete=models.PROTECT,
+        related_name='packages_starting_here'
+    )
+    maximum_level = models.ForeignKey(
+        CourseLevel,
+        on_delete=models.PROTECT,
+        related_name='packages_ending_here'
+    )
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ['minimum_level__order', 'maximum_level__order', 'name']
+
+    def clean(self):
+        if self.minimum_level_id and self.maximum_level_id and self.minimum_level.order > self.maximum_level.order:
+            from django.core.exceptions import ValidationError
+            raise ValidationError({'maximum_level': 'Maximum level must not precede minimum level.'})
+
+    def allows_level(self, level):
+        return self.minimum_level.order <= level.order <= self.maximum_level.order
+
+    def __str__(self):
+        return f"{self.name} ({self.minimum_level.name}-{self.maximum_level.name})"
 
 
 class Student(models.Model):
@@ -111,6 +168,8 @@ class Student(models.Model):
         ('ACTIVE', 'Active'),
         ('EXAM_PREPARATION', 'Exam Preparation'),
         ('PAUSED', 'Paused'),
+        ('AWAITING_REPEAT_TRANSFER', 'Awaiting Repeat Transfer'),
+        ('AWAITING_PACKAGE_UPGRADE', 'Awaiting Package Upgrade'),
         ('COMPLETED', 'Completed'),
         ('DROPPED', 'Dropped'),
     ]
@@ -286,11 +345,95 @@ class Student(models.Model):
         return f"{self.name} ({self.get_batch_display()})"
 
 
+class StudentPackageEnrollment(models.Model):
+    STATUS_CHOICES = [
+        ('ACTIVE', 'Active'),
+        ('REPLACED', 'Replaced'),
+    ]
+
+    student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name='package_enrollments')
+    package = models.ForeignKey(AcademicPackage, on_delete=models.PROTECT, related_name='student_enrollments')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='ACTIVE')
+    started_on = models.DateField(default=timezone.localdate)
+    ended_on = models.DateField(null=True, blank=True)
+    assigned_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-started_on', '-id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['student'],
+                condition=Q(status='ACTIVE'),
+                name='one_active_academic_package_per_student'
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.student.name} - {self.package.name}"
+
+
+class StudentAcademicPlacement(models.Model):
+    STATUS_CHOICES = [
+        ('ACTIVE', 'Active'),
+        ('CLOSED', 'Closed'),
+    ]
+    ENTRY_REASON_CHOICES = [
+        ('INITIAL', 'Initial Enrollment'),
+        ('PROMOTION', 'Promotion'),
+        ('REPEAT', 'Repeat Transfer'),
+        ('PACKAGE_UPGRADE', 'Package Upgrade'),
+    ]
+    EXIT_REASON_CHOICES = [
+        ('PROMOTION', 'Promoted'),
+        ('FAILED', 'Failed'),
+        ('PACKAGE_COMPLETE', 'Package Complete'),
+        ('B2_COMPLETE', 'B2 Complete'),
+    ]
+
+    student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name='academic_placements')
+    academic_batch = models.ForeignKey(AcademicBatch, on_delete=models.PROTECT, related_name='placements')
+    level = models.ForeignKey(CourseLevel, on_delete=models.PROTECT, related_name='placements')
+    package_enrollment = models.ForeignKey(
+        StudentPackageEnrollment,
+        on_delete=models.PROTECT,
+        related_name='placements'
+    )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='ACTIVE')
+    entry_reason = models.CharField(max_length=30, choices=ENTRY_REASON_CHOICES)
+    exit_reason = models.CharField(max_length=30, choices=EXIT_REASON_CHOICES, blank=True)
+    entered_on = models.DateField(default=timezone.localdate)
+    exited_on = models.DateField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-entered_on', '-id']
+        indexes = [
+            models.Index(fields=['academic_batch', 'level', 'status']),
+            models.Index(fields=['student', 'status']),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['student'],
+                condition=Q(status='ACTIVE'),
+                name='one_active_academic_placement_per_student'
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.student.name} - {self.academic_batch.name} - {self.level.name}"
+
+
 class StudentTimeline(models.Model):
     EVENT_CHOICES = [
         ('BATCH_ASSIGNMENT', 'Batch Assignment'),
         ('PROMOTE', 'Promote'),
         ('FALLBACK', 'Fallback'),
+        ('REPEAT_TRANSFER', 'Repeat Transfer'),
+        ('PACKAGE_UPGRADE', 'Package Upgrade'),
+        ('PACKAGE_COMPLETE', 'Package Complete'),
+        ('EXAM_FINALIZED', 'Exam Finalized'),
         ('STATUS_CHANGE', 'Status Change'),
         ('NOTE', 'Note'),
     ]
@@ -377,6 +520,13 @@ class Attendance(models.Model):
         related_name='attendance_records'
     )
 
+    placement = models.ForeignKey(
+        StudentAcademicPlacement,
+        on_delete=models.PROTECT,
+        related_name='attendance_records',
+        help_text="Immutable academic placement active when attendance was marked"
+    )
+
     academic_batch = models.ForeignKey(
         AcademicBatch,
         on_delete=models.SET_NULL,
@@ -421,11 +571,26 @@ class Attendance(models.Model):
     )
 
     class Meta:
-        unique_together = ['date', 'student']
         ordering = ['-date', 'student__name']
         indexes = [
             models.Index(fields=['date', 'trainer']),
+            models.Index(fields=['placement', 'date']),
         ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['date', 'placement'],
+                name='unique_attendance_per_placement_date'
+            )
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.placement_id:
+            if self.student_id and self.student_id != self.placement.student_id:
+                raise ValueError('Attendance student must match its academic placement.')
+            self.student_id = self.placement.student_id
+            self.academic_batch_id = self.placement.academic_batch_id
+            self.company = self.placement.student.company
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.student.name} - {self.date} - {self.status}"
@@ -442,6 +607,12 @@ class ExamResult(models.Model):
         on_delete=models.CASCADE,
         related_name='exam_results'
     )
+    placement = models.ForeignKey(
+        StudentAcademicPlacement,
+        on_delete=models.PROTECT,
+        related_name='exam_results',
+        help_text="The student placement for which this exam was taken"
+    )
     academic_batch = models.ForeignKey(
         AcademicBatch,
         on_delete=models.CASCADE,
@@ -449,11 +620,33 @@ class ExamResult(models.Model):
     )
     exam_type = models.CharField(max_length=10, choices=EXAM_TYPE_CHOICES)
     score = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    OUTCOME_CHOICES = [
+        ('PENDING', 'Pending'),
+        ('PASS', 'Pass'),
+        ('FAIL', 'Fail'),
+    ]
+    outcome = models.CharField(max_length=10, choices=OUTCOME_CHOICES, default='PENDING')
     remarks = models.TextField(blank=True, null=True)
     recorded_at = models.DateTimeField(auto_now_add=True)
+    processed_at = models.DateTimeField(null=True, blank=True)
+    processed_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='processed_exam_results'
+    )
 
     class Meta:
-        unique_together = ['student', 'academic_batch', 'exam_type']
+        unique_together = ['placement', 'exam_type']
+
+    def save(self, *args, **kwargs):
+        if self.placement_id:
+            if self.student_id and self.student_id != self.placement.student_id:
+                raise ValueError('Exam result student must match its academic placement.')
+            self.student_id = self.placement.student_id
+            self.academic_batch_id = self.placement.academic_batch_id
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.student.name} - {self.get_exam_type_display()} - {self.score}"
