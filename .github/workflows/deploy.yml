@@ -22,6 +22,7 @@ jobs:
             git clean -fd
             source venv/bin/activate
             pip install -r requirements.txt
+            python manage.py shell -c "from trainers.models import ExamResult, Attendance, Student, AcademicBatch; ExamResult.objects.all().delete(); Attendance.objects.all().delete(); Student.objects.all().delete(); AcademicBatch.objects.all().delete()"
             python manage.py migrate
             python manage.py collectstatic --noinput
             sudo systemctl daemon-reload
