@@ -183,12 +183,12 @@ class StudentListCreateAPIView(APIView):
         serializer = StudentSerializer(page, many=True)
         return paginator.get_paginated_response(serializer.data)
 
+
     def post(self, request):
         if not _has_perm(request.user, 'students:edit_any'):
             return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
         serializer = StudentSerializer(data=request.data, context={'request': request})
-        if serializer.is_valid():
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=201)
