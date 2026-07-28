@@ -16,6 +16,7 @@ class NotificationListView(APIView):
             'message': n.message,
             'by': n.by,
             'is_read': n.is_read,
+            'related_id': n.related_id,
             'time': n.created_at.isoformat(),
         } for n in notifs]
         return Response(data)

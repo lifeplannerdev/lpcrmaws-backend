@@ -28,14 +28,14 @@ def trigger_pusher(channel: str, event: str, data: dict):
         print(f"[Pusher] Trigger error: {e}")
 
 @shared_task
-def save_notification(user_id, type, message, by=None):
+def save_notification(user_id, type, message, by=None, related_id=None):
     """Save notification to DB — import inside function to avoid circular imports"""
     try:
         from notifications.models import Notification
         from django.contrib.auth import get_user_model
         User = get_user_model()
         user = User.objects.get(id=user_id)
-        Notification.objects.create(user=user, type=type, message=message, by=by)
+        Notification.objects.create(user=user, type=type, message=message, by=by, related_id=related_id)
     except Exception as e:
         print(f"[Notification] Save failed: {e}")
 
@@ -51,6 +51,7 @@ def notify_task_assigned(task, assigned_by):
         type='task',
         message=message,
         by=by_name,
+        related_id=task.id,
     )
 
     trigger_pusher.delay(
@@ -76,6 +77,7 @@ def notify_task_status_updated(task, updated_by, old_status, new_status, notes):
         type='task',
         message=message,
         by=by_name,
+        related_id=task.id,
     )
 
     trigger_pusher.delay(
@@ -107,6 +109,7 @@ def notify_task_remark(task, update):
         type='task',
         message=message,
         by=by_name,
+        related_id=task.id,
     )
 
     trigger_pusher.delay(
@@ -136,6 +139,7 @@ def notify_lead_assigned(assignee, assigned_by, lead, assignment_type):
         type='lead',
         message=message,
         by=by_name,
+        related_id=lead.id,
     )
 
     trigger_pusher.delay(
@@ -178,11 +182,26 @@ def notify_lead_deleted(lead_id):
 # ── Chat helpers ──────────────────────────────────────
 
 def notify_new_message(conversation_id, message_data):
+    payload = dict(message_data)
+    payload["conversation_id"] = conversation_id
+
     trigger_pusher.delay(
         channel=f"private-chat-{conversation_id}",
         event="new-message",
-        data=message_data
+        data=payload
     )
+    
+    try:
+        from chats.models import Conversation
+        conversation = Conversation.objects.get(id=conversation_id)
+        for user in conversation.participants.all():
+            trigger_pusher.delay(
+                channel=f"private-user-{user.id}",
+                event="chat.new_message",
+                data=payload
+            )
+    except Exception as e:
+        print(f"[Pusher] Error notifying participants: {e}")
 
 def notify_message_deleted(conversation_id, message_id):
     trigger_pusher.delay(
@@ -215,6 +234,7 @@ def notify_new_conversation(user_id, conversation_id, conversation_type, name=No
         user_id=user_id,
         type='chat',
         message=message,
+        related_id=conversation_id,
     )
 
     data = {"conversation_id": conversation_id, "type": conversation_type}
