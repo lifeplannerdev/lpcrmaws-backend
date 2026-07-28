@@ -1,12 +1,12 @@
 from django.db import models
 from django.conf import settings
 from django.utils import timezone
-from storages.backends.s3boto3 import S3Boto3Storage
+
 
 class FeedPost(models.Model):
     author = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='feed_posts')
     content = models.TextField(blank=True, null=True)
-    media = models.FileField(storage=S3Boto3Storage(), upload_to='feeds/media/%Y/%m/', blank=True, null=True)
+    media = models.FileField(upload_to='feeds/media/%Y/%m/', blank=True, null=True)
     MEDIA_CHOICES = (
         ('image', 'Image'),
         ('video', 'Video'),
