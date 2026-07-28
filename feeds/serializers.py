@@ -35,6 +35,6 @@ class FeedPostSerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         repr = super().to_representation(instance)
         # Add summary counts
-        repr['reaction_count'] = instance.reactions.count()
-        repr['comment_count'] = instance.comments.count()
+        repr['reaction_count'] = len(instance.reactions.all())
+        repr['comment_count'] = len(instance.comments.all())
         return repr
