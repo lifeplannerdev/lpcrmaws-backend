@@ -12,7 +12,7 @@ class EmployeeSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['id', 'username', 'is_active', 'role', 'role_names']
+        fields = ['id', 'username', 'first_name', 'last_name', 'is_active', 'role', 'role_names']
         
     def get_role(self, obj):
         return ", ".join(obj.db_roles.values_list('name', flat=True))
