@@ -151,12 +151,18 @@ class EmployeeListAPIView(generics.ListAPIView):
 
     def get_queryset(self):
         user = self.request.user
+        
+        include_inactive = self.request.query_params.get('include_inactive') == 'true'
+        
         if user.db_roles.filter(name__in=TOP_MANAGEMENT).exists():
-            return User.objects.filter(is_active=True).exclude(id=user.id)
-        return User.objects.filter(
-            is_active=True,
-            db_roles__name__in=TASK_ASSIGNEES
-        ).exclude(id=user.id)
+            qs = User.objects.exclude(id=user.id)
+        else:
+            qs = User.objects.filter(db_roles__name__in=TASK_ASSIGNEES).exclude(id=user.id)
+            
+        if not include_inactive:
+            qs = qs.filter(is_active=True)
+            
+        return qs
 
 
 # ── Task List / Create ────────────────────────────────────────────────────────
