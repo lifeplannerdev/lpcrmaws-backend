@@ -25,6 +25,7 @@ from .views import (
     LeadDocumentListCreateView,
     BulkPasteLeadsView,
 )
+from .analytics import UserPerformanceAnalyticsAPIView
 from .webhooks import meta_webhook, voxbay_webhook, meta_process_webhook
 
 urlpatterns = [
@@ -62,6 +63,8 @@ urlpatterns = [
     path('webhooks/meta/', meta_webhook, name='meta-webhook'),
     path('api/meta/process/', meta_process_webhook, name='meta-process-webhook'),
     path('webhooks/voxbay/', voxbay_webhook, name='voxbay-webhook'),
-    path('webhooks/logs/', WebhookLogListView.as_view(), name='webhook-logs'),
     path('webhooks/logs/<int:log_id>/convert/', ConvertWebhookToLeadAPIView.as_view(), name='convert-webhook-lead'),
+    
+    # ── Analytics ─────────────────────────────────────────────
+    path('analytics/performance/', UserPerformanceAnalyticsAPIView.as_view(), name='analytics-performance'),
 ]

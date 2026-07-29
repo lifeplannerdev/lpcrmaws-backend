@@ -140,6 +140,14 @@ class BulkLeadAssignView(APIView):
                     assignee        = serializer.validated_data['assignee']
                     assignment_type = serializer.validated_data['assignment_type']
 
+                    current_notes = notes
+                    if assignment_type == 'PRIMARY' and lead.assigned_to:
+                        old_name = lead.assigned_to.get_full_name() or lead.assigned_to.username
+                        current_notes = f"{current_notes} [Transferred from {old_name}]".strip()
+                    elif assignment_type == 'SUB' and lead.sub_assigned_to:
+                        old_name = lead.sub_assigned_to.get_full_name() or lead.sub_assigned_to.username
+                        current_notes = f"{current_notes} [Transferred from {old_name}]".strip()
+
                     if assignment_type == 'PRIMARY':
                         lead.assigned_to       = assignee
                         lead.assigned_by       = user
@@ -159,7 +167,7 @@ class BulkLeadAssignView(APIView):
                         assigned_to=assignee,
                         assigned_by=user,
                         assignment_type=assignment_type,
-                        notes=notes,
+                        notes=current_notes,
                     )
                     success_count += 1
 

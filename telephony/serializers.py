@@ -65,14 +65,14 @@ class VoxbayCallLogSerializer(serializers.ModelSerializer):
             
         query = Q()
         if obj.agent_number:
-            query |= Q(phone=obj.agent_number) | Q(personal_phone=obj.agent_number) | Q(voxbay_extension=obj.agent_number)
+            query |= Q(voxbay_number=obj.agent_number) | Q(voxbay_extension=obj.agent_number)
         if obj.extension:
-            query |= Q(phone=obj.extension) | Q(personal_phone=obj.extension) | Q(voxbay_extension=obj.extension)
+            query |= Q(voxbay_number=obj.extension) | Q(voxbay_extension=obj.extension)
             
         if not query:
             return None
             
-        user = User.objects.filter(query).first()
+        user = User.objects.filter(query, is_active=True).first()
         if user:
             return user.get_full_name() or user.username
         return None

@@ -10,6 +10,7 @@ from .views import (
     UnassignedMissedCallsView,
     AssignMissedCallView,
     CallAgentStatsView,
+    VoxbaySettingsView,
 )
 
 urlpatterns = [
@@ -23,6 +24,7 @@ urlpatterns = [
     path("voxbay/agents/",                       VoxbayAgentListView.as_view()),
     path("voxbay/agents/<int:pk>/",              VoxbayAgentDetailView.as_view()),
     path("voxbay/agent-stats/",                  CallAgentStatsView.as_view()),
+    path("voxbay/settings/",                     VoxbaySettingsView.as_view()),
     path("voxbay/unassigned-missed/",            UnassignedMissedCallsView.as_view()),
     path("voxbay/unassigned-missed/<str:call_uuid>/assign/", AssignMissedCallView.as_view()),
 ]

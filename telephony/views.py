@@ -96,7 +96,7 @@ def process_voxbay_call_log(obj):
 
     agent_user = None
     if agent_phone:
-        agent_user = User.objects.filter(Q(phone=agent_phone) | Q(personal_phone=agent_phone)).first()
+        agent_user = User.objects.filter(is_active=True).filter(Q(voxbay_number=agent_phone) | Q(voxbay_extension=agent_phone)).first()
 
     existing_lead = Lead.objects.filter(phone=lead_number).first()
 
@@ -120,6 +120,21 @@ def process_voxbay_call_log(obj):
             )
 
         if existing_lead and agent_user:
+            # Check if agent is different from the lead owner
+            if existing_lead.assigned_to != agent_user and existing_lead.sub_assigned_to != agent_user:
+                # Assign to the new agent as sub_assigned_to so they have access
+                existing_lead.sub_assigned_to = agent_user
+                existing_lead.sub_assigned_date = timezone.now()
+                existing_lead.save(update_fields=['sub_assigned_to', 'sub_assigned_date'])
+                
+                LeadAssignment.objects.create(
+                    lead=existing_lead,
+                    assigned_to=agent_user,
+                    assigned_by=None,
+                    assignment_type='SUB',
+                    notes=f"Auto-sub-assigned: Call answered by {agent_user.username}"
+                )
+
             duration_str = str(obj.duration) + 's' if obj.duration else 'Unknown'
             notes = f"Answered {direction_text} Call\nDuration: {duration_str}\n"
             if obj.recording_url:
@@ -393,6 +408,33 @@ class VoxbayWebhookView(APIView):
                 f"CallLog id={obj.id} uuid={call_uuid} event={callevent}"
             )
             
+            # Emit Real-time event for ringing/start so app can show Live Caller
+            if callevent.strip().lower() in ["call start", "start", "ringing"] and call_type == "incoming":
+                from accounts.models import User
+                agent_user = None
+                agent_ext = defaults.get("agent_number") or data.get("AgentNumber") or data.get("extension")
+                if agent_ext:
+                    agent_user = User.objects.filter(is_active=True).filter(Q(voxbay_number=agent_ext) | Q(voxbay_extension=agent_ext)).first()
+                
+                from utils.pusher import trigger_pusher
+                lead_num = defaults.get("caller_number")
+                if lead_num:
+                    from leads.models import Lead
+                    existing_lead = Lead.objects.filter(phone=lead_num).first()
+                    payload = {
+                        "call_uuid": call_uuid,
+                        "caller_number": lead_num,
+                        "agent_extension": agent_ext,
+                        "lead_id": existing_lead.id if existing_lead else None,
+                        "lead_name": existing_lead.name if existing_lead else "New Caller",
+                    }
+                    if agent_user:
+                        trigger_pusher.delay(
+                            channel=f"private-user-{agent_user.id}",
+                            event="telephony.incoming_call",
+                            data=payload
+                        )
+
             # Skip timeline updates for intermediate events; wait for CDR
             if callevent.strip().lower() not in ["call start", "start", "connect", "ringing", "disconnect"]:
                 try:
@@ -420,11 +462,11 @@ class CallLogListView(APIView):
 
         if not has_dynamic_permission(request.user, 'voxbay:read_all'):
             if has_dynamic_permission(request.user, 'voxbay:read_own'):
-                phone = getattr(request.user, 'phone', None)
+                voxbay_number = getattr(request.user, 'voxbay_number', None)
                 voxbay_extension = getattr(request.user, 'voxbay_extension', None)
                 agent_numbers = []
-                if phone:
-                    agent_numbers.append(phone)
+                if voxbay_number:
+                    agent_numbers.append(voxbay_number)
                 if voxbay_extension:
                     agent_numbers.append(voxbay_extension)
                 
@@ -521,18 +563,13 @@ class CallStatsView(APIView):
         
         if not has_dynamic_permission(request.user, 'voxbay:read_all'):
             if has_dynamic_permission(request.user, 'voxbay:read_own'):
-                user_phone = getattr(request.user, 'phone', None)
-                personal_phone = getattr(request.user, 'personal_phone', None)
+                voxbay_number = getattr(request.user, 'voxbay_number', None)
+                voxbay_extension = getattr(request.user, 'voxbay_extension', None)
                 agent_numbers = []
-                if user_phone:
-                    base_phone = user_phone[-10:] if len(user_phone) >= 10 else user_phone
-                    agents = VoxbayAgent.objects.filter(phone_number__endswith=base_phone)
-                    agent_numbers = list(agents.values_list('phone_number', flat=True))
-                    agent_numbers.extend([e for e in agents.values_list('extension', flat=True) if e])
-                    if user_phone not in agent_numbers:
-                        agent_numbers.append(user_phone)
-                if personal_phone and personal_phone not in agent_numbers:
-                    agent_numbers.append(personal_phone)
+                if voxbay_number:
+                    agent_numbers.append(voxbay_number)
+                if voxbay_extension and voxbay_extension not in agent_numbers:
+                    agent_numbers.append(voxbay_extension)
                 
                 from leads.models import Lead
                 assigned_phones = list(Lead.objects.filter(
@@ -705,10 +742,8 @@ class CallAgentStatsView(APIView):
                 'outgoing_duration_total': 0,
                 'total_cancelled_missed': 0,
             }
-            if u.phone:
-                user_by_incoming[u.phone] = uid
-            if u.personal_phone:
-                user_by_incoming[u.personal_phone] = uid
+            if u.voxbay_number:
+                user_by_incoming[u.voxbay_number] = uid
             if u.voxbay_extension:
                 user_by_outgoing[u.voxbay_extension] = uid
         
@@ -896,3 +931,52 @@ class AssignMissedCallView(APIView):
             )
 
         return Response({"message": "Successfully assigned"}, status=status.HTTP_200_OK)
+
+
+# ─── Voxbay Settings ──────────────────────────────────────────────────────────
+
+class VoxbaySettingsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if not has_dynamic_permission(request.user, 'voxbay:admin'):
+            return Response({"error": "Admin access required"}, status=403)
+            
+        users = User.objects.filter(is_active=True).order_by('first_name', 'last_name', 'username')
+        data = []
+        for u in users:
+            data.append({
+                "id": u.id,
+                "name": u.get_full_name() or u.username,
+                "roles": ", ".join(u.db_roles.values_list('name', flat=True)),
+                "voxbay_number": u.voxbay_number or "",
+                "voxbay_extension": u.voxbay_extension or ""
+            })
+        return Response(data)
+
+    def post(self, request):
+        if not has_dynamic_permission(request.user, 'voxbay:admin'):
+            return Response({"error": "Admin access required"}, status=403)
+            
+        updates = request.data
+        if not isinstance(updates, list):
+            return Response({"error": "Expected a list of updates"}, status=status.HTTP_400_BAD_REQUEST)
+            
+        updated_count = 0
+        for item in updates:
+            user_id = item.get("id")
+            if not user_id:
+                continue
+            try:
+                u = User.objects.get(id=user_id, is_active=True)
+                # Keep fields as None if empty strings to maintain consistency
+                vn = item.get("voxbay_number", "").strip()
+                ve = item.get("voxbay_extension", "").strip()
+                u.voxbay_number = vn if vn else None
+                u.voxbay_extension = ve if ve else None
+                u.save(update_fields=['voxbay_number', 'voxbay_extension'])
+                updated_count += 1
+            except User.DoesNotExist:
+                continue
+                
+        return Response({"message": "Settings updated successfully", "updated": updated_count}, status=status.HTTP_200_OK)
