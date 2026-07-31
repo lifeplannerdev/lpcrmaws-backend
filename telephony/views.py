@@ -196,6 +196,41 @@ def process_voxbay_call_log(obj):
                     notes="Auto-assigned to last rang agent on Missed Voxbay Call"
                 )
             existing_lead.save(update_fields=update_fields)
+        elif not existing_lead and direction_text == "Outgoing":
+            existing_lead = Lead.objects.create(
+                name=f"Voxbay Outgoing Call - {lead_number}",
+                phone=lead_number,
+                source='VOXBAY CALL',
+                status='ENQUIRY',
+                voxbay_status='Outgoing',
+                assigned_to=agent_user if agent_user else None,
+                assigned_date=timezone.now() if agent_user else None
+            )
+            if agent_user:
+                LeadAssignment.objects.create(
+                    lead=existing_lead,
+                    assigned_to=agent_user,
+                    assigned_by=None,
+                    assignment_type='PRIMARY',
+                    notes="Auto-assigned on Unanswered Outgoing Voxbay Call"
+                )
+        elif existing_lead and direction_text == "Outgoing":
+            if "Missed Call" in existing_lead.name:
+                existing_lead.name = f"Voxbay Outgoing Call - {lead_number}"
+            existing_lead.voxbay_status = 'Outgoing'
+            update_fields = ['name', 'voxbay_status']
+            if not existing_lead.assigned_to and agent_user:
+                existing_lead.assigned_to = agent_user
+                existing_lead.assigned_date = timezone.now()
+                update_fields.extend(['assigned_to', 'assigned_date'])
+                LeadAssignment.objects.create(
+                    lead=existing_lead,
+                    assigned_to=agent_user,
+                    assigned_by=None,
+                    assignment_type='PRIMARY',
+                    notes="Auto-assigned on Unanswered Outgoing Voxbay Call"
+                )
+            existing_lead.save(update_fields=update_fields)
 
         if existing_lead:
             answered_exists = VoxbayCallLog.objects.filter(call_uuid=obj.call_uuid, call_status__in=['ANSWER', 'ANSWERED']).exists()
