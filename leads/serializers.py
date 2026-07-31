@@ -33,7 +33,7 @@ class LeadCreateSerializer(serializers.ModelSerializer):
             'priority', 'program', 'location', 'remarks', 'status',
             'assigned_to', 'company',
             'interested_country', 'interested_course', 'previous_qualification', 
-            'work_experience', 'budget',
+            'work_experience', 'budget', 'voxbay_status',
         ]
 
     def validate_name(self, value):
@@ -251,7 +251,7 @@ class LeadListSerializer(serializers.ModelSerializer):
             'assigned_to', 'assigned_by', 'assigned_date',
             'sub_assigned_to', 'sub_assigned_by', 'sub_assigned_date',
             'current_handler', 'created_at', 'updated_at',
-            'agenda_type', 'company', 'assignment_source'
+            'agenda_type', 'company', 'assignment_source', 'voxbay_status'
         ]
 
     def get_assignment_source(self, obj):
@@ -378,7 +378,7 @@ class LeadUpdateSerializer(serializers.ModelSerializer):
             'name', 'phone', 'email', 'location', 'remarks',
             'priority', 'status', 'program', 'source', 'custom_source', 'company',
             'interested_country', 'interested_course', 'previous_qualification', 
-            'work_experience', 'budget',
+            'work_experience', 'budget', 'voxbay_status',
         ]
 
     def validate_priority(self, value):

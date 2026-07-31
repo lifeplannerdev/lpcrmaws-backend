@@ -84,12 +84,12 @@ def process_voxbay_call_log(obj):
         lead_number = obj.destination
         agent_phone = obj.extension
         direction_text = "Outgoing"
-        new_lead_name = f"Voxbay Called - {lead_number}"
+        new_lead_name = f"Voxbay Outgoing Call - {lead_number}"
     else:
         lead_number = obj.caller_number
         agent_phone = obj.agent_number
         direction_text = "Incoming"
-        new_lead_name = f"Voxbay Caller - {lead_number}"
+        new_lead_name = f"Voxbay Incoming Call - {lead_number}"
 
     if not lead_number:
         return
@@ -107,6 +107,7 @@ def process_voxbay_call_log(obj):
                 phone=lead_number,
                 source='VOXBAY CALL',
                 status='ENQUIRY',
+                voxbay_status='Answered' if direction_text == "Incoming" else 'Outgoing',
                 assigned_to=agent_user,
                 assigned_by=None,
                 assigned_date=timezone.now()
@@ -116,24 +117,33 @@ def process_voxbay_call_log(obj):
                 assigned_to=agent_user,
                 assigned_by=None,
                 assignment_type='PRIMARY',
-                notes="Auto-assigned on Answered Voxbay Call"
+                notes="Auto-assigned on Voxbay Call"
             )
+            
+        if existing_lead and direction_text == "Outgoing" and "Missed Call" in existing_lead.name:
+            existing_lead.name = f"Voxbay Outgoing Call - {lead_number}"
+            existing_lead.save(update_fields=['name'])
 
         if existing_lead and agent_user:
             # Check if agent is different from the lead owner
+            existing_lead.voxbay_status = 'Answered' if direction_text == "Incoming" else 'Outgoing'
+            update_fields = ['voxbay_status']
+            
             if existing_lead.assigned_to != agent_user and existing_lead.sub_assigned_to != agent_user:
                 # Assign to the new agent as sub_assigned_to so they have access
                 existing_lead.sub_assigned_to = agent_user
                 existing_lead.sub_assigned_date = timezone.now()
-                existing_lead.save(update_fields=['sub_assigned_to', 'sub_assigned_date'])
+                update_fields.extend(['sub_assigned_to', 'sub_assigned_date'])
                 
                 LeadAssignment.objects.create(
                     lead=existing_lead,
                     assigned_to=agent_user,
                     assigned_by=None,
                     assignment_type='SUB',
-                    notes=f"Auto-sub-assigned: Call answered by {agent_user.username}"
+                    notes=f"Auto-sub-assigned: Call handled by {agent_user.username}"
                 )
+                
+            existing_lead.save(update_fields=update_fields)
 
             duration_str = str(obj.duration) + 's' if obj.duration else 'Unknown'
             notes = f"Answered {direction_text} Call\nDuration: {duration_str}\n"
@@ -154,13 +164,38 @@ def process_voxbay_call_log(obj):
     else:
         if not existing_lead and direction_text == "Incoming":
             existing_lead = Lead.objects.create(
-                name=f"Missed Caller - {lead_number}",
+                name=f"Voxbay Missed Call - {lead_number}",
                 phone=lead_number,
                 source='VOXBAY CALL',
                 custom_source='MISSED CALL',
                 status='ENQUIRY',
-                assigned_to=None
+                voxbay_status='Missed',
+                assigned_to=agent_user if agent_user else None,
+                assigned_date=timezone.now() if agent_user else None
             )
+            if agent_user:
+                LeadAssignment.objects.create(
+                    lead=existing_lead,
+                    assigned_to=agent_user,
+                    assigned_by=None,
+                    assignment_type='PRIMARY',
+                    notes="Auto-assigned to last rang agent on Missed Voxbay Call"
+                )
+        elif existing_lead and direction_text == "Incoming":
+            existing_lead.voxbay_status = 'Missed'
+            update_fields = ['voxbay_status']
+            if not existing_lead.assigned_to and agent_user:
+                existing_lead.assigned_to = agent_user
+                existing_lead.assigned_date = timezone.now()
+                update_fields.extend(['assigned_to', 'assigned_date'])
+                LeadAssignment.objects.create(
+                    lead=existing_lead,
+                    assigned_to=agent_user,
+                    assigned_by=None,
+                    assignment_type='PRIMARY',
+                    notes="Auto-assigned to last rang agent on Missed Voxbay Call"
+                )
+            existing_lead.save(update_fields=update_fields)
 
         if existing_lead:
             answered_exists = VoxbayCallLog.objects.filter(call_uuid=obj.call_uuid, call_status__in=['ANSWER', 'ANSWERED']).exists()
@@ -387,7 +422,7 @@ class VoxbayWebhookView(APIView):
         if call_type == "incoming":
             _set("called_number",      data.get("calledNumber"))
             _set("caller_number",      data.get("callerNumber") or data.get("callerid") or data.get("caller_number") or data.get("phone") or data.get("number"))
-            _set("agent_number",       data.get("AgentNumber") or data.get("agentNumber") or data.get("extension"))
+            _set("agent_number",       data.get("AgentNumber") or data.get("agentNumber") or data.get("extension") or data.get("last_tried_user") or data.get("last_tried_name"))
             _set("dtmf",               data.get("dtmf"))
             _set("transferred_number", data.get("transferredNumber"))
         else:

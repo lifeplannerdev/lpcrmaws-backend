@@ -63,6 +63,7 @@ class Lead(models.Model):
     location = models.CharField(max_length=100, blank=True, null=True)
     source = models.CharField(max_length=20, choices=SOURCE_CHOICES, blank=True, null=True)
     custom_source = models.CharField(max_length=50, blank=True, null=True)
+    voxbay_status = models.CharField(max_length=50, blank=True, null=True)
     
     # Spreadsheet fields
     interested_country = models.CharField(max_length=100, blank=True, null=True)
