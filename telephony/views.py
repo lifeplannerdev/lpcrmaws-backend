@@ -1,6 +1,8 @@
 from django.conf import settings
 import logging
 import requests
+import io
+import pandas as pd
 from datetime import datetime
 
 from django.db.models import Avg, Q
@@ -1050,3 +1052,120 @@ class VoxbaySettingsView(APIView):
                 continue
                 
         return Response({"message": "Settings updated successfully", "updated": updated_count}, status=status.HTTP_200_OK)
+
+class VoxbayReportExportView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if not has_dynamic_permission(request.user, 'voxbay:admin'):
+            return Response({"error": "Permission denied"}, status=403)
+            
+        start_date = request.query_params.get("start_date")
+        end_date = request.query_params.get("end_date")
+        agent_id = request.query_params.get("agent_id")
+        
+        if not start_date or not end_date:
+            return Response({"error": "start_date and end_date are required"}, status=400)
+            
+        qs = VoxbayCallLog.objects.all()
+        
+        try:
+            sd = datetime.strptime(start_date, "%Y-%m-%d").date()
+            ed = datetime.strptime(end_date, "%Y-%m-%d").date()
+            qs = qs.filter(call_start__date__gte=sd, call_start__date__lte=ed)
+        except Exception:
+            return Response({"error": "Invalid date format, use YYYY-MM-DD"}, status=400)
+            
+        if agent_id and agent_id != 'all':
+            from accounts.models import User
+            try:
+                agent = User.objects.get(id=agent_id)
+                agent_numbers = []
+                if getattr(agent, 'voxbay_number', None):
+                    agent_numbers.append(agent.voxbay_number)
+                if getattr(agent, 'voxbay_extension', None):
+                    agent_numbers.append(agent.voxbay_extension)
+                
+                qs = qs.filter(
+                    Q(agent_number__in=agent_numbers) |
+                    Q(extension__in=agent_numbers)
+                )
+            except User.DoesNotExist:
+                pass
+        
+        from leads.models import Lead
+        
+        # Split incoming and outgoing
+        incoming_qs = qs.filter(call_type="incoming").order_by('-call_start')
+        outgoing_qs = qs.filter(call_type="outgoing").order_by('-call_start')
+        
+        def process_qs(queryset, phone_field):
+            data = []
+            for i, log in enumerate(queryset):
+                # Format durations
+                dur = log.duration or 0
+                conv_dur = log.conversation_duration or 0
+                total_duration = f"{dur//3600:02d}:{(dur%3600)//60:02d}:{dur%60:02d}"
+                answered_duration = f"{conv_dur//3600:02d}:{(conv_dur%3600)//60:02d}:{conv_dur%60:02d}"
+                
+                phone = getattr(log, phone_field, '')
+                # strip 91 prefix if present for lead lookup
+                clean_phone = phone
+                if clean_phone and clean_phone.startswith('91') and len(clean_phone) > 10:
+                    clean_phone = clean_phone[2:]
+                
+                lead_name = ""
+                lead_status = ""
+                lead_stage = ""
+                lead_assigned_to = ""
+                
+                if clean_phone:
+                    lead = Lead.objects.filter(phone__endswith=clean_phone).first()
+                    if lead:
+                        lead_name = lead.name
+                        lead_status = lead.status or ""
+                        lead_stage = lead.stage or ""
+                        lead_assigned_to = lead.assigned_to.username if lead.assigned_to else ""
+
+                row = {
+                    "Sl No.": i + 1,
+                    "Customer Number": phone,
+                    "Call Start Time": log.call_start.strftime("%Y-%m-%d %H:%M:%S") if log.call_start else "",
+                    "Call Status": log.call_status,
+                    "Extension": log.extension,
+                    "Total Duration": total_duration,
+                    "Answered Duration": answered_duration,
+                    "Call Recording Link": log.recording_url or "",
+                    "Lead Name": lead_name,
+                    "Lead Status": lead_status,
+                    "Lead Stage": lead_stage,
+                    "Assigned To": lead_assigned_to,
+                }
+                data.append(row)
+            return data
+            
+        incoming_data = process_qs(incoming_qs, "caller_number")
+        outgoing_data = process_qs(outgoing_qs, "destination")
+        
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df_in = pd.DataFrame(incoming_data)
+            df_out = pd.DataFrame(outgoing_data)
+            
+            if df_in.empty:
+                df_in = pd.DataFrame(columns=["No Incoming Calls Found"])
+            if df_out.empty:
+                df_out = pd.DataFrame(columns=["No Outgoing Calls Found"])
+                
+            df_in.to_excel(writer, sheet_name='Incoming Calls', index=False)
+            df_out.to_excel(writer, sheet_name='Outgoing Calls', index=False)
+            
+        output.seek(0)
+        
+        filename = f"Voxbay_Report_{start_date}_to_{end_date}.xlsx"
+        response = HttpResponse(
+            output, 
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response['Content-Disposition'] = f'attachment; filename={filename}'
+        return response
