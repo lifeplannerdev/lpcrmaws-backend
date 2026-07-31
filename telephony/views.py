@@ -1116,15 +1116,15 @@ class VoxbayReportExportView(APIView):
                 
                 lead_name = ""
                 lead_status = ""
-                lead_stage = ""
+                lead_processing_status = ""
                 lead_assigned_to = ""
                 
                 if clean_phone:
                     lead = Lead.objects.filter(phone__endswith=clean_phone).first()
                     if lead:
-                        lead_name = lead.name
+                        lead_name = lead.name or ""
                         lead_status = lead.status or ""
-                        lead_stage = lead.stage or ""
+                        lead_processing_status = lead.processing_status or ""
                         lead_assigned_to = lead.assigned_to.username if lead.assigned_to else ""
 
                 row = {
@@ -1138,7 +1138,7 @@ class VoxbayReportExportView(APIView):
                     "Call Recording Link": log.recording_url or "",
                     "Lead Name": lead_name,
                     "Lead Status": lead_status,
-                    "Lead Stage": lead_stage,
+                    "Processing Status": lead_processing_status,
                     "Assigned To": lead_assigned_to,
                 }
                 data.append(row)
