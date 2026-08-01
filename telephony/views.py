@@ -1097,8 +1097,10 @@ class VoxbayReportExportView(APIView):
         from accounts.models import User
         import openpyxl
         from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+        from collections import defaultdict
+        import re
         
-        # Build agent cache for quick lookups of 'Branch' and 'First Tried Agent'
+        # Build agent cache for quick lookups
         agent_by_ext = {u.voxbay_extension: u for u in User.objects.exclude(voxbay_extension__isnull=True).exclude(voxbay_extension='')}
         agent_by_num = {u.voxbay_number: u for u in User.objects.exclude(voxbay_number__isnull=True).exclude(voxbay_number='')}
         
@@ -1107,7 +1109,7 @@ class VoxbayReportExportView(APIView):
             if agent:
                 name = f"{agent.first_name} {agent.last_name}".strip()
                 return name or agent.username
-            return ""
+            return "Unassigned"
 
         incoming_qs = qs.filter(call_type="incoming").order_by('-call_start')
         outgoing_qs = qs.filter(call_type="outgoing").order_by('-call_start')
@@ -1122,11 +1124,13 @@ class VoxbayReportExportView(APIView):
             if dest:
                 outgoing_by_dest.setdefault(dest, []).append(log.call_start)
 
-        incoming_matched = []
-        incoming_unmatched = []
-        outgoing_matched = []
-        outgoing_unmatched = []
-        missed_calls = []
+        agent_data = defaultdict(lambda: {
+            'incoming_matched': [],
+            'incoming_unmatched': [],
+            'outgoing_matched': [],
+            'outgoing_unmatched': [],
+            'missed_calls': []
+        })
 
         def format_dur(seconds):
             if not seconds: return "00:00:00"
@@ -1145,16 +1149,15 @@ class VoxbayReportExportView(APIView):
             
             agent_name = get_agent_details(log)
             
-            # Base row for incoming
             row = {
-                "Sl No.": 0, # Will be set later
+                "Sl No.": 0,
                 "Source Number": log.caller_number or "",
                 "DID Number": log.called_number or "",
                 "Call Date": log.call_start.strftime("%Y-%m-%d") if log.call_start else "",
                 "Call Time": log.call_start.strftime("%H:%M") if log.call_start else "",
                 "Connected Time": log.call_end.strftime("%H:%M") if log.call_end and log.conversation_duration else "—",
                 "Call Status": log.call_status or "",
-                "User Status": log.call_status or "", # Using call status as approximation
+                "User Status": log.call_status or "",
                 "Extension": log.extension or "",
                 "First Tried Agent": agent_name,
                 "Total Duration": dur,
@@ -1174,16 +1177,16 @@ class VoxbayReportExportView(APIView):
                     "Lead Created Date": lead.created_at.strftime("%Y-%m-%d") if lead.created_at else "",
                     "Lead Created Time": lead.created_at.strftime("%H:%M") if lead.created_at else "",
                 })
-                incoming_matched.append(row)
+                agent_data[agent_name]['incoming_matched'].append(row)
             else:
-                incoming_unmatched.append(row)
+                agent_data[agent_name]['incoming_unmatched'].append(row)
                 
             # Missed Call Tracking
             if log.call_status in ['MISSED', 'NOANSWER', 'CANCEL', 'BUSY'] or not log.conversation_duration:
                 callbacks = [t for t in outgoing_by_dest.get(phone, []) if log.call_start and t > log.call_start]
                 cb_count = len(callbacks)
                 
-                missed_calls.append({
+                agent_data[agent_name]['missed_calls'].append({
                     "Sl No.": 0,
                     "Call Date": row["Call Date"],
                     "Call Time": row["Call Time"],
@@ -1192,23 +1195,15 @@ class VoxbayReportExportView(APIView):
                     "Connected Duration": conv_dur,
                     "Callback Count": cb_count,
                     "Missed Status": "Completed" if cb_count > 0 else "Pending",
-                    "Missed Count": 1, # Will aggregate below
-                    "_phone": phone # temp field
+                    "Missed Count": 1, 
+                    "_phone": phone 
                 })
-
-        # Process Missed Counts
-        missed_counts = {}
-        for mc in reversed(missed_calls):
-            p = mc['_phone']
-            missed_counts[p] = missed_counts.get(p, 0) + 1
-            mc['Missed Count'] = missed_counts[p]
-        for mc in missed_calls:
-            del mc['_phone']
 
         # Process Outgoing
         for log in outgoing_qs:
             dur = format_dur(log.duration)
             phone = clean_number(log.destination)
+            agent_name = get_agent_details(log)
             
             row = {
                 "Sl No.": 0,
@@ -1230,99 +1225,116 @@ class VoxbayReportExportView(APIView):
                     "Program": lead.program or "—",
                     "Source": lead.source or "—",
                 })
-                outgoing_matched.append(row)
+                agent_data[agent_name]['outgoing_matched'].append(row)
             else:
-                outgoing_unmatched.append(row)
+                agent_data[agent_name]['outgoing_unmatched'].append(row)
 
-        # Set Sl No.
-        for data_list in [incoming_matched, incoming_unmatched, outgoing_matched, outgoing_unmatched, missed_calls]:
-            for i, r in enumerate(data_list, 1):
-                r["Sl No."] = i
+        # Process Missed Counts and Set Sl No. per agent
+        for data in agent_data.values():
+            missed_counts = {}
+            for mc in reversed(data['missed_calls']):
+                p = mc['_phone']
+                missed_counts[p] = missed_counts.get(p, 0) + 1
+                mc['Missed Count'] = missed_counts[p]
+            for mc in data['missed_calls']:
+                del mc['_phone']
+                
+            for data_list in [data['incoming_matched'], data['incoming_unmatched'], data['outgoing_matched'], data['outgoing_unmatched'], data['missed_calls']]:
+                for i, r in enumerate(data_list, 1):
+                    r["Sl No."] = i
 
         output = io.BytesIO()
-        
-        # openpyxl write logic
         workbook = openpyxl.Workbook()
-        sheet = workbook.active
-        sheet.title = 'Voxbay Report'
-        
-        header_font = Font(bold=True, color="FFFFFF")
-        data_font = Font()
-        center_align = Alignment(horizontal="center", vertical="center")
-        left_align = Alignment(horizontal="left", vertical="center")
-        
-        border = Border(
-            left=Side(border_style="thin", color="CCCCCC"),
-            right=Side(border_style="thin", color="CCCCCC"),
-            top=Side(border_style="thin", color="CCCCCC"),
-            bottom=Side(border_style="thin", color="CCCCCC")
-        )
+        if 'Sheet' in workbook.sheetnames:
+            workbook.remove(workbook['Sheet'])
+            
+        if not agent_data:
+            sheet = workbook.create_sheet('No Data')
+            sheet.cell(row=1, column=1, value="No calls found for the selected period.")
+        else:
+            header_font = Font(bold=True, color="FFFFFF")
+            data_font = Font()
+            center_align = Alignment(horizontal="center", vertical="center")
+            left_align = Alignment(horizontal="left", vertical="center")
+            
+            border = Border(
+                left=Side(border_style="thin", color="CCCCCC"),
+                right=Side(border_style="thin", color="CCCCCC"),
+                top=Side(border_style="thin", color="CCCCCC"),
+                bottom=Side(border_style="thin", color="CCCCCC")
+            )
 
-        colors = {
-            'matched': "C4DFB8", # light green
-            'unmatched': "FAD7C8", # peach
-            'missed': "D0DFEC", # light blue
-            'col_header': "22547E", # dark blue
-        }
-        
-        current_row = 1
-        
-        def write_table(title, data, bg_color):
-            nonlocal current_row
-            if not data:
-                return
+            colors = {
+                'matched': "C4DFB8", # light green
+                'unmatched': "FAD7C8", # peach
+                'missed': "D0DFEC", # light blue
+                'col_header': "22547E", # dark blue
+            }
+            
+            for agent_name, data in agent_data.items():
+                safe_sheet_name = re.sub(r'[\\*?:/\[\]]', '', agent_name)[:31] or "Agent"
+                sheet = workbook.create_sheet(safe_sheet_name)
                 
-            # Title row
-            sheet.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=len(data[0]))
-            cell = sheet.cell(row=current_row, column=1, value=f"{title} ({len(data)})")
-            cell.fill = PatternFill(start_color=bg_color, end_color=bg_color, fill_type="solid")
-            cell.font = Font(bold=True, color="22547E")
-            cell.alignment = left_align
-            current_row += 1
-            
-            # Column Headers
-            headers = list(data[0].keys())
-            for col_idx, header in enumerate(headers, 1):
-                cell = sheet.cell(row=current_row, column=col_idx, value=header)
-                cell.fill = PatternFill(start_color=colors['col_header'], end_color=colors['col_header'], fill_type="solid")
-                cell.font = header_font
-                cell.alignment = center_align
-                cell.border = border
-            current_row += 1
-            
-            # Data Rows
-            for row_data in data:
-                for col_idx, key in enumerate(headers, 1):
-                    val = row_data[key]
-                    cell = sheet.cell(row=current_row, column=col_idx, value=val)
-                    cell.alignment = center_align
-                    cell.border = border
-                    cell.font = data_font
+                current_row = [1]
+                
+                def write_table(title, table_data, bg_color):
+                    if not table_data:
+                        return
+                        
+                    cr = current_row[0]
+                    # Title row
+                    sheet.merge_cells(start_row=cr, start_column=1, end_row=cr, end_column=len(table_data[0]))
+                    cell = sheet.cell(row=cr, column=1, value=f"{title} ({len(table_data)})")
+                    cell.fill = PatternFill(start_color=bg_color, end_color=bg_color, fill_type="solid")
+                    cell.font = Font(bold=True, color="22547E")
+                    cell.alignment = left_align
+                    cr += 1
                     
-                    if key in ["Call Status", "User Status"]:
-                        if val in ["ANSWERED", "ANSWER"]:
-                            cell.font = Font(color="008000")
-                        else:
-                            cell.font = Font(color="FF0000")
-                    if key == "Missed Status":
-                        if val == "Completed":
-                            cell.font = Font(color="008000")
-                        else:
-                            cell.font = Font(color="FF0000")
-                current_row += 1
-                
-            current_row += 2 # spacing
+                    # Column Headers
+                    headers = list(table_data[0].keys())
+                    for col_idx, header in enumerate(headers, 1):
+                        cell = sheet.cell(row=cr, column=col_idx, value=header)
+                        cell.fill = PatternFill(start_color=colors['col_header'], end_color=colors['col_header'], fill_type="solid")
+                        cell.font = header_font
+                        cell.alignment = center_align
+                        cell.border = border
+                    cr += 1
+                    
+                    # Data Rows
+                    for row_data in table_data:
+                        for col_idx, key in enumerate(headers, 1):
+                            val = row_data[key]
+                            cell = sheet.cell(row=cr, column=col_idx, value=val)
+                            cell.alignment = center_align
+                            cell.border = border
+                            cell.font = data_font
+                            
+                            if key in ["Call Status", "User Status"]:
+                                if val in ["ANSWERED", "ANSWER"]:
+                                    cell.font = Font(color="008000")
+                                else:
+                                    cell.font = Font(color="FF0000")
+                            if key == "Missed Status":
+                                if val == "Completed":
+                                    cell.font = Font(color="008000")
+                                else:
+                                    cell.font = Font(color="FF0000")
+                        cr += 1
+                        
+                    cr += 2 # spacing
+                    current_row[0] = cr
 
-        write_table("Incoming Calls — Matched with Lead", incoming_matched, colors['matched'])
-        write_table("Incoming Calls — No Lead Match", incoming_unmatched, colors['unmatched'])
-        write_table("Outgoing Calls — Matched with Lead", outgoing_matched, colors['matched'])
-        write_table("Outgoing Calls — No Lead Match", outgoing_unmatched, colors['unmatched'])
-        write_table("Missed Calls & Callback Tracking", missed_calls, colors['missed'])
-        
-        # Autofit columns
-        for column_cells in sheet.columns:
-            length = max(len(str(cell.value)) for cell in column_cells if cell.value)
-            sheet.column_dimensions[column_cells[0].column_letter].width = length + 2
+                write_table("Incoming Calls — Matched with Lead", data['incoming_matched'], colors['matched'])
+                write_table("Incoming Calls — No Lead Match", data['incoming_unmatched'], colors['unmatched'])
+                write_table("Outgoing Calls — Matched with Lead", data['outgoing_matched'], colors['matched'])
+                write_table("Outgoing Calls — No Lead Match", data['outgoing_unmatched'], colors['unmatched'])
+                write_table("Missed Calls & Callback Tracking", data['missed_calls'], colors['missed'])
+                
+                # Autofit columns safely
+                for column_cells in sheet.columns:
+                    lengths = [len(str(cell.value)) for cell in column_cells if cell.value is not None and str(cell.value) != ""]
+                    if lengths:
+                        sheet.column_dimensions[column_cells[0].column_letter].width = max(lengths) + 2
 
         workbook.save(output)
         output.seek(0)
