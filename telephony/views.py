@@ -1094,72 +1094,237 @@ class VoxbayReportExportView(APIView):
                 pass
         
         from leads.models import Lead
+        from accounts.models import User
+        import openpyxl
+        from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
         
-        # Split incoming and outgoing
+        # Build agent cache for quick lookups of 'Branch' and 'First Tried Agent'
+        agent_by_ext = {u.voxbay_extension: u for u in User.objects.exclude(voxbay_extension__isnull=True).exclude(voxbay_extension='')}
+        agent_by_num = {u.voxbay_number: u for u in User.objects.exclude(voxbay_number__isnull=True).exclude(voxbay_number='')}
+        
+        def get_agent_details(log):
+            agent = agent_by_ext.get(log.extension) or agent_by_num.get(log.agent_number)
+            if agent:
+                name = f"{agent.first_name} {agent.last_name}".strip()
+                return name or agent.username
+            return ""
+
         incoming_qs = qs.filter(call_type="incoming").order_by('-call_start')
         outgoing_qs = qs.filter(call_type="outgoing").order_by('-call_start')
         
-        def process_qs(queryset, phone_field):
-            data = []
-            for i, log in enumerate(queryset):
-                # Format durations
-                dur = log.duration or 0
-                conv_dur = log.conversation_duration or 0
-                total_duration = f"{dur//3600:02d}:{(dur%3600)//60:02d}:{dur%60:02d}"
-                answered_duration = f"{conv_dur//3600:02d}:{(conv_dur%3600)//60:02d}:{conv_dur%60:02d}"
-                
-                phone = getattr(log, phone_field, '')
-                # strip 91 prefix if present for lead lookup
-                clean_phone = phone
-                if clean_phone and clean_phone.startswith('91') and len(clean_phone) > 10:
-                    clean_phone = clean_phone[2:]
-                
-                lead_name = ""
-                lead_status = ""
-                lead_processing_status = ""
-                lead_assigned_to = ""
-                
-                if clean_phone:
-                    lead = Lead.objects.filter(phone__endswith=clean_phone).first()
-                    if lead:
-                        lead_name = lead.name or ""
-                        lead_status = lead.status or ""
-                        lead_processing_status = lead.processing_status or ""
-                        lead_assigned_to = lead.assigned_to.username if lead.assigned_to else ""
+        # Pre-fetch outgoing calls for callback tracking to avoid N queries
+        outgoing_by_dest = {}
+        for log in outgoing_qs:
+            # strip 91 from destination for consistent matching
+            dest = log.destination or ""
+            if dest.startswith('91') and len(dest) > 10:
+                dest = dest[2:]
+            if dest:
+                outgoing_by_dest.setdefault(dest, []).append(log.call_start)
 
-                row = {
-                    "Sl No.": i + 1,
-                    "Customer Number": phone,
-                    "Call Start Time": log.call_start.strftime("%Y-%m-%d %H:%M:%S") if log.call_start else "",
-                    "Call Status": log.call_status,
-                    "Extension": log.extension,
-                    "Total Duration": total_duration,
-                    "Answered Duration": answered_duration,
-                    "Call Recording Link": log.recording_url or "",
-                    "Lead Name": lead_name,
-                    "Lead Status": lead_status,
-                    "Processing Status": lead_processing_status,
-                    "Assigned To": lead_assigned_to,
-                }
-                data.append(row)
-            return data
+        incoming_matched = []
+        incoming_unmatched = []
+        outgoing_matched = []
+        outgoing_unmatched = []
+        missed_calls = []
+
+        def format_dur(seconds):
+            if not seconds: return "00:00:00"
+            return f"{seconds//3600:02d}:{(seconds%3600)//60:02d}:{seconds%60:02d}"
             
-        incoming_data = process_qs(incoming_qs, "caller_number")
-        outgoing_data = process_qs(outgoing_qs, "destination")
-        
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df_in = pd.DataFrame(incoming_data)
-            df_out = pd.DataFrame(outgoing_data)
+        def clean_number(phone):
+            if phone and phone.startswith('91') and len(phone) > 10:
+                return phone[2:]
+            return phone or ""
+
+        # Process Incoming
+        for log in incoming_qs:
+            dur = format_dur(log.duration)
+            conv_dur = format_dur(log.conversation_duration)
+            phone = clean_number(log.caller_number)
             
-            if df_in.empty:
-                df_in = pd.DataFrame(columns=["No Incoming Calls Found"])
-            if df_out.empty:
-                df_out = pd.DataFrame(columns=["No Outgoing Calls Found"])
+            agent_name = get_agent_details(log)
+            
+            # Base row for incoming
+            row = {
+                "Sl No.": 0, # Will be set later
+                "Source Number": log.caller_number or "",
+                "DID Number": log.called_number or "",
+                "Call Date": log.call_start.strftime("%Y-%m-%d") if log.call_start else "",
+                "Call Time": log.call_start.strftime("%H:%M") if log.call_start else "",
+                "Connected Time": log.call_end.strftime("%H:%M") if log.call_end and log.conversation_duration else "—",
+                "Call Status": log.call_status or "",
+                "User Status": log.call_status or "", # Using call status as approximation
+                "Extension": log.extension or "",
+                "First Tried Agent": agent_name,
+                "Total Duration": dur,
+                "Answered Duration": conv_dur,
+                "Recording Link": log.recording_url or "",
+            }
+            
+            lead = Lead.objects.filter(phone__endswith=phone).first() if phone else None
+            
+            if lead:
+                row.update({
+                    "Lead Name": lead.name or "",
+                    "Lead Status": lead.status or "",
+                    "Remarks": lead.remarks or "—",
+                    "Program": lead.program or "—",
+                    "Source": lead.source or "—",
+                    "Lead Created Date": lead.created_at.strftime("%Y-%m-%d") if lead.created_at else "",
+                    "Lead Created Time": lead.created_at.strftime("%H:%M") if lead.created_at else "",
+                })
+                incoming_matched.append(row)
+            else:
+                incoming_unmatched.append(row)
                 
-            df_in.to_excel(writer, sheet_name='Incoming Calls', index=False)
-            df_out.to_excel(writer, sheet_name='Outgoing Calls', index=False)
+            # Missed Call Tracking
+            if log.call_status in ['MISSED', 'NOANSWER', 'CANCEL', 'BUSY'] or not log.conversation_duration:
+                callbacks = [t for t in outgoing_by_dest.get(phone, []) if log.call_start and t > log.call_start]
+                cb_count = len(callbacks)
+                
+                missed_calls.append({
+                    "Sl No.": 0,
+                    "Call Date": row["Call Date"],
+                    "Call Time": row["Call Time"],
+                    "Source Number": log.caller_number or "",
+                    "DID Number": log.called_number or "",
+                    "Connected Duration": conv_dur,
+                    "Callback Count": cb_count,
+                    "Missed Status": "Completed" if cb_count > 0 else "Pending",
+                    "Missed Count": 1, # Will aggregate below
+                    "_phone": phone # temp field
+                })
+
+        # Process Missed Counts
+        missed_counts = {}
+        for mc in reversed(missed_calls):
+            p = mc['_phone']
+            missed_counts[p] = missed_counts.get(p, 0) + 1
+            mc['Missed Count'] = missed_counts[p]
+        for mc in missed_calls:
+            del mc['_phone']
+
+        # Process Outgoing
+        for log in outgoing_qs:
+            dur = format_dur(log.duration)
+            phone = clean_number(log.destination)
             
+            row = {
+                "Sl No.": 0,
+                "Destination Number": log.destination or "",
+                "Call Date": log.call_start.strftime("%Y-%m-%d") if log.call_start else "",
+                "Call Time": log.call_start.strftime("%H:%M") if log.call_start else "",
+                "Duration": dur,
+                "Call Status": log.call_status or "",
+                "Extension": log.extension or "",
+                "Recording Link": log.recording_url or "",
+            }
+            
+            lead = Lead.objects.filter(phone__endswith=phone).first() if phone else None
+            if lead:
+                row.update({
+                    "Lead Name": lead.name or "",
+                    "Lead Status": lead.status or "",
+                    "Remarks": lead.remarks or "—",
+                    "Program": lead.program or "—",
+                    "Source": lead.source or "—",
+                })
+                outgoing_matched.append(row)
+            else:
+                outgoing_unmatched.append(row)
+
+        # Set Sl No.
+        for data_list in [incoming_matched, incoming_unmatched, outgoing_matched, outgoing_unmatched, missed_calls]:
+            for i, r in enumerate(data_list, 1):
+                r["Sl No."] = i
+
+        output = io.BytesIO()
+        
+        # openpyxl write logic
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.title = 'Voxbay Report'
+        
+        header_font = Font(bold=True, color="FFFFFF")
+        data_font = Font()
+        center_align = Alignment(horizontal="center", vertical="center")
+        left_align = Alignment(horizontal="left", vertical="center")
+        
+        border = Border(
+            left=Side(border_style="thin", color="CCCCCC"),
+            right=Side(border_style="thin", color="CCCCCC"),
+            top=Side(border_style="thin", color="CCCCCC"),
+            bottom=Side(border_style="thin", color="CCCCCC")
+        )
+
+        colors = {
+            'matched': "C4DFB8", # light green
+            'unmatched': "FAD7C8", # peach
+            'missed': "D0DFEC", # light blue
+            'col_header': "22547E", # dark blue
+        }
+        
+        current_row = 1
+        
+        def write_table(title, data, bg_color):
+            nonlocal current_row
+            if not data:
+                return
+                
+            # Title row
+            sheet.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=len(data[0]))
+            cell = sheet.cell(row=current_row, column=1, value=f"{title} ({len(data)})")
+            cell.fill = PatternFill(start_color=bg_color, end_color=bg_color, fill_type="solid")
+            cell.font = Font(bold=True, color="22547E")
+            cell.alignment = left_align
+            current_row += 1
+            
+            # Column Headers
+            headers = list(data[0].keys())
+            for col_idx, header in enumerate(headers, 1):
+                cell = sheet.cell(row=current_row, column=col_idx, value=header)
+                cell.fill = PatternFill(start_color=colors['col_header'], end_color=colors['col_header'], fill_type="solid")
+                cell.font = header_font
+                cell.alignment = center_align
+                cell.border = border
+            current_row += 1
+            
+            # Data Rows
+            for row_data in data:
+                for col_idx, key in enumerate(headers, 1):
+                    val = row_data[key]
+                    cell = sheet.cell(row=current_row, column=col_idx, value=val)
+                    cell.alignment = center_align
+                    cell.border = border
+                    cell.font = data_font
+                    
+                    if key in ["Call Status", "User Status"]:
+                        if val in ["ANSWERED", "ANSWER"]:
+                            cell.font = Font(color="008000")
+                        else:
+                            cell.font = Font(color="FF0000")
+                    if key == "Missed Status":
+                        if val == "Completed":
+                            cell.font = Font(color="008000")
+                        else:
+                            cell.font = Font(color="FF0000")
+                current_row += 1
+                
+            current_row += 2 # spacing
+
+        write_table("Incoming Calls — Matched with Lead", incoming_matched, colors['matched'])
+        write_table("Incoming Calls — No Lead Match", incoming_unmatched, colors['unmatched'])
+        write_table("Outgoing Calls — Matched with Lead", outgoing_matched, colors['matched'])
+        write_table("Outgoing Calls — No Lead Match", outgoing_unmatched, colors['unmatched'])
+        write_table("Missed Calls & Callback Tracking", missed_calls, colors['missed'])
+        
+        # Autofit columns
+        for column_cells in sheet.columns:
+            length = max(len(str(cell.value)) for cell in column_cells if cell.value)
+            sheet.column_dimensions[column_cells[0].column_letter].width = length + 2
+
+        workbook.save(output)
         output.seek(0)
         
         filename = f"Voxbay_Report_{start_date}_to_{end_date}.xlsx"
