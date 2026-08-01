@@ -1183,7 +1183,7 @@ class VoxbayReportExportView(APIView):
                 
             # Missed Call Tracking
             if log.call_status in ['MISSED', 'NOANSWER', 'CANCEL', 'BUSY'] or not log.conversation_duration:
-                callbacks = [t for t in outgoing_by_dest.get(phone, []) if log.call_start and t > log.call_start]
+                callbacks = [t for t in outgoing_by_dest.get(phone, []) if log.call_start and t and t > log.call_start]
                 cb_count = len(callbacks)
                 
                 agent_data[agent_name]['missed_calls'].append({
