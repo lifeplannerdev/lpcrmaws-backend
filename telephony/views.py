@@ -1331,10 +1331,11 @@ class VoxbayReportExportView(APIView):
                 write_table("Missed Calls & Callback Tracking", data['missed_calls'], colors['missed'])
                 
                 # Autofit columns safely
-                for column_cells in sheet.columns:
+                from openpyxl.utils import get_column_letter
+                for col_idx, column_cells in enumerate(sheet.columns, 1):
                     lengths = [len(str(cell.value)) for cell in column_cells if cell.value is not None and str(cell.value) != ""]
                     if lengths:
-                        sheet.column_dimensions[column_cells[0].column_letter].width = max(lengths) + 2
+                        sheet.column_dimensions[get_column_letter(col_idx)].width = max(lengths) + 2
 
         workbook.save(output)
         output.seek(0)
