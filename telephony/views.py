@@ -1017,12 +1017,18 @@ class VoxbaySettingsView(APIView):
         users = User.objects.filter(is_active=True).order_by('first_name', 'last_name', 'username')
         data = []
         for u in users:
+            # Warm up permissions cache
+            has_dynamic_permission(u, 'dummy_warmup')
+            perms = getattr(u, '_dynamic_perms_cache', set())
+            has_leads = '*' in perms or any(p.startswith('leads:') for p in perms)
+            
             data.append({
                 "id": u.id,
                 "name": u.get_full_name() or u.username,
                 "roles": ", ".join(u.db_roles.values_list('name', flat=True)),
                 "voxbay_number": u.voxbay_number or "",
-                "voxbay_extension": u.voxbay_extension or ""
+                "voxbay_extension": u.voxbay_extension or "",
+                "has_leads_permission": has_leads
             })
         return Response(data)
 
