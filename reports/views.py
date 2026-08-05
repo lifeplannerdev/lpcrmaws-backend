@@ -74,7 +74,8 @@ class DailyReportCreateView(generics.CreateAPIView):
                 user_id=reviewer.id,
                 type='report',
                 message=message,
-                by=user.get_full_name() or user.username
+                by=user.get_full_name() or user.username,
+                related_id=report.id
             )
             trigger_pusher.delay(
                 channel=f"private-user-{reviewer.id}",
@@ -289,7 +290,8 @@ class ReviewDailyReportView(APIView):
             user_id=report.user.id,
             type='report',
             message=message,
-            by=by_name
+            by=by_name,
+            related_id=report.id
         )
         trigger_pusher.delay(
             channel=f"private-user-{report.user.id}",
