@@ -605,6 +605,26 @@ class UnifiedTimelineAPIView(APIView):
                     'timestamp': fhist.changed_at
                 })
 
+        # 5. Voxbay Call Logs
+        try:
+            from telephony.models import VoxbayCallLog
+            call_logs = VoxbayCallLog.objects.filter(
+                models.Q(lead=lead) | (models.Q(caller_number=lead.phone) if lead.phone else models.Q(pk=-1))
+            ).distinct()
+            for log in call_logs:
+                events.append({
+                    'type': 'voxbay_call',
+                    'call_type': log.call_type or 'call',
+                    'call_status': log.call_status or 'UNKNOWN',
+                    'duration': log.duration or 0,
+                    'recording_url': log.recording_url or '',
+                    'user': log.agent_name or 'System',
+                    'caller_number': log.caller_number or lead.phone,
+                    'timestamp': log.created_at
+                })
+        except Exception:
+            pass
+
         # Sort all events by timestamp descending
         events.sort(key=lambda x: x['timestamp'], reverse=True)
         
