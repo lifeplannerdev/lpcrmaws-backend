@@ -480,16 +480,18 @@ class VoxbayWebhookView(APIView):
                 f"CallLog id={obj.id} uuid={call_uuid} event={callevent}"
             )
             
-            # Emit Real-time event for ringing/start so app can show Live Caller
-            if callevent.strip().lower() in ["call start", "start", "ringing"] and call_type == "incoming":
+            # Emit Real-time event for ringing/start so app and web can show Live Caller
+            if callevent.strip().lower() in ["call start", "start", "ringing", "connect"]:
                 from accounts.models import User
                 agent_user = None
                 agent_ext = defaults.get("agent_number") or data.get("AgentNumber") or data.get("extension")
+                if not agent_ext and call_type == "outgoing":
+                    agent_ext = defaults.get("extension") or data.get("extension")
                 if agent_ext:
                     agent_user = User.objects.filter(is_active=True).filter(Q(voxbay_number=agent_ext) | Q(voxbay_extension=agent_ext)).first()
                 
                 from utils.pusher import trigger_pusher
-                lead_num = defaults.get("caller_number")
+                lead_num = defaults.get("caller_number") or defaults.get("destination")
                 if lead_num:
                     from leads.models import Lead
                     existing_lead = Lead.objects.filter(phone=lead_num).first()
@@ -497,8 +499,9 @@ class VoxbayWebhookView(APIView):
                         "call_uuid": call_uuid,
                         "caller_number": lead_num,
                         "agent_extension": agent_ext,
+                        "call_type": call_type,
                         "lead_id": existing_lead.id if existing_lead else None,
-                        "lead_name": existing_lead.name if existing_lead else "New Caller",
+                        "lead_name": existing_lead.name if existing_lead else f"Voxbay {call_type.capitalize()} Call",
                     }
                     if agent_user:
                         trigger_pusher.delay(
