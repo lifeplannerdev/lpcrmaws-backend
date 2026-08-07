@@ -100,7 +100,8 @@ def process_voxbay_call_log(obj):
     if agent_phone:
         agent_user = User.objects.filter(is_active=True).filter(Q(voxbay_number=agent_phone) | Q(voxbay_extension=agent_phone)).first()
 
-    existing_lead = Lead.objects.filter(phone=lead_number).first()
+    search_number = lead_number[-10:] if len(lead_number) >= 10 else lead_number
+    existing_lead = Lead.objects.filter(Q(phone=lead_number) | Q(phone__endswith=search_number)).first()
 
     if obj.call_status in ['ANSWER', 'ANSWERED']:
         if not existing_lead and agent_user:
@@ -494,7 +495,8 @@ class VoxbayWebhookView(APIView):
                 lead_num = defaults.get("caller_number") or defaults.get("destination")
                 if lead_num:
                     from leads.models import Lead
-                    existing_lead = Lead.objects.filter(phone=lead_num).first()
+                    search_num = lead_num[-10:] if len(lead_num) >= 10 else lead_num
+                    existing_lead = Lead.objects.filter(Q(phone=lead_num) | Q(phone__endswith=search_num)).first()
                     payload = {
                         "call_uuid": call_uuid,
                         "caller_number": lead_num,
@@ -969,7 +971,8 @@ class AssignMissedCallView(APIView):
             return Response({"error": "Call log not found"}, status=status.HTTP_404_NOT_FOUND)
 
         caller_number = log.caller_number
-        existing_lead = Lead.objects.filter(phone=caller_number).first()
+        search_number = caller_number[-10:] if len(caller_number) >= 10 else caller_number
+        existing_lead = Lead.objects.filter(Q(phone=caller_number) | Q(phone__endswith=search_number)).first()
         remarks_text = "assigned from missed"
 
         if not existing_lead:

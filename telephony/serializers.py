@@ -87,14 +87,18 @@ class VoxbayCallLogSerializer(serializers.ModelSerializer):
         if not target:
             return False
         from leads.models import Lead
-        return Lead.objects.filter(phone=target).exists()
+        search_target = target[-10:] if len(target) >= 10 else target
+        from django.db.models import Q
+        return Lead.objects.filter(Q(phone=target) | Q(phone__endswith=search_target)).exists()
 
     def get_lead_id(self, obj):
         target = self._get_target_number(obj)
         if not target:
             return None
         from leads.models import Lead
-        lead = Lead.objects.filter(phone=target).first()
+        search_target = target[-10:] if len(target) >= 10 else target
+        from django.db.models import Q
+        lead = Lead.objects.filter(Q(phone=target) | Q(phone__endswith=search_target)).first()
         return lead.id if lead else None
 
     def get_lead_name(self, obj):
@@ -102,7 +106,9 @@ class VoxbayCallLogSerializer(serializers.ModelSerializer):
         if not target:
             return None
         from leads.models import Lead
-        lead = Lead.objects.filter(phone=target).first()
+        search_target = target[-10:] if len(target) >= 10 else target
+        from django.db.models import Q
+        lead = Lead.objects.filter(Q(phone=target) | Q(phone__endswith=search_target)).first()
         return lead.name if lead else None
 
     def get_duration_display(self, obj):
