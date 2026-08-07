@@ -242,11 +242,11 @@ class AvailableUsersForAssignmentView(APIView):
     permission_classes = [CanAssignLeads]
 
     def get(self, request):
-        ASSIGNABLE_ROLES = [
-            'OPS', 'ADM_MANAGER', 'ADM_EXEC',
-            'CM', 'BDM', 'FOE', 'ADM_COUNSELLOR',
-            'FLAG COORDINATOR'
-        ]
+        from leads.permissions import LEAD_ACCESS_ROLES
+        
+        # Include LEAD_ACCESS_ROLES plus any explicitly assigned roles like FLAG COORDINATOR
+        ASSIGNABLE_ROLES = list(set(LEAD_ACCESS_ROLES + ['FLAG COORDINATOR']))
+        
         users = User.objects.filter(
             db_roles__name__in=ASSIGNABLE_ROLES,
             is_active=True,
