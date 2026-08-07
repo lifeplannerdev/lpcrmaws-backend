@@ -163,6 +163,10 @@ def process_voxbay_webhook(webhook_log_id, payload):
             
         if lead_number:
             lead = Lead.objects.filter(phone=lead_number).first()
+            if not lead and len(lead_number) >= 10:
+                # Try fallback matching by the last 10 digits
+                lead = Lead.objects.filter(phone__endswith=lead_number[-10:]).first()
+                
             if lead:
                 assignee = lead.current_handler or User.objects.filter(is_superuser=True).first()
                 if assignee:

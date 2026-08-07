@@ -159,8 +159,18 @@ class BulkUploadConfirmView(APIView):
         existing_phones_in_db = set(Lead.objects.filter(phone__in=phones).values_list('phone', flat=True))
 
         company = request.user.company if hasattr(request.user, 'company') else None
-        
         remark_text = f"Assigned by {request.user.username} on {now.strftime('%Y-%m-%d %H:%M:%S')}"
+
+        from leads.permissions import FULL_ACCESS_ROLES, MANAGER_ROLES, EXECUTIVE_ROLES
+        
+        assignment_type = 'PRIMARY'
+        is_sub_assignment = False
+
+        if not request.user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists():
+            if request.user.db_roles.filter(name__in=MANAGER_ROLES).exists():
+                if assignee_user.db_roles.filter(name__in=EXECUTIVE_ROLES).exists():
+                    assignment_type = 'SUB'
+                    is_sub_assignment = True
 
         valid_leads = []
         for data in leads_data:
@@ -179,11 +189,21 @@ class BulkUploadConfirmView(APIView):
                 source=data.get('source'),
                 remarks=remark_text,
                 created_by=request.user,
-                assigned_to=assignee_user,
-                assigned_by=request.user,
-                assigned_date=now,
                 company=company
             )
+            
+            if is_sub_assignment:
+                lead_obj.assigned_to = request.user
+                lead_obj.assigned_by = request.user
+                lead_obj.assigned_date = now
+                lead_obj.sub_assigned_to = assignee_user
+                lead_obj.sub_assigned_by = request.user
+                lead_obj.sub_assigned_date = now
+            else:
+                lead_obj.assigned_to = assignee_user
+                lead_obj.assigned_by = request.user
+                lead_obj.assigned_date = now
+
             valid_leads.append(lead_obj)
 
         if not valid_leads:
@@ -196,7 +216,7 @@ class BulkUploadConfirmView(APIView):
                 lead=lead,
                 assigned_to=assignee_user,
                 assigned_by=request.user,
-                assignment_type='PRIMARY',
+                assignment_type=assignment_type,
                 notes='Assigned during bulk upload',
             ))
 
