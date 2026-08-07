@@ -1104,6 +1104,10 @@ class VoxbayReportExportView(APIView):
                 )
             except User.DoesNotExist:
                 pass
+                
+        call_type = request.query_params.get("call_type")
+        if call_type and call_type != 'all':
+            qs = qs.filter(call_type=call_type)
         
         from leads.models import Lead
         from accounts.models import User
