@@ -2,7 +2,7 @@ from accounts.permissions import has_dynamic_permission
 from rest_framework.permissions import BasePermission
 
 
-FULL_ACCESS_ROLES = ['ADMIN', 'CEO', 'OPS']
+FULL_ACCESS_ROLES = ['ADMIN', 'CEO', 'OPS', 'OPERATION', 'BUSINESS_HEAD']
 
 
 MANAGER_ROLES = [
@@ -10,12 +10,14 @@ MANAGER_ROLES = [
     'ADM_COUNSELLOR',
     'CM',
     'BDM',
+    'BMCO',
 ]
 
 
 EXECUTIVE_ROLES = [
     'ADM_EXEC',
     'FOE',
+    'EXEC',
 ]
 
 
