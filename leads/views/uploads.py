@@ -31,39 +31,44 @@ class LeadPagination(PageNumberPagination):
     page_size_query_param = 'page_size'
     max_page_size = 100
 
-class BulkLeadUploadView(APIView):
+class BulkUploadPreviewView(APIView):
     permission_classes = [CanAccessLeads]
     parser_classes     = [MultiPartParser, FormParser]
 
     def post(self, request):
         file = request.FILES.get('file')
-
         if not file:
             return Response({'error': 'No file uploaded'}, status=status.HTTP_400_BAD_REQUEST)
-
         if file.size > 5 * 1024 * 1024:
             return Response({'error': 'File too large (max 5MB)'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
+            # Try reading with headers
             df = pd.read_excel(file)
+            
+            # If standard headers are missing, assume no-header format: Name, Phone, Email, Location
+            if 'name' not in [str(c).lower() for c in df.columns] and 'phone' not in [str(c).lower() for c in df.columns]:
+                df = pd.read_excel(file, header=None)
+                # Map first 4 columns
+                cols = list(df.columns)
+                mapping = {}
+                if len(cols) > 0: mapping[cols[0]] = 'name'
+                if len(cols) > 1: mapping[cols[1]] = 'phone'
+                if len(cols) > 2: mapping[cols[2]] = 'email'
+                if len(cols) > 3: mapping[cols[3]] = 'location'
+                df = df.rename(columns=mapping)
+            else:
+                df.columns = [str(c).lower().strip() for c in df.columns]
+                
         except Exception:
             return Response({'error': 'Invalid Excel file'}, status=status.HTTP_400_BAD_REQUEST)
 
-        required_columns = ['name', 'phone', 'assigned_to']
-        missing_cols = [col for col in required_columns if col not in df.columns]
-
-        if missing_cols:
+        if 'name' not in df.columns or 'phone' not in df.columns:
             return Response(
-                {'error': f'Missing required columns: {missing_cols}'},
+                {'error': f'Missing required columns: name, phone'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        user_map = {
-            user.username.lower(): user
-            for user in User.objects.filter(is_active=True)
-        }
-
-        # Pre-process phones for O(1) duplicate checks
         excel_phones = set()
         for _, row in df.iterrows():
             phone = clean_value(row.get('phone'))
@@ -74,14 +79,9 @@ class BulkLeadUploadView(APIView):
                     
         existing_phones_in_db = set(Lead.objects.filter(phone__in=excel_phones).values_list('phone', flat=True))
 
-        failed_rows      = []
-        assigned_summary = {}
-        seen_phones      = set()  
-        
-        leads_to_create = []
-        lead_assignments_to_create = []
-
-        now = timezone.now()
+        valid_rows = []
+        failed_rows = []
+        seen_phones = set()
 
         for index, row in df.iterrows():
             try:
@@ -92,123 +92,125 @@ class BulkLeadUploadView(APIView):
                 priority   = clean_value(row.get('priority'))
                 program    = clean_value(row.get('program'))
                 location   = clean_value(row.get('location'))
-                raw_username = clean_value(row.get('assigned_to'))
-                username = str(raw_username).strip() if raw_username is not None else None
 
                 phone = clean_value(row.get('phone'))
                 if phone is not None:
                     phone = str(int(float(str(phone)))) if str(phone).replace('.', '', 1).isdigit() else str(phone).strip()
 
-                if phone and phone in seen_phones:
-                    failed_rows.append({
-                        'row':   index + 2,
-                        'error': f"Duplicate phone '{phone}' already exists in this file.",
-                    })
+                if not phone:
+                    failed_rows.append({'row': index + 2, 'error': 'Phone number is required.', 'data': {'name': name}})
                     continue
 
-                if phone and phone in existing_phones_in_db:
-                    failed_rows.append({
-                        'row':   index + 2,
-                        'error': f"Phone '{phone}' already exists in the system.",
-                    })
+                if phone in seen_phones:
+                    failed_rows.append({'row': index + 2, 'error': f"Duplicate phone '{phone}' in this file.", 'data': {'name': name, 'phone': phone}})
                     continue
 
-                if phone:
-                    seen_phones.add(phone)
-
-                if not username:
-                    failed_rows.append({'row': index + 2, 'error': 'assigned_to is required'})
+                if phone in existing_phones_in_db:
+                    failed_rows.append({'row': index + 2, 'error': f"Phone '{phone}' already exists in system.", 'data': {'name': name, 'phone': phone}})
                     continue
 
-                assignee_user = user_map.get(str(username).lower())
-                if not assignee_user:
-                    failed_rows.append({
-                        'row':   index + 2,
-                        'error': f"User '{username}' not found",
-                    })
-                    continue
+                seen_phones.add(phone)
 
                 data = {
-                    'name':        name,
-                    'phone':       phone,
-                    'email':       email,
-                    'status':      str(status_val).upper() if status_val else 'ENQUIRY',
-                    'priority':    str(priority).upper()   if priority   else 'MEDIUM',
-                    'program':     program,
-                    'location':    location,
-                    'assigned_to': str(username),
+                    'name': name,
+                    'phone': phone,
+                    'email': email,
+                    'status': str(status_val).upper() if status_val else 'ENQUIRY',
+                    'priority': str(priority).upper() if priority else 'MEDIUM',
+                    'program': program,
+                    'location': location,
                 }
                 if source:
                     data['source'] = str(source).upper()
 
-                serializer = BulkLeadCreateSerializer(
-                    data=data,
-                    context={'request': request, 'user_map': user_map},
-                )
-
-                if serializer.is_valid():
-                    v_data = serializer.validated_data
-                    assignee = v_data.pop('assigned_to')
-                    company = request.user.company if hasattr(request.user, 'company') else None
-                    
-                    lead_obj = Lead(
-                        **v_data,
-                        created_by=request.user,
-                        assigned_to=assignee,
-                        assigned_by=request.user,
-                        assigned_date=now,
-                        company=company
-                    )
-                    leads_to_create.append((lead_obj, assignee))
-                else:
-                    failed_rows.append({
-                        'row':    index + 2,
-                        'data':   data,
-                        'errors': serializer.errors,
-                    })
+                valid_rows.append(data)
             except Exception as e:
                 failed_rows.append({'row': index + 2, 'error': str(e)})
 
-        # Bulk create leads
-        created_leads = Lead.objects.bulk_create([item[0] for item in leads_to_create])
+        return Response({
+            'message': 'Preview generated',
+            'valid_count': len(valid_rows),
+            'failed_count': len(failed_rows),
+            'valid_rows': valid_rows,
+            'failed_rows': failed_rows,
+        }, status=status.HTTP_200_OK)
 
-        # Bulk create assignments and populate notifications
-        for i, lead in enumerate(created_leads):
-            assignee = leads_to_create[i][1]
+
+class BulkUploadConfirmView(APIView):
+    permission_classes = [CanAccessLeads]
+
+    def post(self, request):
+        leads_data = request.data.get('leads', [])
+        assigned_to_username = request.data.get('assigned_to')
+
+        if not leads_data or not assigned_to_username:
+            return Response({'error': "'leads' array and 'assigned_to' are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        assignee_user = User.objects.filter(username__iexact=str(assigned_to_username).strip(), is_active=True).first()
+        if not assignee_user:
+            return Response({'error': f"User '{assigned_to_username}' not found or inactive"}, status=status.HTTP_400_BAD_REQUEST)
+
+        now = timezone.now()
+        leads_to_create = []
+        lead_assignments_to_create = []
+
+        # Double check duplicates
+        phones = [l.get('phone') for l in leads_data if l.get('phone')]
+        existing_phones_in_db = set(Lead.objects.filter(phone__in=phones).values_list('phone', flat=True))
+
+        company = request.user.company if hasattr(request.user, 'company') else None
+        
+        remark_text = f"Assigned by {request.user.username} on {now.strftime('%Y-%m-%d %H:%M:%S')}"
+
+        valid_leads = []
+        for data in leads_data:
+            phone = data.get('phone')
+            if phone in existing_phones_in_db:
+                continue
+
+            lead_obj = Lead(
+                name=data.get('name'),
+                phone=phone,
+                email=data.get('email'),
+                status=data.get('status', 'ENQUIRY'),
+                priority=data.get('priority', 'MEDIUM'),
+                program=data.get('program'),
+                location=data.get('location'),
+                source=data.get('source'),
+                remarks=remark_text,
+                created_by=request.user,
+                assigned_to=assignee_user,
+                assigned_by=request.user,
+                assigned_date=now,
+                company=company
+            )
+            valid_leads.append(lead_obj)
+
+        if not valid_leads:
+            return Response({'error': 'No valid new leads to create (possibly all duplicates).'}, status=status.HTTP_400_BAD_REQUEST)
+
+        created_leads = Lead.objects.bulk_create(valid_leads)
+
+        for lead in created_leads:
             lead_assignments_to_create.append(LeadAssignment(
                 lead=lead,
-                assigned_to=assignee,
+                assigned_to=assignee_user,
                 assigned_by=request.user,
                 assignment_type='PRIMARY',
                 notes='Assigned during bulk upload',
             ))
 
-            if assignee == request.user:
-                continue
-
-            uid = assignee.id
-            if uid not in assigned_summary:
-                assigned_summary[uid] = {
-                    'user':  assignee,
-                    'leads': [],
-                }
-            assigned_summary[uid]['leads'].append({
-                'lead_id':   lead.id,
-                'lead_name': lead.name,
-                'priority':  lead.priority,
-            })
-
         LeadAssignment.objects.bulk_create(lead_assignments_to_create)
 
-        # Pusher notifications disabled as per user request
-        # for uid, summary in assigned_summary.items():
-        #     count = len(summary['leads'])
-        #     ...
-
         return Response({
-            'message':       'Bulk upload completed',
-            'success_count': len(created_leads),
-            'failed_count':  len(failed_rows),
-            'failed_rows':   failed_rows,
+            'message': 'Leads created and assigned successfully',
+            'success_count': len(created_leads)
         }, status=status.HTTP_200_OK)
 
+class BulkLeadUploadView(APIView):
+    # Keep legacy intact just in case
+    permission_classes = [CanAccessLeads]
+    parser_classes     = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        return Response({'error': 'Use the new preview/confirm flow'}, status=status.HTTP_400_BAD_REQUEST)

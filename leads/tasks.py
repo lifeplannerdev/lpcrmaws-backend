@@ -183,6 +183,11 @@ def process_voxbay_webhook(webhook_log_id, payload):
                         status='pending',
                         assigned_to=assignee
                     )
+
+                # Update lead status to CONTACTED if it was ENQUIRY
+                if lead.status == 'ENQUIRY':
+                    lead.status = 'CONTACTED'
+                    lead.save(update_fields=['status'])
         
         if log:
             log.processed = True
