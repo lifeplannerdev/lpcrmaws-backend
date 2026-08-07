@@ -1084,7 +1084,10 @@ class VoxbayReportExportView(APIView):
         try:
             sd = datetime.strptime(start_date, "%Y-%m-%d").date()
             ed = datetime.strptime(end_date, "%Y-%m-%d").date()
-            qs = qs.filter(call_start__date__gte=sd, call_start__date__lte=ed)
+            qs = qs.filter(
+                Q(call_start__date__gte=sd, call_start__date__lte=ed) | 
+                Q(call_start__isnull=True, created_at__date__gte=sd, created_at__date__lte=ed)
+            )
         except Exception:
             return Response({"error": "Invalid date format, use YYYY-MM-DD"}, status=400)
             
@@ -1107,7 +1110,7 @@ class VoxbayReportExportView(APIView):
                 
         call_type = request.query_params.get("call_type")
         if call_type and call_type != 'all':
-            qs = qs.filter(call_type=call_type)
+            qs = qs.filter(call_type__iexact=call_type)
         
         from leads.models import Lead
         from accounts.models import User
@@ -1165,12 +1168,13 @@ class VoxbayReportExportView(APIView):
             
             agent_name = get_agent_details(log)
             
+            call_d = log.call_start or log.created_at
             row = {
                 "Sl No.": 0,
                 "Source Number": log.caller_number or "",
                 "DID Number": log.called_number or "",
-                "Call Date": log.call_start.strftime("%Y-%m-%d") if log.call_start else "",
-                "Call Time": log.call_start.strftime("%H:%M") if log.call_start else "",
+                "Call Date": call_d.strftime("%Y-%m-%d") if call_d else "",
+                "Call Time": call_d.strftime("%H:%M") if call_d else "",
                 "Connected Time": log.call_end.strftime("%H:%M") if log.call_end and log.conversation_duration else "—",
                 "Call Status": log.call_status or "",
                 "User Status": log.call_status or "",
@@ -1218,17 +1222,24 @@ class VoxbayReportExportView(APIView):
         # Process Outgoing
         for log in outgoing_qs:
             dur = format_dur(log.duration)
+            conv_dur = format_dur(log.conversation_duration)
             phone = clean_number(log.destination)
             agent_name = get_agent_details(log)
             
+            call_d = log.call_start or log.created_at
             row = {
                 "Sl No.": 0,
                 "Destination Number": log.destination or "",
-                "Call Date": log.call_start.strftime("%Y-%m-%d") if log.call_start else "",
-                "Call Time": log.call_start.strftime("%H:%M") if log.call_start else "",
-                "Duration": dur,
+                "Source Number": log.caller_number or log.extension or "",
+                "Call Date": call_d.strftime("%Y-%m-%d") if call_d else "",
+                "Call Time": call_d.strftime("%H:%M") if call_d else "",
+                "Connected Time": log.call_end.strftime("%H:%M") if log.call_end and log.conversation_duration else "—",
                 "Call Status": log.call_status or "",
+                "User Status": log.call_status or "",
                 "Extension": log.extension or "",
+                "First Tried Agent": agent_name,
+                "Total Duration": dur,
+                "Answered Duration": conv_dur,
                 "Recording Link": log.recording_url or "",
             }
             
@@ -1240,6 +1251,8 @@ class VoxbayReportExportView(APIView):
                     "Remarks": lead.remarks or "—",
                     "Program": lead.program or "—",
                     "Source": lead.source or "—",
+                    "Lead Created Date": lead.created_at.strftime("%Y-%m-%d") if lead.created_at else "",
+                    "Lead Created Time": lead.created_at.strftime("%H:%M") if lead.created_at else "",
                 })
                 agent_data[agent_name]['outgoing_matched'].append(row)
             else:
