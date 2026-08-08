@@ -75,7 +75,7 @@ class LeadListView(generics.ListAPIView):
         'created_at':        ['date', 'gte', 'lte'],
     }
     search_fields   = ['name', 'phone', 'email', 'program', 'campaign_name']
-    ordering_fields = ['created_at', 'priority']
+    ordering_fields = ['created_at', 'priority', 'updated_at']
     ordering        = ['-created_at']
 
     def get_queryset(self):
@@ -98,17 +98,25 @@ class LeadListView(generics.ListAPIView):
         
         from django.utils import timezone
         if self.request.query_params.get('daily_agenda') == 'true':
-            today = timezone.localtime(timezone.now()).date()
+            agenda_date_str = self.request.query_params.get('agenda_date')
+            if agenda_date_str:
+                from datetime import datetime
+                try:
+                    target_date = datetime.strptime(agenda_date_str, '%Y-%m-%d').date()
+                except ValueError:
+                    target_date = timezone.localtime(timezone.now()).date()
+            else:
+                target_date = timezone.localtime(timezone.now()).date()
             
             from django.db.models import Exists, OuterRef, Q
             return perm_qs.filter(
-                models.Q(created_at__date=today) |
-                models.Q(followups__follow_up_date=today, followups__status='pending')
+                models.Q(created_at__date=target_date) |
+                models.Q(followups__follow_up_date=target_date, followups__status='pending')
             ).annotate(
                 has_follow_up_today=Exists(
                     FollowUp.objects.filter(
                         lead=OuterRef('pk'),
-                        follow_up_date=today,
+                        follow_up_date=target_date,
                         status='pending'
                     )
                 )
