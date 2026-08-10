@@ -24,7 +24,7 @@ def clean_str(val):
     return str(val).strip()
 
 def run_import():
-    file_path = r'b:\LP WORKSPACE\lp_crm\ALL PROGRAMS- FEES STRUCTURE.xlsx'
+    file_path = os.environ.get('EXCEL_FILE_PATH', r'ALL PROGRAMS- FEES STRUCTURE.xlsx')
     print(f"Reading {file_path}...")
     df = pd.read_excel(file_path, header=None)
     
