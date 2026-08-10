@@ -1,7 +1,7 @@
 from rest_framework import viewsets, permissions
 from rest_framework.exceptions import PermissionDenied
-from .models import Program
-from .serializers import ProgramSerializer
+from .models import Program, ProgramCountry, ProgramUniversity, ProgramIntake
+from .serializers import ProgramSerializer, ProgramCountrySerializer, ProgramUniversitySerializer, ProgramIntakeSerializer
 
 def _has_perm(user, perm):
     if user.is_superuser:
@@ -40,5 +40,20 @@ class ProgramPermission(permissions.BasePermission):
 class ProgramViewSet(viewsets.ModelViewSet):
     queryset = Program.objects.all().order_by('-created_at')
     serializer_class = ProgramSerializer
+    permission_classes = [ProgramPermission]
+
+class ProgramCountryViewSet(viewsets.ModelViewSet):
+    queryset = ProgramCountry.objects.all().order_by('name')
+    serializer_class = ProgramCountrySerializer
+    permission_classes = [ProgramPermission]
+
+class ProgramUniversityViewSet(viewsets.ModelViewSet):
+    queryset = ProgramUniversity.objects.all().order_by('name')
+    serializer_class = ProgramUniversitySerializer
+    permission_classes = [ProgramPermission]
+
+class ProgramIntakeViewSet(viewsets.ModelViewSet):
+    queryset = ProgramIntake.objects.all().order_by('name')
+    serializer_class = ProgramIntakeSerializer
     permission_classes = [ProgramPermission]
 
