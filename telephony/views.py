@@ -1456,22 +1456,39 @@ class VoxbayAIReportView(APIView):
             lead_name = lead.name if lead else f"Unknown ({lead_number})"
             lead_status = lead.status if lead else "UNKNOWN"
             
-            # Map standard statuses to the categories the UI expects if possible
-            category = "No Remark"
-            if lead_status == 'ENQUIRY':
-                category = "Unreachable" if obj.call_status != "ANSWERED" else "Contacted"
-            elif lead_status == 'CONTACTED':
-                category = "Callback Requested"
-            elif lead_status == 'NOT_INTERESTED':
-                category = "Not Interested"
-            elif lead_status == 'ADMISSION_PROSPECT':
-                category = "Future Prospect"
-                
             last_msg = ""
             if lead:
                 last_followup = FollowUp.objects.filter(lead=lead).order_by('-created_at').first()
                 if last_followup:
-                    last_msg = last_followup.notes[:100] if last_followup.notes else ""
+                    last_msg = last_followup.notes[:200] if last_followup.notes else ""
+            
+            # Extract category from remarks if it mentions these keywords
+            category = "Uncategorized"
+            l_msg = last_msg.lower()
+            if "not interested" in l_msg:
+                category = "Not Interested"
+            elif "joined elsewhere" in l_msg or "lost" in l_msg:
+                category = "Lost - Joined Elsewhere"
+            elif "callback" in l_msg or "call back" in l_msg:
+                category = "Callback Requested"
+            elif "wrong number" in l_msg:
+                category = "Wrong Number"
+            elif "busy" in l_msg:
+                category = "Busy"
+            elif "future prospect" in l_msg or "prospect" in l_msg:
+                category = "Future Prospect"
+            elif "unreachable" in l_msg or "not reachable" in l_msg or "switch off" in l_msg or "switched off" in l_msg or "not lifting" in l_msg:
+                category = "Unreachable"
+            else:
+                # Fallback to lead status mapping if no specific remark matches
+                if lead_status == 'ENQUIRY':
+                    category = "Unreachable" if obj.call_status != "ANSWERED" else "Contacted"
+                elif lead_status == 'CONTACTED':
+                    category = "Callback Requested"
+                elif lead_status == 'NOT_INTERESTED':
+                    category = "Not Interested"
+                elif lead_status == 'ADMISSION_PROSPECT':
+                    category = "Future Prospect"
             
             call_time = obj.created_at.strftime("%H:%M") if obj.created_at else ""
             call_date_fmt = obj.created_at.strftime("%Y-%m-%d") if obj.created_at else ""
