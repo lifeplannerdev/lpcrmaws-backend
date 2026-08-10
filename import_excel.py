@@ -60,12 +60,11 @@ def run_import():
         if not current_headers:
             continue
             
-        # Check if this is a Program row: col0 is digit AND col2 (country) is NOT empty
-        col_country_idx = current_headers.get('country')
-        if col0.isdigit() and col_country_idx is not None and not is_nan(row[col_country_idx]):
+        # Check if this is a Program row: col0 is digit AND col2 (index 2) is NOT empty
+        if col0.isdigit() and not is_nan(row[2]):
             # It's a program row!
-            title = clean_str(row[current_headers.get('program')]) if 'program' in current_headers else ""
-            country_str = clean_str(row[current_headers.get('country')]) if 'country' in current_headers else ""
+            title = clean_str(row[current_headers.get('program', 1)])
+            country_str = clean_str(row[2])
             qual = clean_str(row[current_headers.get('qualification')]) if 'qualification' in current_headers else ""
             dur = clean_str(row[current_headers.get('duration')]) if 'duration' in current_headers else ""
             uni_str = clean_str(row[current_headers.get('university')]) if 'university' in current_headers else ""
