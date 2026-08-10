@@ -1464,9 +1464,7 @@ class VoxbayAIReportView(APIView):
             
             last_msg = ""
             if lead:
-                last_followup = FollowUp.objects.filter(lead=lead).order_by('-created_at').first()
-                if last_followup:
-                    last_msg = last_followup.notes[:200] if last_followup.notes else ""
+                last_msg = lead.remarks if lead.remarks else "No remarks"
             
             # Extract category from remarks if it mentions these keywords
             category = "Uncategorized"
