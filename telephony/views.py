@@ -743,10 +743,16 @@ class ClickToCallView(APIView):
         if validated.get("source"):
             params["source"] = validated["source"]
 
+        voxbay_access_token = getattr(settings, 'VOXBAY_ACCESS_TOKEN', None)
+        
+        headers = {}
+        if voxbay_access_token:
+            headers["Authorization"] = f"Bearer {voxbay_access_token}"
+
         logger.info(f"[Click-to-Call] params={params}")
 
         try:
-            resp = requests.get(VOXBAY_CLICK_TO_CALL_URL, params=params, timeout=10)
+            resp = requests.get(VOXBAY_CLICK_TO_CALL_URL, params=params, headers=headers, timeout=10)
             resp.raise_for_status()
             return Response({
                 "success":         True,

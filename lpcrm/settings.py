@@ -358,4 +358,5 @@ PUSHER_CLUSTER = config("PUSHER_CLUSTER", "ap2")
 # Voxbay config
 VOXBAY_UID = config('VOXBAY_UID', default=None)
 VOXBAY_UPIN = config('VOXBAY_UPIN', default=None)
+VOXBAY_ACCESS_TOKEN = config('VOXBAY_ACCESS_TOKEN', default=None)
 
