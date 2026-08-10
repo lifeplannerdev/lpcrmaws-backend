@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     'notifications',
     'credentials',
     'feeds',
+    'programs',
 ]
 
 MIDDLEWARE = [
