@@ -103,6 +103,10 @@ def snapshot_voxbay_ai_daily():
             call_time = obj.created_at.strftime("%H:%M") if obj.created_at else ""
             call_date_fmt = obj.created_at.strftime("%Y-%m-%d") if obj.created_at else ""
             
+            lead_created = lead.created_at.strftime("%Y-%m-%d %H:%M") if lead and hasattr(lead, 'created_at') else ""
+            lead_program = lead.program if lead else ""
+            lead_source = lead.source if lead else ""
+            
             employees_data[agent_name].append({
                 "lead_name": lead_name,
                 "call_time": call_time,
@@ -112,6 +116,12 @@ def snapshot_voxbay_ai_daily():
                 "category": category,
                 "last_msg": last_msg,
                 "duration_sec": obj.duration or 0,
+                "conversation_duration": obj.conversation_duration or 0,
+                "destination": obj.destination or "",
+                "extension": obj.extension or "",
+                "program": lead_program,
+                "source": lead_source,
+                "lead_created": lead_created,
                 "recording": obj.recording_url or ""
             })
 
