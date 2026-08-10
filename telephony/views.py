@@ -24,8 +24,8 @@ from .serializers import (
 
 logger = logging.getLogger(__name__)
 
-VOXBAY_CLICK_TO_CALL_URL  = "https://x.voxbay.com/api/click_to_call"
-VOXBAY_RECORDING_BASE_URL = "https://x.voxbay.com:81/callcenter/"
+VOXBAY_CLICK_TO_CALL_URL  = "https://voiceapi.voxbay.com/api/click_to_call"
+VOXBAY_RECORDING_BASE_URL = "https://voiceapi.voxbay.com/callcenter/"
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
