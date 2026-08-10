@@ -1463,8 +1463,16 @@ class VoxbayAIReportView(APIView):
             lead_status = lead.status if lead else "UNKNOWN"
             
             last_msg = ""
-            if lead:
-                last_msg = lead.remarks if lead.remarks else "No remarks"
+            if lead and lead.remarks:
+                parts = lead.remarks.split('[')
+                if len(parts) > 1:
+                    last_msg = '[' + parts[-1].strip()
+                else:
+                    last_msg = lead.remarks.strip()
+            elif not lead:
+                last_msg = ""
+            else:
+                last_msg = "No remarks"
             
             # Extract category from remarks if it mentions these keywords
             category = "Uncategorized"
