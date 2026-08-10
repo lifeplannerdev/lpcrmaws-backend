@@ -55,3 +55,16 @@ class VoxbayCallLog(models.Model):
         if self.call_type == 'outgoing':
             return f"OUT {self.extension} → {self.destination} [{self.call_status}]"
         return f"IN  {self.caller_number} → {self.called_number} [{self.call_status}]"
+
+
+class VoxbayDailySnapshot(models.Model):
+    date = models.DateField(unique=True, db_index=True)
+    report_data = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-date']
+
+    def __str__(self):
+        return f"Voxbay Snapshot - {self.date}"

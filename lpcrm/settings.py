@@ -307,7 +307,11 @@ CELERY_BEAT_SCHEDULE = {
     },
     'update_overdue_fees_daily': {
         'task': 'fees.tasks.update_overdue_fees',
-        'schedule': crontab(hour=0, minute=5),
+        'schedule': crontab(hour=0, minute=1),
+    },
+    'snapshot_voxbay_ai_daily': {
+        'task': 'telephony.tasks.snapshot_voxbay_ai_daily',
+        'schedule': crontab(hour=23, minute=59),
     },
 }
 

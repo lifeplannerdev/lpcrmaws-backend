@@ -12,6 +12,7 @@ from .views import (
     CallAgentStatsView,
     VoxbaySettingsView,
     VoxbayReportExportView,
+    VoxbayAIReportView,
 )
 
 urlpatterns = [
@@ -29,4 +30,7 @@ urlpatterns = [
     path("voxbay/reports/export/",               VoxbayReportExportView.as_view()),
     path("voxbay/unassigned-missed/",            UnassignedMissedCallsView.as_view()),
     path("voxbay/unassigned-missed/<str:call_uuid>/assign/", AssignMissedCallView.as_view()),
+    
+    # Voxbay AI Report
+    path("voxbay-ai/report/", VoxbayAIReportView.as_view()),
 ]
