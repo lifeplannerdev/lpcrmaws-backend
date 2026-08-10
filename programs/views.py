@@ -38,9 +38,16 @@ class ProgramPermission(permissions.BasePermission):
             return _has_perm(request.user, 'programs:manage')
 
 class ProgramViewSet(viewsets.ModelViewSet):
-    queryset = Program.objects.all().order_by('-created_at')
     serializer_class = ProgramSerializer
     permission_classes = [ProgramPermission]
+
+    def get_queryset(self):
+        qs = Program.objects.all().order_by('-created_at')
+        if not self.request.user.is_superuser:
+            # Also check if they have manage permission
+            if not _has_perm(self.request.user, 'programs:manage'):
+                qs = qs.filter(is_hidden=False)
+        return qs
 
 class ProgramCountryViewSet(viewsets.ModelViewSet):
     queryset = ProgramCountry.objects.all().order_by('name')

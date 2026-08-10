@@ -25,6 +25,8 @@ class Program(models.Model):
     
     # JSON field to store list of services (e.g. ["Enrollment", "Visa Assistance"])
     services = models.JSONField(default=list, blank=True)
+    
+    is_hidden = models.BooleanField(default=False)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
