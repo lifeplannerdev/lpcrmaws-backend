@@ -30,8 +30,12 @@ class AcademicBatch(models.Model):
         ('COMPLETED', 'Completed'),
     ]
     name = models.CharField(max_length=100)
+    starting_grade = models.ForeignKey(AcademicGrade, on_delete=models.PROTECT, related_name='batches_started', null=True, blank=True)
     current_grade = models.ForeignKey(AcademicGrade, on_delete=models.PROTECT, related_name='batches')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='ACTIVE')
+    schedule = models.CharField(max_length=100, blank=True, null=True, help_text="e.g., Morning, Evening, Weekend")
+    start_date = models.DateField(null=True, blank=True)
+    target_end_date = models.DateField(null=True, blank=True)
     trainer = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='managed_batches')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

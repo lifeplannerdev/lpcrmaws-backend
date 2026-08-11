@@ -15,6 +15,7 @@ class AcademicPackageSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 class AcademicBatchSerializer(serializers.ModelSerializer):
+    starting_grade_detail = AcademicGradeSerializer(source='starting_grade', read_only=True)
     current_grade_detail = AcademicGradeSerializer(source='current_grade', read_only=True)
     student_count = serializers.SerializerMethodField()
 
