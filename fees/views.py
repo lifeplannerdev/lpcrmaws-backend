@@ -535,8 +535,9 @@ class FeeStudentsAPIView(APIView):
             data.append({
                 'id': s.id,
                 'name': s.name,
-                'branch_name': s.branch.name if s.branch else '',
-                'phone': s.phone_number,
+                'branch_name': '',
+                'batch_name': s.batch.name if s.batch else '',
+                'phone': s.mobile_number,
             })
         return Response(data)
 
