@@ -95,7 +95,7 @@ class FeeAccountListCreateAPIView(APIView):
     permission_classes = [IsAuthenticated, CanViewFees]
 
     def get(self, request):
-        qs = StudentFeeAccount.objects.select_related('student', 'student__trainer__user', 'student__branch', 'template').prefetch_related('installments', 'payments', 'adjustments')
+        qs = StudentFeeAccount.objects.select_related('student', 'student__package', 'student__batch', 'template').prefetch_related('installments', 'payments', 'adjustments')
         company = request.GET.get('company')
         status_filter = request.GET.get('status')
         student_id = request.GET.get('student')
@@ -156,7 +156,7 @@ class FeeAccountDetailAPIView(APIView):
 
     def get_object(self, request, pk):
         account = get_object_or_404(
-            StudentFeeAccount.objects.select_related('student', 'student__trainer__user', 'student__branch', 'template'),
+            StudentFeeAccount.objects.select_related('student', 'student__package', 'student__batch', 'template'),
             pk=pk
         )
         if not _can_view_fee_account(request.user, account):
@@ -427,7 +427,7 @@ class FeeSummaryAPIView(APIView):
     permission_classes = [IsAuthenticated, CanViewFees]
 
     def get(self, request):
-        qs = StudentFeeAccount.objects.select_related('student', 'student__branch', 'student__trainer__user')
+        qs = StudentFeeAccount.objects.select_related('student', 'student__package', 'student__batch')
         company = request.GET.get('company')
         if company:
             qs = qs.filter(company=company)
@@ -522,7 +522,7 @@ class FeeStudentsAPIView(APIView):
     permission_classes = [IsAuthenticated, CanViewFees]
 
     def get(self, request):
-        qs = Student.objects.exclude(status__in=['COMPLETED', 'DROPPED']).select_related('branch')
+        qs = Student.objects.filter(is_active=True).select_related('package', 'batch')
         if hasattr(request.user, 'trainer_profile') and not has_dynamic_permission(request.user, 'fees:read_tenant') and not has_dynamic_permission(request.user, 'fees:manage') and not has_dynamic_permission(request.user, 'fees:view_reports'):
             qs = qs.filter(trainer=request.user.trainer_profile)
 
@@ -544,7 +544,7 @@ class ExportAdmissionsReportAPIView(APIView):
     permission_classes = [IsAuthenticated, CanViewFees]
 
     def get(self, request):
-        qs = StudentFeeAccount.objects.select_related('student', 'student__trainer__user', 'student__branch', 'template').prefetch_related('payments')
+        qs = StudentFeeAccount.objects.select_related('student', 'student__package', 'student__batch', 'template').prefetch_related('payments')
         
         data = []
         for i, account in enumerate(qs, start=1):
@@ -648,16 +648,13 @@ class FeeAnalyticsOverviewAPIView(APIView):
     def get(self, request):
         from decimal import Decimal
         company = request.GET.get('company')
-        qs = StudentFeeAccount.objects.select_related('student', 'student__branch', 'student__academic_batch')
+        qs = StudentFeeAccount.objects.select_related('student', 'student__package', 'student__batch')
         if company:
             qs = qs.filter(company=company)
         
-        branch_id = request.GET.get('branch')
         batch_id = request.GET.get('batch')
-        if branch_id:
-            qs = qs.filter(student__branch_id=branch_id)
         if batch_id:
-            qs = qs.filter(student__academic_batch_id=batch_id)
+            qs = qs.filter(student__batch_id=batch_id)
 
         data = []
         for acc in qs:
@@ -665,13 +662,12 @@ class FeeAnalyticsOverviewAPIView(APIView):
             t_due = acc.total_due or Decimal('0.00')
             t_paid = acc.total_paid or Decimal('0.00')
             
-            branch_name = acc.student.branch.name if hasattr(acc.student, 'branch') and acc.student.branch else ''
-            batch_name = acc.student.academic_batch.name if hasattr(acc.student, 'academic_batch') and acc.student.academic_batch else ''
+            batch_name = acc.student.batch.name if hasattr(acc.student, 'batch') and acc.student.batch else ''
 
             data.append({
                 'id': acc.student_id,
                 'student_name': acc.student.name,
-                'branch_name': branch_name,
+                'branch_name': '',
                 'batch_name': batch_name,
                 'plan_name': acc.plan_name or '',
                 'total_due': t_due,
@@ -710,9 +706,9 @@ class FeeStudent360APIView(APIView):
                 'id': student.id,
                 'name': student.name,
                 'email': student.email,
-                'phone': student.phone,
-                'branch': student.branch.name if student.branch else None,
-                'batch': student.academic_batch.name if student.academic_batch else None,
+                'phone': student.mobile_number,
+                'branch': None,
+                'batch': student.batch.name if student.batch else None,
             },
             'fee_account': None,
             'attendance_summary': {
