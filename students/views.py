@@ -79,6 +79,28 @@ class StudentViewSet(viewsets.ModelViewSet):
     queryset = Student.objects.all()
     serializer_class = StudentSerializer
 
+    def perform_create(self, serializer):
+        student = serializer.save()
+        fee_template_id = self.request.data.get('fee_template')
+        if fee_template_id:
+            from fees.models import FeePlanTemplate, StudentFeeAccount
+            try:
+                template = FeePlanTemplate.objects.get(id=fee_template_id)
+                StudentFeeAccount.objects.create(
+                    student=student,
+                    template=template,
+                    plan_code=template.code,
+                    plan_name=template.name,
+                    plan_type=template.plan_type,
+                    total_due=template.total_amount,
+                    balance_due=template.total_amount,
+                    registration_amount=template.registration_amount,
+                    due_day=template.due_day,
+                    created_by=self.request.user
+                )
+            except FeePlanTemplate.DoesNotExist:
+                pass
+
 class ExamResultViewSet(viewsets.ModelViewSet):
     queryset = ExamResult.objects.all()
     serializer_class = ExamResultSerializer
