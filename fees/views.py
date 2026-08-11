@@ -14,7 +14,7 @@ from django.http import HttpResponse
 
 from accounts.models import ActivityLog, User
 from notifications.models import Notification
-from trainers.models import Student
+from students.models import Student
 
 from .models import FeePlanTemplate, StudentFeeAccount, FeeInstallment, FeePayment, FeeAdjustment
 from .permissions import CanViewFees, CanManageFees, CanRestructureFees, CanRecordPartialPayment, CanIssueFeeNotice
@@ -697,8 +697,8 @@ class FeeStudent360APIView(APIView):
     permission_classes = [IsAuthenticated, CanViewAnalytics]
 
     def get(self, request, student_id):
-        from trainers.models import Student
-        from trainers.models import Attendance
+        from students.models import Student
+        from students.models import BatchAttendance as Attendance
         
         student = get_object_or_404(Student, id=student_id)
         account = StudentFeeAccount.objects.filter(student=student).first()
