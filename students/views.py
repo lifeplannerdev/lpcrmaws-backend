@@ -1,0 +1,142 @@
+from rest_framework import viewsets, status
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from .models import AcademicGrade, AcademicPackage, AcademicBatch, Student, ExamResult, BatchAttendance, DailyRemark
+from .serializers import (
+    AcademicGradeSerializer, AcademicPackageSerializer, AcademicBatchSerializer,
+    StudentSerializer, ExamResultSerializer, BatchAttendanceSerializer,
+    DailyRemarkSerializer, BatchPromotionSerializer, BulkAttendanceSubmitSerializer
+)
+from fees.models import StudentFeeAccount
+
+class AcademicGradeViewSet(viewsets.ModelViewSet):
+    queryset = AcademicGrade.objects.all()
+    serializer_class = AcademicGradeSerializer
+
+class AcademicPackageViewSet(viewsets.ModelViewSet):
+    queryset = AcademicPackage.objects.all()
+    serializer_class = AcademicPackageSerializer
+
+class AcademicBatchViewSet(viewsets.ModelViewSet):
+    queryset = AcademicBatch.objects.all()
+    serializer_class = AcademicBatchSerializer
+
+    @action(detail=True, methods=['post'])
+    def promote(self, request, pk=None):
+        batch = self.get_object()
+        
+        # 1. Verify all students have an exam result for the current grade
+        students = batch.students.filter(is_active=True)
+        for student in students:
+            if not ExamResult.objects.filter(student=student, batch=batch, grade=batch.current_grade).exists():
+                return Response({'error': f'Student {student.name} does not have an exam result for this grade.'}, status=status.HTTP_400_BAD_REQUEST)
+                
+        # 2. Get passed and failed students
+        passed_students = []
+        failed_students = []
+        for student in students:
+            result = ExamResult.objects.get(student=student, batch=batch, grade=batch.current_grade)
+            if result.status == 'PASSED':
+                passed_students.append(student)
+            else:
+                failed_students.append(student)
+                
+        # 3. Upgrade batch grade
+        next_grade = AcademicGrade.objects.filter(order__gt=batch.current_grade.order).order_by('order').first()
+        if not next_grade:
+            return Response({'error': 'No higher grade available for promotion.'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        batch.current_grade = next_grade
+        batch.save()
+        
+        # 4. Detach failed students and create timeline events
+        from .models import StudentTimeline
+        for student in failed_students:
+            student.batch = None # Detach so they can be manually assigned to a repeating batch
+            student.save()
+            StudentTimeline.objects.create(
+                student=student,
+                event_type='DEMOTED',
+                description=f'Failed to pass {batch.current_grade.name} and detached from batch {batch.name}.',
+                created_by=request.user
+            )
+            
+        for student in passed_students:
+            StudentTimeline.objects.create(
+                student=student,
+                event_type='PROMOTED',
+                description=f'Promoted to {next_grade.name} with batch {batch.name}.',
+                created_by=request.user
+            )
+            
+        return Response({
+            'message': f'Batch promoted to {next_grade.name}.',
+            'passed_count': len(passed_students),
+            'failed_detached_count': len(failed_students)
+        })
+
+class StudentViewSet(viewsets.ModelViewSet):
+    queryset = Student.objects.all()
+    serializer_class = StudentSerializer
+
+class ExamResultViewSet(viewsets.ModelViewSet):
+    queryset = ExamResult.objects.all()
+    serializer_class = ExamResultSerializer
+
+class BatchAttendanceViewSet(viewsets.ModelViewSet):
+    queryset = BatchAttendance.objects.all()
+    serializer_class = BatchAttendanceSerializer
+
+    @action(detail=False, methods=['post'])
+    def bulk_submit(self, request):
+        serializer = BulkAttendanceSubmitSerializer(data=request.data)
+        if serializer.is_valid():
+            batch_id = serializer.validated_data['batch_id']
+            date = serializer.validated_data['date']
+            attendances = serializer.validated_data['attendances']
+            
+            batch = AcademicBatch.objects.get(id=batch_id)
+            
+            results = []
+            for item in attendances:
+                student = Student.objects.get(id=item['student_id'])
+                attendance_status = item['status']
+                
+                # Check fees if strict policy
+                approval_status = 'APPROVED'
+                if student.fee_attendance_policy == 'STRICT' and attendance_status == 'PRESENT':
+                    # Check fee due
+                    try:
+                        fee_account = student.fee_account
+                        if fee_account.is_overdue:
+                            approval_status = 'PENDING'
+                    except StudentFeeAccount.DoesNotExist:
+                        pass # No fee account, assume no due
+                        
+                att, created = BatchAttendance.objects.update_or_create(
+                    student=student,
+                    date=date,
+                    defaults={
+                        'batch': batch,
+                        'grade': batch.current_grade,
+                        'status': attendance_status,
+                        'approval_status': approval_status,
+                        'marked_by': request.user
+                    }
+                )
+                results.append(BatchAttendanceSerializer(att).data)
+                
+            return Response({'message': 'Attendance marked successfully', 'data': results})
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+    @action(detail=True, methods=['post'])
+    def regularize(self, request, pk=None):
+        attendance = self.get_object()
+        attendance.approval_status = 'APPROVED'
+        attendance.regularized_by = request.user
+        attendance.save()
+        return Response({'message': 'Attendance regularized.'})
+
+class DailyRemarkViewSet(viewsets.ModelViewSet):
+    queryset = DailyRemark.objects.all()
+    serializer_class = DailyRemarkSerializer

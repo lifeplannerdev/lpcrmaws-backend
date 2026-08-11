@@ -4,7 +4,7 @@ from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
-from trainers.models import Student
+from students.models import Student
 
 
 User = settings.AUTH_USER_MODEL
