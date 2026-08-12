@@ -110,17 +110,26 @@ class BatchAttendanceViewSet(viewsets.ModelViewSet):
     serializer_class = BatchAttendanceSerializer
 
     def get_queryset(self):
-        qs = BatchAttendance.objects.all()
+        qs = BatchAttendance.objects.select_related('student', 'batch', 'grade', 'marked_by').all()
         approval_status = self.request.query_params.get('approval_status')
         batch = self.request.query_params.get('batch')
         date = self.request.query_params.get('date')
+        student = self.request.query_params.get('student')
+        date_from = self.request.query_params.get('date_from')
+        date_to = self.request.query_params.get('date_to')
         if approval_status:
             qs = qs.filter(approval_status=approval_status)
         if batch:
             qs = qs.filter(batch_id=batch)
         if date:
             qs = qs.filter(date=date)
-        return qs
+        if student:
+            qs = qs.filter(student_id=student)
+        if date_from:
+            qs = qs.filter(date__gte=date_from)
+        if date_to:
+            qs = qs.filter(date__lte=date_to)
+        return qs.order_by('date')
 
     @action(detail=False, methods=['post'])
     def bulk_submit(self, request):

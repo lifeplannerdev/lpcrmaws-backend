@@ -50,10 +50,16 @@ class ExamResultSerializer(serializers.ModelSerializer):
 
 class BatchAttendanceSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source='student.name', read_only=True)
+    marked_by_name = serializers.SerializerMethodField()
 
     class Meta:
         model = BatchAttendance
         fields = '__all__'
+
+    def get_marked_by_name(self, obj):
+        if obj.marked_by:
+            return obj.marked_by.get_full_name() or obj.marked_by.username
+        return None
 
 class DailyRemarkSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source='student.name', read_only=True)
