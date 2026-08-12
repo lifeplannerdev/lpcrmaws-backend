@@ -21,6 +21,43 @@ class AcademicBatchViewSet(viewsets.ModelViewSet):
     queryset = AcademicBatch.objects.all()
     serializer_class = AcademicBatchSerializer
 
+    @action(detail=True, methods=['get'])
+    def preview_promote(self, request, pk=None):
+        batch = self.get_object()
+        
+        # 1. Verify all students have a MAIN exam result for the current grade
+        students = batch.students.filter(is_active=True)
+        for student in students:
+            if not ExamResult.objects.filter(student=student, batch=batch, grade=batch.current_grade, exam_type='MAIN').exists():
+                return Response({'error': f'Student {student.name} does not have a MAIN exam result for this grade.'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Enforce MODEL exam for A1
+            if 'A1' in batch.current_grade.name.upper():
+                model_passed = ExamResult.objects.filter(student=student, batch=batch, grade=batch.current_grade, exam_type='MODEL', status='PASSED').exists()
+                if not model_passed:
+                    return Response({'error': f'Student {student.name} must pass the mandatory MODEL exam for {batch.current_grade.name} before promotion.'}, status=status.HTTP_400_BAD_REQUEST)
+                
+        # 2. Get passed and failed students
+        passed_students = []
+        failed_students = []
+        for student in students:
+            result = ExamResult.objects.get(student=student, batch=batch, grade=batch.current_grade, exam_type='MAIN')
+            if result.status == 'PASSED':
+                passed_students.append({'id': student.id, 'name': student.name})
+            else:
+                failed_students.append({'id': student.id, 'name': student.name})
+                
+        # 3. Check next grade
+        next_grade = AcademicGrade.objects.filter(order__gt=batch.current_grade.order).order_by('order').first()
+        if not next_grade:
+            return Response({'error': 'No higher grade available for promotion.'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        return Response({
+            'passed_students': passed_students,
+            'failed_students': failed_students,
+            'next_grade': {'id': next_grade.id, 'name': next_grade.name}
+        })
+
     @action(detail=True, methods=['post'])
     def promote(self, request, pk=None):
         batch = self.get_object()
@@ -55,17 +92,34 @@ class AcademicBatchViewSet(viewsets.ModelViewSet):
         batch.current_grade = next_grade
         batch.save()
         
-        # 4. Detach failed students and create timeline events
+        # 4. Handle failed students and create timeline events
         from .models import StudentTimeline
+        demoted_assignments = request.data.get('demoted_assignments', {})
+        
         for student in failed_students:
-            student.batch = None # Detach so they can be manually assigned to a repeating batch
-            student.save()
-            StudentTimeline.objects.create(
-                student=student,
-                event_type='DEMOTED',
-                description=f'Failed to pass {batch.current_grade.name} and detached from batch {batch.name}.',
-                created_by=request.user
-            )
+            reassigned_batch_id = demoted_assignments.get(str(student.id))
+            if reassigned_batch_id:
+                try:
+                    new_batch = AcademicBatch.objects.get(id=reassigned_batch_id)
+                    student.batch = new_batch
+                    student.save()
+                    StudentTimeline.objects.create(
+                        student=student,
+                        event_type='DEMOTED',
+                        description=f'Failed {batch.current_grade.name} and reassigned to batch {new_batch.name}.',
+                        created_by=request.user
+                    )
+                except AcademicBatch.DoesNotExist:
+                    pass
+            else:
+                student.batch = None # Detach so they can be manually assigned to a repeating batch
+                student.save()
+                StudentTimeline.objects.create(
+                    student=student,
+                    event_type='DEMOTED',
+                    description=f'Failed {batch.current_grade.name} and detached from batch {batch.name}.',
+                    created_by=request.user
+                )
             
         for student in passed_students:
             StudentTimeline.objects.create(
