@@ -76,8 +76,37 @@ class AcademicBatchViewSet(viewsets.ModelViewSet):
         })
 
 class StudentViewSet(viewsets.ModelViewSet):
-    queryset = Student.objects.all()
     serializer_class = StudentSerializer
+
+    def get_queryset(self):
+        from accounts.permissions import has_dynamic_permission
+        qs = Student.objects.select_related('package', 'batch', 'trainer').all()
+        
+        # Admin bypass
+        is_admin = has_dynamic_permission(self.request.user, 'students:admin') or has_dynamic_permission(self.request.user, 'students')
+        if not is_admin:
+            # Trainers only see their own students
+            qs = qs.filter(trainer=self.request.user)
+            
+        # Standard filters
+        is_active = self.request.query_params.get('is_active')
+        batch = self.request.query_params.get('batch')
+        trainer = self.request.query_params.get('trainer')
+        location = self.request.query_params.get('location')
+        
+        if is_active:
+            qs = qs.filter(is_active=is_active.lower() == 'true')
+        if batch:
+            qs = qs.filter(batch_id=batch)
+            
+        # Admin specific filters
+        if is_admin:
+            if trainer:
+                qs = qs.filter(trainer_id=trainer)
+            if location:
+                qs = qs.filter(trainer__location=location)
+                
+        return qs
 
     def perform_create(self, serializer):
         student = serializer.save()

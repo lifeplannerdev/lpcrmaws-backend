@@ -27,9 +27,11 @@ class AcademicBatchSerializer(serializers.ModelSerializer):
         return obj.students.filter(is_active=True).count()
 
 class StudentSerializer(serializers.ModelSerializer):
-    batch_detail = AcademicBatchSerializer(source='batch', read_only=True)
     package_detail = AcademicPackageSerializer(source='package', read_only=True)
+    batch_detail = AcademicBatchSerializer(source='batch', read_only=True)
     has_fee_due = serializers.SerializerMethodField()
+    trainer_name = serializers.CharField(source='trainer.get_full_name', read_only=True)
+    trainer_location = serializers.CharField(source='trainer.location', read_only=True)
 
     class Meta:
         model = Student
@@ -38,7 +40,7 @@ class StudentSerializer(serializers.ModelSerializer):
     def get_has_fee_due(self, obj):
         try:
             return obj.fee_account.is_overdue
-        except Exception:
+        except StudentFeeAccount.DoesNotExist:
             return False
 
 class ExamResultSerializer(serializers.ModelSerializer):

@@ -60,8 +60,10 @@ class Student(models.Model):
     
     package = models.ForeignKey(AcademicPackage, on_delete=models.SET_NULL, null=True, blank=True)
     batch = models.ForeignKey(AcademicBatch, on_delete=models.SET_NULL, null=True, blank=True, related_name='students')
+    trainer = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='assigned_students')
     
     fee_attendance_policy = models.CharField(max_length=20, choices=FEE_ATTENDANCE_POLICY_CHOICES, default='STRICT')
+
     
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
