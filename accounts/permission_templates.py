@@ -73,7 +73,8 @@ ROLE_PERMISSIONS = {
     ],
     'ACCOUNTS': [
         'dashboard:read', 'penalties:read_any', 'tasks:read_all', 'reports:read_own',
-        'fees:read_tenant', 'fees:manage', 'fees:restructure', 'fees:partial_payment',
+        'students:read_tenant', 'students:edit_any', 'students:edit_tenant', 'students:registry_manage', 'students:batch_manage', 'students:admin',
+        'fees:read_tenant', 'fees:manage', 'fees:restructure', 'fees:partial_payment', 'fees:analytics',
         'fees:issue_notice', 'fees:view_reports', 'penalties:edit_any'
     ],
 }
