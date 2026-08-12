@@ -80,16 +80,21 @@ class ExamResult(models.Model):
         ('PASSED', 'Passed'),
         ('FAILED', 'Failed'),
     ]
+    EXAM_TYPE_CHOICES = [
+        ('MODEL', 'Model Exam'),
+        ('MAIN', 'Main Exam'),
+    ]
     student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name='exam_results')
     batch = models.ForeignKey(AcademicBatch, on_delete=models.CASCADE, related_name='exam_results')
     grade = models.ForeignKey(AcademicGrade, on_delete=models.CASCADE)
+    exam_type = models.CharField(max_length=20, choices=EXAM_TYPE_CHOICES, default='MAIN')
     marks = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
     recorded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
     recorded_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        unique_together = ['student', 'batch', 'grade']
+        unique_together = ['student', 'batch', 'grade', 'exam_type']
 
 class BatchAttendance(models.Model):
     STATUS_CHOICES = [

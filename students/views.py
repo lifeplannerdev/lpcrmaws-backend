@@ -25,17 +25,23 @@ class AcademicBatchViewSet(viewsets.ModelViewSet):
     def promote(self, request, pk=None):
         batch = self.get_object()
         
-        # 1. Verify all students have an exam result for the current grade
+        # 1. Verify all students have a MAIN exam result for the current grade
         students = batch.students.filter(is_active=True)
         for student in students:
-            if not ExamResult.objects.filter(student=student, batch=batch, grade=batch.current_grade).exists():
-                return Response({'error': f'Student {student.name} does not have an exam result for this grade.'}, status=status.HTTP_400_BAD_REQUEST)
+            if not ExamResult.objects.filter(student=student, batch=batch, grade=batch.current_grade, exam_type='MAIN').exists():
+                return Response({'error': f'Student {student.name} does not have a MAIN exam result for this grade.'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Enforce MODEL exam for A1
+            if 'A1' in batch.current_grade.name.upper():
+                model_passed = ExamResult.objects.filter(student=student, batch=batch, grade=batch.current_grade, exam_type='MODEL', status='PASSED').exists()
+                if not model_passed:
+                    return Response({'error': f'Student {student.name} must pass the mandatory MODEL exam for {batch.current_grade.name} before promotion.'}, status=status.HTTP_400_BAD_REQUEST)
                 
         # 2. Get passed and failed students
         passed_students = []
         failed_students = []
         for student in students:
-            result = ExamResult.objects.get(student=student, batch=batch, grade=batch.current_grade)
+            result = ExamResult.objects.get(student=student, batch=batch, grade=batch.current_grade, exam_type='MAIN')
             if result.status == 'PASSED':
                 passed_students.append(student)
             else:
@@ -76,6 +82,7 @@ class AcademicBatchViewSet(viewsets.ModelViewSet):
         })
 
 class StudentViewSet(viewsets.ModelViewSet):
+    queryset = Student.objects.all()
     serializer_class = StudentSerializer
 
     def get_queryset(self):
@@ -133,6 +140,13 @@ class StudentViewSet(viewsets.ModelViewSet):
 class ExamResultViewSet(viewsets.ModelViewSet):
     queryset = ExamResult.objects.all()
     serializer_class = ExamResultSerializer
+
+    def get_queryset(self):
+        qs = ExamResult.objects.all()
+        student = self.request.query_params.get('student')
+        if student:
+            qs = qs.filter(student_id=student)
+        return qs
 
 class BatchAttendanceViewSet(viewsets.ModelViewSet):
     queryset = BatchAttendance.objects.all()

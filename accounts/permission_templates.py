@@ -4,8 +4,11 @@
 ROLE_PERMISSIONS = {
     'ADMIN': [
         'dashboard:read', 'leads:read_tenant', 'staff:read_tenant', 'tasks:read_all', 
-        'students:read_tenant', 'students:edit_any', 'fees:read_tenant', 'fees:manage', 'fees:restructure', 'fees:analytics',
+        'students:read_tenant', 'students:edit_any', 'students:edit_tenant', 'students:edit_own', 'students:registry_manage', 'students:batch_manage', 'students:admin',
+        'processing_students:read_any', 'processing_students:read_own', 'processing_students:edit_any', 'processing_students:edit_own', 'processing_students:manage_fees',
+        'fees:read_tenant', 'fees:manage', 'fees:restructure', 'fees:analytics',
         'fees:partial_payment', 'fees:issue_notice', 'fees:view_reports',
+        'attendance:create', 'attendance:edit_any', 'attendance:edit_tenant', 'attendance:edit_own', 'attendance:mark', 'attendance:approvals', 'attendance:view_docs',
         'reports:read_all', 'voxbay:read_all', 'voxbay:admin',
         'tasks:edit_any', 'penalties:edit_any', 'candidates:edit_any', 'staff:edit_any', 'staff:delete_any',
         'staff:access_flag', 'assets:read_any', 'assets:manage', 'assets:read_tenant', 'staff:edit_contact_logic',
