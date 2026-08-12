@@ -99,10 +99,7 @@ class StudentViewSet(viewsets.ModelViewSet):
         
         if not can_read_all:
             # Trainers/Users who can only read their own students
-            if hasattr(self.request.user, 'trainer_profile'):
-                qs = qs.filter(trainer=self.request.user.trainer_profile)
-            else:
-                qs = qs.filter(trainer=self.request.user)
+            qs = qs.filter(trainer=self.request.user)
             
         # Standard filters
         is_active = self.request.query_params.get('is_active')
