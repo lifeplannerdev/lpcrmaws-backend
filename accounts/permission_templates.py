@@ -47,7 +47,7 @@ ROLE_PERMISSIONS = {
         'dashboard:read', 'tasks:read_all', 'reports:read_own'
     ],
     'TRAINER': [
-        'dashboard:read', 'students:read_tenant', 'fees:read_tenant', 'attendance:mark', 
+        'dashboard:read', 'students:read_own', 'fees:read_own', 'attendance:mark', 
         'tasks:read_all', 'reports:read_own'
     ],
     'BDM': [

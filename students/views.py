@@ -89,11 +89,20 @@ class StudentViewSet(viewsets.ModelViewSet):
         from accounts.permissions import has_dynamic_permission
         qs = Student.objects.select_related('package', 'batch', 'trainer').all()
         
-        # Admin bypass
-        is_admin = has_dynamic_permission(self.request.user, 'students:admin') or has_dynamic_permission(self.request.user, 'students')
-        if not is_admin:
-            # Trainers only see their own students
-            qs = qs.filter(trainer=self.request.user)
+        # Check if user has permission to read all students
+        can_read_all = (
+            has_dynamic_permission(self.request.user, 'students:read_tenant') or
+            has_dynamic_permission(self.request.user, 'students:admin') or
+            has_dynamic_permission(self.request.user, 'students:registry_manage') or
+            has_dynamic_permission(self.request.user, 'students')
+        )
+        
+        if not can_read_all:
+            # Trainers/Users who can only read their own students
+            if hasattr(self.request.user, 'trainer_profile'):
+                qs = qs.filter(trainer=self.request.user.trainer_profile)
+            else:
+                qs = qs.filter(trainer=self.request.user)
             
         # Standard filters
         is_active = self.request.query_params.get('is_active')
@@ -107,7 +116,7 @@ class StudentViewSet(viewsets.ModelViewSet):
             qs = qs.filter(batch_id=batch)
             
         # Admin specific filters
-        if is_admin:
+        if can_read_all:
             if trainer:
                 qs = qs.filter(trainer_id=trainer)
             if location:
