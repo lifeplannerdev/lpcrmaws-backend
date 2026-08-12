@@ -109,6 +109,13 @@ class BatchAttendanceViewSet(viewsets.ModelViewSet):
     queryset = BatchAttendance.objects.all()
     serializer_class = BatchAttendanceSerializer
 
+    def get_queryset(self):
+        qs = BatchAttendance.objects.all()
+        approval_status = self.request.query_params.get('approval_status')
+        if approval_status:
+            qs = qs.filter(approval_status=approval_status)
+        return qs
+
     @action(detail=False, methods=['post'])
     def bulk_submit(self, request):
         serializer = BulkAttendanceSubmitSerializer(data=request.data)
