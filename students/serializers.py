@@ -38,10 +38,9 @@ class StudentSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
     def get_has_fee_due(self, obj):
-        try:
+        if hasattr(obj, 'fee_account') and obj.fee_account:
             return obj.fee_account.is_overdue
-        except StudentFeeAccount.DoesNotExist:
-            return False
+        return False
 
 class ExamResultSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source='student.name', read_only=True)
