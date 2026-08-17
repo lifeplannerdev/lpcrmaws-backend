@@ -498,16 +498,49 @@ class FdsFeesCollection(models.Model):
         return f"{self.payment_id} — {name} — ₹{self.paid_amount}"
 
     def save(self, *args, **kwargs):
-        self.balance = self.total_fees - self.paid_amount
-        if self.paid_amount >= self.total_fees:
-            self.status = 'PAID'
-        elif self.paid_amount > 0 and self.paid_amount < self.total_fees:
-            self.status = 'PARTIAL'
-        else:
-            self.status = 'PENDING'
-            
+        # Initial save to get ID and ensure basic fields are set
+        is_new = self.pk is None
         if not self.payment_id:
             last = FdsFeesCollection.objects.order_by('-id').first()
             next_num = (last.id + 1) if last else 1
             self.payment_id = f"FDS-PAY-{next_num:04d}"
+            
         super().save(*args, **kwargs)
+
+        # Skip cumulative logic if it's not a regular monthly student fee (e.g., wedding groups)
+        if not (self.student and self.fee_month and self.fee_year and self.fees_type):
+            self.balance = self.total_fees - self.paid_amount
+            if self.paid_amount >= self.total_fees:
+                self.status = 'PAID'
+            elif self.paid_amount > 0 and self.paid_amount < self.total_fees:
+                self.status = 'PARTIAL'
+            else:
+                self.status = 'PENDING'
+            super().save(update_fields=['balance', 'status'])
+            return
+
+        # Calculate cumulative totals for this student/month/year/type
+        related_records = FdsFeesCollection.objects.filter(
+            student=self.student,
+            fee_month=self.fee_month,
+            fee_year=self.fee_year,
+            fees_type=self.fees_type
+        )
+        
+        cumulative_paid = sum(r.paid_amount for r in related_records)
+        actual_total_fees = self.total_fees # Assuming all related records share the same total_fees
+        
+        month_balance = actual_total_fees - cumulative_paid
+        if cumulative_paid >= actual_total_fees:
+            month_status = 'PAID'
+        elif cumulative_paid > 0:
+            month_status = 'PARTIAL'
+        else:
+            month_status = 'PENDING'
+            
+        # Update ALL related records to reflect the final month status and balance
+        for r in related_records:
+            if r.balance != month_balance or r.status != month_status:
+                r.balance = month_balance
+                r.status = month_status
+                super(FdsFeesCollection, r).save(update_fields=['balance', 'status'])

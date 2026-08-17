@@ -789,15 +789,32 @@ class FdsFeesCollectionViewSet(viewsets.ModelViewSet):
         if not fds_fees_access(request.user) and not fds_read_only(request.user):
             return Response(status=403)
         qs = self.get_queryset()
-        totals = qs.aggregate(
-            total_collected=Sum('paid_amount'),
-            total_billed=Sum('total_fees'),
-            total_balance=Sum('balance'),
-        )
+        # Sum collected directly
+        total_collected = qs.aggregate(t=Sum('paid_amount'))['t'] or 0
+        
+        # Total Billed needs to be calculated by taking the MAX total_fees per student/month/year/type
+        # to avoid double counting multiple payments for the same month
+        from django.db.models import Max
+        
+        # Group by student, fee_month, fee_year, fees_type
+        # Note: We filter out null student/month to handle them separately if needed, 
+        # but for simple sum, we can group by all
+        billed_qs = qs.values('student', 'fee_month', 'fee_year', 'fees_type').annotate(
+            month_billed=Max('total_fees')
+        ).aggregate(total=Sum('month_billed'))
+        
+        total_billed = billed_qs['total'] or 0
+        
+        # If there are records without student/month (e.g. wedding groups), we just sum them
+        wedding_qs = qs.filter(student__isnull=True).aggregate(t=Sum('total_fees'))['t'] or 0
+        total_billed += wedding_qs
+        
+        total_balance = total_billed - total_collected
+        
         return Response({
-            'total_collected': totals['total_collected'] or 0,
-            'total_billed': totals['total_billed'] or 0,
-            'total_balance': totals['total_balance'] or 0,
+            'total_collected': total_collected,
+            'total_billed': total_billed,
+            'total_balance': total_balance,
             'by_mode': {
                 m[0]: qs.filter(mode_of_pay=m[0]).aggregate(t=Sum('paid_amount'))['t'] or 0
                 for m in FdsFeesCollection._meta.get_field('mode_of_pay').choices
