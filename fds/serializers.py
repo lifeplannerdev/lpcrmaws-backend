@@ -203,6 +203,8 @@ from .models import FdsStudentFeeAccount
 class FdsStudentFeeAccountSerializer(serializers.ModelSerializer):
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     active_package_detail = FdsFeeStructureMinSerializer(source='active_package', read_only=True)
+    student_name = serializers.CharField(source='student.name', read_only=True)
+    student_id_code = serializers.CharField(source='student.student_id', read_only=True)
 
     class Meta:
         model = FdsStudentFeeAccount
