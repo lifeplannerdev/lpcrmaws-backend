@@ -499,6 +499,13 @@ class FdsFeesCollection(models.Model):
 
     def save(self, *args, **kwargs):
         self.balance = self.total_fees - self.paid_amount
+        if self.paid_amount >= self.total_fees:
+            self.status = 'PAID'
+        elif self.paid_amount > 0 and self.paid_amount < self.total_fees:
+            self.status = 'PARTIAL'
+        else:
+            self.status = 'PENDING'
+            
         if not self.payment_id:
             last = FdsFeesCollection.objects.order_by('-id').first()
             next_num = (last.id + 1) if last else 1
