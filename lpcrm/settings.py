@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     'feeds',
     'programs',
     'students',
+    'fds',
 ]
 
 MIDDLEWARE = [

@@ -1394,7 +1394,9 @@ class VoxbayAIReportView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        if not has_dynamic_permission(request.user, 'voxbay_ai:admin'):
+        is_admin = has_dynamic_permission(request.user, 'voxbay_ai:admin')
+        can_read_own = has_dynamic_permission(request.user, 'voxbay_ai:read_own')
+        if not (is_admin or can_read_own):
             return Response({"error": "Admin access required"}, status=403)
             
         date_str = request.query_params.get("date")
@@ -1526,6 +1528,15 @@ class VoxbayAIReportView(APIView):
                 "lead_created": lead_created,
                 "recording": obj.recording_url or ""
             })
+
+        if not is_admin and can_read_own:
+            user_agent_name = f"{request.user.first_name} {request.user.last_name}".strip()
+            if user_agent_name in employees_data:
+                employees_data = {user_agent_name: employees_data[user_agent_name]}
+            else:
+                # Fallback to check if their extension is in the keys somehow, 
+                # but we mapped by name.
+                employees_data = {k: v for k, v in employees_data.items() if k == user_agent_name or k == request.user.voxbay_extension}
 
         report_payload = {
             "employees": employees_data

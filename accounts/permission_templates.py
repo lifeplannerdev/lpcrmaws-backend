@@ -12,32 +12,36 @@ ROLE_PERMISSIONS = {
         'reports:read_all', 'voxbay:read_all', 'voxbay:admin',
         'tasks:edit_any', 'penalties:edit_any', 'candidates:edit_any', 'staff:edit_any', 'staff:delete_any',
         'staff:access_flag', 'assets:read_any', 'assets:manage', 'assets:read_tenant', 'staff:edit_contact_logic',
-        'credentials:view', 'credentials:manage', 'credentials:share'
+        'credentials:view', 'credentials:manage', 'credentials:share',
+        'fds:admin', 'fds:view', 'fds_fees:view',
     ],
     'CEO': [
         'dashboard:read', 'leads:read_tenant', 'staff:read_tenant', 'tasks:read_all', 
         'students:read_tenant', 'students:edit_any', 'fees:read_tenant', 'fees:manage', 'fees:view_reports', 'fees:analytics',
         'reports:read_own', 'reports:read_all', 'voxbay:read_all',
         'tasks:edit_any', 'staff:access_flag',
-        'credentials:view', 'credentials:manage', 'credentials:share'
+        'credentials:view', 'credentials:manage', 'credentials:share',
+        'fds:admin', 'fds:view', 'fds_fees:view',
     ],
     'BUSINESS_HEAD': [
         'dashboard:read', 'leads:read_tenant', 'staff:read_tenant', 'tasks:read_own', 
-        'tasks:read_all', 'reports:read_own', 'voxbay:read_own'
+        'tasks:read_all', 'reports:read_own', 'voxbay:read_own', 'voxbay_ai:read_own',
+        'fds:view',
     ],
     'OPS': [
         'dashboard:read', 'leads:read_tenant', 'staff:read_tenant', 'tasks:read_all', 
-        'reports:read_own', 'voxbay:read_own',
-        'tasks:edit_any'
+        'reports:read_own', 'voxbay:read_own', 'voxbay_ai:read_own',
+        'tasks:edit_any',
+        'fds:view',
     ],
     'ADM_MANAGER': [
-        'dashboard:read', 'leads:read_tenant', 'tasks:read_all', 'reports:read_own', 'voxbay:read_own'
+        'dashboard:read', 'leads:read_tenant', 'tasks:read_all', 'reports:read_own', 'voxbay:read_own', 'voxbay_ai:read_own'
     ],
     'ADM_COUNSELLOR': [
-        'dashboard:read', 'leads:read_tenant', 'tasks:read_all', 'reports:read_own', 'voxbay:read_own'
+        'dashboard:read', 'leads:read_tenant', 'tasks:read_all', 'reports:read_own', 'voxbay:read_own', 'voxbay_ai:read_own'
     ],
     'ADM_EXEC': [
-        'dashboard:read', 'leads:read_tenant', 'tasks:read_all', 'reports:read_own', 'voxbay:read_own'
+        'dashboard:read', 'leads:read_tenant', 'tasks:read_all', 'reports:read_own', 'voxbay:read_own', 'voxbay_ai:read_own'
     ],
     'PROCESSING': [
         # Based on default logic or fallback
@@ -51,7 +55,7 @@ ROLE_PERMISSIONS = {
         'tasks:read_all', 'reports:read_own'
     ],
     'BDM': [
-        'dashboard:read', 'leads:read_tenant', 'tasks:read_all', 'reports:read_own', 'voxbay:read_own',
+        'dashboard:read', 'leads:read_tenant', 'tasks:read_all', 'reports:read_own', 'voxbay:read_own', 'voxbay_ai:read_own',
         'tasks:edit_any'
     ],
     'CM': [
@@ -66,7 +70,7 @@ ROLE_PERMISSIONS = {
         'staff:access_flag', 'assets:read_any', 'assets:manage', 'assets:read_tenant', 'staff:edit_contact_logic'
     ],
     'FOE': [
-        'dashboard:read', 'leads:read_tenant', 'tasks:read_all', 'reports:read_own', 'voxbay:read_own'
+        'dashboard:read', 'leads:read_tenant', 'tasks:read_all', 'reports:read_own', 'voxbay:read_own', 'voxbay_ai:read_own'
     ],
     'DOCUMENTATION': [
         'dashboard:read', 'tasks:read_all', 'reports:read_own'
@@ -75,7 +79,8 @@ ROLE_PERMISSIONS = {
         'dashboard:read', 'penalties:read_any', 'tasks:read_all', 'reports:read_own',
         'students:read_tenant', 'students:edit_any', 'students:edit_tenant', 'students:registry_manage', 'students:batch_manage', 'students:admin',
         'fees:read_tenant', 'fees:manage', 'fees:restructure', 'fees:partial_payment', 'fees:analytics',
-        'fees:issue_notice', 'fees:view_reports', 'penalties:edit_any'
+        'fees:issue_notice', 'fees:view_reports', 'penalties:edit_any',
+        'fds:view', 'fds_fees:view',
     ],
 }
 
