@@ -845,13 +845,12 @@ class FdsTrainerListView(APIView):
         if not fds_read_only(request.user):
             return Response(status=403)
         trainers = User.objects.filter(company='FDS', is_active=True).values(
-            'id', 'first_name', 'last_name', 'username', 'role'
+            'id', 'first_name', 'last_name', 'username'
         )
         data = [
             {
                 'id': t['id'],
-                'name': f"{t['first_name']} {t['last_name']}".strip() or t['username'],
-                'role': t['role'],
+                'name': f"{t['first_name']} {t['last_name']}".strip() or t['username']
             }
             for t in trainers
         ]
