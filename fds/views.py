@@ -25,15 +25,13 @@ from .serializers import (
 )
 
 
+from accounts.permissions import has_dynamic_permission
+
 # ── Permission helper ─────────────────────────────────────────────
 
 def has_fds_permission(user, *perms):
     """Check if user has any of the given FDS permissions."""
-    if not hasattr(user, 'permissions'):
-        return False
-    user_perms = user.permissions or []
-    return any(p in user_perms for p in perms)
-
+    return any(has_dynamic_permission(user, p) for p in perms)
 
 def fds_read_only(user):
     return has_fds_permission(user, 'fds:admin', 'fds:view')
