@@ -77,6 +77,58 @@ class FdsFeeStructureViewSet(viewsets.ModelViewSet):
         self.check_write_permission()
         return super().destroy(request, *args, **kwargs)
 
+    @action(detail=False, methods=['post'])
+    def import_excel(self, request):
+        if not fds_admin(request.user):
+            return Response({"error": "FDS admin permission required."}, status=403)
+        file = request.FILES.get('file')
+        if not file:
+            return Response({"error": "No file provided."}, status=400)
+        try:
+            wb = openpyxl.load_workbook(file)
+            ws = wb['FEES STRUCTURE'] if 'FEES STRUCTURE' in wb.sheetnames else wb.active
+            created, updated, skipped = 0, 0, 0
+            
+            cat_map = {
+                'Monthly Fee': 'MONTHLY',
+                'Package 3 months': 'PACKAGE_3M',
+                'Package 6 months': 'PACKAGE_6M',
+                'Admissions /Registration Fee': 'ADMISSION',
+                'Trial Fee': 'TRIAL',
+                'Wedding - Basic': 'WEDDING_BASIC',
+                'Wedding -Couple': 'WEDDING_COUPLE',
+                'Wedding -Premium': 'WEDDING_PREMIUM',
+                'Wedding - Family /Group': 'WEDDING_GROUP'
+            }
+            
+            for i, row in enumerate(ws.iter_rows(values_only=True)):
+                if i == 0: continue
+                raw_cat = str(row[0]).strip() if row[0] else ''
+                if not raw_cat or raw_cat not in cat_map:
+                    skipped += 1
+                    continue
+                
+                cat_key = cat_map[raw_cat]
+                details = str(row[1]).strip() if row[1] else ''
+                
+                try:
+                    amount = float(str(row[2]).replace(',', '').strip()) if row[2] else 0.0
+                except:
+                    amount = 0.0
+                    
+                notes = str(row[3]).strip() if row[3] else ''
+                
+                obj, is_new = FdsFeeStructure.objects.update_or_create(
+                    category=cat_key,
+                    defaults={'details': details, 'amount': amount, 'notes': notes}
+                )
+                if is_new: created += 1
+                else: updated += 1
+                
+            return Response({"created": created, "updated": updated, "skipped": skipped})
+        except Exception as e:
+            return Response({"error": str(e)}, status=400)
+
 
 # ── Batch ────────────────────────────────────────────────────────
 
