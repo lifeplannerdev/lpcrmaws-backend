@@ -153,6 +153,10 @@ class FdsEnquiryViewSet(viewsets.ModelViewSet):
                 ~Q(status__in=['CONVERTED', 'LOST'])
             )
 
+        status_in = self.request.query_params.get('status__in')
+        if status_in:
+            qs = qs.filter(status__in=status_in.split(','))
+
         return qs
 
     def perform_create(self, serializer):
@@ -298,12 +302,20 @@ class FdsTrialViewSet(viewsets.ModelViewSet):
             from django.utils import timezone
             today = timezone.now().date()
             qs = qs.filter(follow_up_date__lte=today, converted=False)
+
+        status_in = self.request.query_params.get('status__in')
+        if status_in:
+            qs = qs.filter(status__in=status_in.split(','))
+
         return qs
 
     def perform_create(self, serializer):
         if not fds_admin(self.request.user):
             self.permission_denied(self.request, message="FDS admin permission required.")
-        serializer.save(created_by=self.request.user)
+        trial = serializer.save(created_by=self.request.user)
+        if trial.enquiry:
+            trial.enquiry.status = 'TRIAL_SCHEDULED'
+            trial.enquiry.save(update_fields=['status'])
 
     def update(self, request, *args, **kwargs):
         if not fds_admin(self.request.user):
@@ -409,7 +421,15 @@ class FdsStudentViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         if not fds_admin(self.request.user):
             self.permission_denied(self.request, message="FDS admin permission required.")
-        serializer.save(created_by=self.request.user)
+        student = serializer.save(created_by=self.request.user)
+        if student.enquiry:
+            student.enquiry.status = 'CONVERTED'
+            student.enquiry.joined = True
+            student.enquiry.save(update_fields=['status', 'joined'])
+        if student.trial:
+            student.trial.status = 'COMPLETED'
+            student.trial.converted = True
+            student.trial.save(update_fields=['status', 'converted'])
 
     def update(self, request, *args, **kwargs):
         if not fds_admin(self.request.user):
@@ -813,10 +833,11 @@ class FdsDashboardView(APIView):
             'enquiries': {
                 'total': enquiries.count(),
                 'new_this_week': enquiries.filter(date__gte=today - timezone.timedelta(days=7)).count(),
-                'pending': enquiries.filter(status__in=['NEW', 'CONTACTED', 'TRIAL_SCHEDULED']).count(),
+                'pending': enquiries.filter(status__in=['NEW', 'CONTACTED']).count(),
             },
             'trials': {
                 'total': trials.count(),
+                'active': trials.filter(converted=False, status='SCHEDULED').count(),
                 'this_week': trials.filter(date__gte=today - timezone.timedelta(days=7)).count(),
                 'conversion_rate': round(
                     trials.filter(converted=True).count() / trials.filter(status='COMPLETED').count() * 100, 1
