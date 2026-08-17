@@ -574,6 +574,8 @@ class FdsFeesCollection(models.Model):
             else:
                 self.status = 'PENDING'
             super().save(update_fields=['balance', 'status'])
+            if self.student and hasattr(self.student, 'fee_account'):
+                self.student.fee_account.recalculate()
             return
 
         # Calculate cumulative totals for this student/month/year/type
@@ -605,3 +607,28 @@ class FdsFeesCollection(models.Model):
         # Finally, trigger a recalculation on the student's main fee account
         if hasattr(self.student, 'fee_account'):
             self.student.fee_account.recalculate()
+
+    def delete(self, *args, **kwargs):
+        student = self.student
+        fee_month = self.fee_month
+        fee_year = self.fee_year
+        fees_type = self.fees_type
+        
+        super().delete(*args, **kwargs)
+        
+        # Recalculate related month records if any remain
+        if student and fee_month and fee_year and fees_type:
+            related_records = FdsFeesCollection.objects.filter(
+                student=student,
+                fee_month=fee_month,
+                fee_year=fee_year,
+                fees_type=fees_type
+            )
+            if related_records.exists():
+                # Let the first one save to trigger recalculation for the group
+                first_record = related_records.first()
+                first_record.save()
+                
+        # Trigger recalculation on the student's main fee account
+        if student and hasattr(student, 'fee_account'):
+            student.fee_account.recalculate()
