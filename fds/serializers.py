@@ -117,6 +117,8 @@ class FdsStudentSerializer(serializers.ModelSerializer):
     class_category = serializers.CharField(read_only=True)
     batch_detail = FdsBatchMinSerializer(source='batch', read_only=True)
     fee_structure_detail = FdsFeeStructureMinSerializer(source='fee_structure', read_only=True)
+    enquiry_detail = FdsEnquirySerializer(source='enquiry', read_only=True)
+    trial_detail = FdsTrialSerializer(source='trial', read_only=True)
     created_by_name = serializers.SerializerMethodField()
     attendance_summary = serializers.SerializerMethodField()
 
