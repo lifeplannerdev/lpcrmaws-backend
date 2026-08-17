@@ -3,7 +3,7 @@ from django.urls import path, include
 from .views import (
     FdsFeeStructureViewSet, FdsBatchViewSet, FdsEnquiryViewSet,
     FdsTrialViewSet, FdsStudentViewSet, FdsWeddingGroupViewSet,
-    FdsAttendanceViewSet, FdsFeesCollectionViewSet,
+    FdsAttendanceViewSet, FdsFeesCollectionViewSet, FdsStudentFeeAccountViewSet,
     FdsDashboardView, FdsTrainerListView
 )
 
@@ -16,6 +16,7 @@ router.register(r'students', FdsStudentViewSet, basename='fds-students')
 router.register(r'wedding-groups', FdsWeddingGroupViewSet, basename='fds-wedding-groups')
 router.register(r'attendance', FdsAttendanceViewSet, basename='fds-attendance')
 router.register(r'payments', FdsFeesCollectionViewSet, basename='fds-payments')
+router.register(r'fee-accounts', FdsStudentFeeAccountViewSet, basename='fds-fee-accounts')
 
 urlpatterns = [
     path('', include(router.urls)),

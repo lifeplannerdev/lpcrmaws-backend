@@ -216,6 +216,15 @@ class FdsEnquiryViewSet(viewsets.ModelViewSet):
             self.permission_denied(self.request, message="FDS admin permission required.")
         serializer.save(created_by=self.request.user)
 
+    def perform_update(self, serializer):
+        student = serializer.save()
+        if hasattr(student, 'fee_account'):
+            if student.fee_account.active_package != student.fee_structure:
+                student.fee_account.active_package = student.fee_structure
+                # If package changed, we might want to update total_due? 
+                # For simplicity, we just change the active_package. Recalculate handles past invoices.
+                student.fee_account.save(update_fields=['active_package'])
+
     def update(self, request, *args, **kwargs):
         if not fds_admin(self.request.user):
             self.permission_denied(self.request, message="FDS admin permission required.")
@@ -369,6 +378,15 @@ class FdsTrialViewSet(viewsets.ModelViewSet):
             trial.enquiry.status = 'TRIAL_SCHEDULED'
             trial.enquiry.save(update_fields=['status'])
 
+    def perform_update(self, serializer):
+        student = serializer.save()
+        if hasattr(student, 'fee_account'):
+            if student.fee_account.active_package != student.fee_structure:
+                student.fee_account.active_package = student.fee_structure
+                # If package changed, we might want to update total_due? 
+                # For simplicity, we just change the active_package. Recalculate handles past invoices.
+                student.fee_account.save(update_fields=['active_package'])
+
     def update(self, request, *args, **kwargs):
         if not fds_admin(self.request.user):
             self.permission_denied(self.request, message="FDS admin permission required.")
@@ -474,6 +492,7 @@ class FdsStudentViewSet(viewsets.ModelViewSet):
         if not fds_admin(self.request.user):
             self.permission_denied(self.request, message="FDS admin permission required.")
         student = serializer.save(created_by=self.request.user)
+        
         if student.enquiry:
             student.enquiry.status = 'CONVERTED'
             student.enquiry.joined = True
@@ -482,6 +501,26 @@ class FdsStudentViewSet(viewsets.ModelViewSet):
             student.trial.status = 'COMPLETED'
             student.trial.converted = True
             student.trial.save(update_fields=['status', 'converted'])
+            
+        # Automatically create FdsStudentFeeAccount based on their selected fee package
+        from .models import FdsStudentFeeAccount
+        account = FdsStudentFeeAccount.objects.create(
+            student=student,
+            active_package=student.fee_structure
+        )
+        if student.fee_structure:
+            account.total_due = student.fee_structure.amount
+            account.balance_due = student.fee_structure.amount
+            account.save(update_fields=['total_due', 'balance_due'])
+
+    def perform_update(self, serializer):
+        student = serializer.save()
+        if hasattr(student, 'fee_account'):
+            if student.fee_account.active_package != student.fee_structure:
+                student.fee_account.active_package = student.fee_structure
+                # If package changed, we might want to update total_due? 
+                # For simplicity, we just change the active_package. Recalculate handles past invoices.
+                student.fee_account.save(update_fields=['active_package'])
 
     def update(self, request, *args, **kwargs):
         if not fds_admin(self.request.user):
@@ -596,6 +635,15 @@ class FdsWeddingGroupViewSet(viewsets.ModelViewSet):
             self.permission_denied(self.request, message="FDS admin permission required.")
         serializer.save(created_by=self.request.user)
 
+    def perform_update(self, serializer):
+        student = serializer.save()
+        if hasattr(student, 'fee_account'):
+            if student.fee_account.active_package != student.fee_structure:
+                student.fee_account.active_package = student.fee_structure
+                # If package changed, we might want to update total_due? 
+                # For simplicity, we just change the active_package. Recalculate handles past invoices.
+                student.fee_account.save(update_fields=['active_package'])
+
     def update(self, request, *args, **kwargs):
         if not fds_admin(self.request.user):
             self.permission_denied(self.request, message="FDS admin permission required.")
@@ -647,6 +695,15 @@ class FdsAttendanceViewSet(viewsets.ModelViewSet):
             )
         else:
             serializer.save(marked_by=self.request.user)
+
+    def perform_update(self, serializer):
+        student = serializer.save()
+        if hasattr(student, 'fee_account'):
+            if student.fee_account.active_package != student.fee_structure:
+                student.fee_account.active_package = student.fee_structure
+                # If package changed, we might want to update total_due? 
+                # For simplicity, we just change the active_package. Recalculate handles past invoices.
+                student.fee_account.save(update_fields=['active_package'])
 
     def update(self, request, *args, **kwargs):
         if not fds_admin(self.request.user):
@@ -739,6 +796,33 @@ class FdsAttendanceViewSet(viewsets.ModelViewSet):
 
 # ── Fees Collection ───────────────────────────────────────────────
 
+from .serializers import FdsStudentFeeAccountSerializer
+from .models import FdsStudentFeeAccount
+
+class FdsStudentFeeAccountViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
+    serializer_class = FdsStudentFeeAccountSerializer
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['status', 'active_package']
+    search_fields = ['student__name', 'student__student_id']
+    ordering_fields = ['updated_at', 'balance_due']
+    ordering = ['-updated_at']
+
+    def get_queryset(self):
+        if not fds_fees_access(self.request.user) and not fds_read_only(self.request.user):
+            return FdsStudentFeeAccount.objects.none()
+        qs = FdsStudentFeeAccount.objects.select_related('student', 'active_package')
+        student_id = self.request.query_params.get('student_id')
+        if student_id:
+            qs = qs.filter(student_id=student_id)
+        return qs
+
+    @action(detail=True, methods=['post'])
+    def recalculate(self, request, pk=None):
+        account = self.get_object()
+        account.recalculate()
+        return Response({'status': 'recalculated', 'balance_due': account.balance_due})
+
 class FdsFeesCollectionViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = FdsFeesCollectionSerializer
@@ -772,6 +856,15 @@ class FdsFeesCollectionViewSet(viewsets.ModelViewSet):
         if not fds_admin(self.request.user):
             self.permission_denied(self.request, message="FDS admin permission required.")
         serializer.save(collected_by=self.request.user)
+
+    def perform_update(self, serializer):
+        student = serializer.save()
+        if hasattr(student, 'fee_account'):
+            if student.fee_account.active_package != student.fee_structure:
+                student.fee_account.active_package = student.fee_structure
+                # If package changed, we might want to update total_due? 
+                # For simplicity, we just change the active_package. Recalculate handles past invoices.
+                student.fee_account.save(update_fields=['active_package'])
 
     def update(self, request, *args, **kwargs):
         if not fds_admin(self.request.user):

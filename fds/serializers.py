@@ -198,6 +198,17 @@ class FdsAttendanceBulkSerializer(serializers.Serializer):
 
 # ── Fees Collection ───────────────────────────────────────────────
 
+from .models import FdsStudentFeeAccount
+
+class FdsStudentFeeAccountSerializer(serializers.ModelSerializer):
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    active_package_detail = FdsFeeStructureMinSerializer(source='active_package', read_only=True)
+
+    class Meta:
+        model = FdsStudentFeeAccount
+        fields = '__all__'
+        read_only_fields = ['created_at', 'updated_at', 'total_paid', 'total_due', 'balance_due']
+
 class FdsFeesCollectionSerializer(serializers.ModelSerializer):
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     mode_of_pay_display = serializers.CharField(source='get_mode_of_pay_display', read_only=True)

@@ -449,8 +449,65 @@ class FdsAttendance(models.Model):
 
 
 # ────────────────────────────────────────────────────────────────
-# 8. Fees Collection (payments)
+# 8. Fee Accounts & Payments
 # ────────────────────────────────────────────────────────────────
+
+class FdsStudentFeeAccount(models.Model):
+    ACCOUNT_STATUS_CHOICES = [
+        ('ACTIVE', 'Active'),
+        ('PARTIAL', 'Partial'),
+        ('OVERDUE', 'Overdue'),
+        ('SETTLED', 'Settled'),
+    ]
+
+    student = models.OneToOneField(
+        'FdsStudent', on_delete=models.CASCADE, related_name='fee_account'
+    )
+    active_package = models.ForeignKey(
+        'FdsFeeStructure', on_delete=models.SET_NULL, null=True, blank=True
+    )
+    status = models.CharField(max_length=20, choices=ACCOUNT_STATUS_CHOICES, default='ACTIVE')
+    total_due = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    total_paid = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    balance_due = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-updated_at']
+        verbose_name = 'FDS Student Fee Account'
+
+    def __str__(self):
+        return f"{self.student.name} - Account"
+
+    def recalculate(self, save=True):
+        collections = self.student.fds_payments.all()
+        self.total_paid = sum(c.paid_amount for c in collections)
+        
+        billed_dict = {}
+        for c in collections:
+            if c.fee_month and c.fee_year:
+                key = (c.fee_month, c.fee_year, c.fees_type_id)
+                current_max = billed_dict.get(key, 0)
+                billed_dict[key] = max(current_max, c.total_fees)
+            elif c.total_fees > 0:
+                key = f"one_off_{c.id}"
+                billed_dict[key] = c.total_fees
+                
+        self.total_due = sum(billed_dict.values())
+        self.balance_due = max(0, self.total_due - self.total_paid)
+        
+        if self.balance_due == 0 and self.total_due > 0:
+            self.status = 'SETTLED'
+        elif self.balance_due > 0 and self.total_paid > 0:
+            self.status = 'PARTIAL'
+        elif self.balance_due > 0:
+            self.status = 'ACTIVE'
+            
+        if save:
+            self.save(update_fields=['total_paid', 'total_due', 'balance_due', 'status', 'updated_at'])
+
 class FdsFeesCollection(models.Model):
     MONTH_CHOICES = [
         (1, 'January'), (2, 'February'), (3, 'March'), (4, 'April'),
@@ -544,3 +601,7 @@ class FdsFeesCollection(models.Model):
                 r.balance = month_balance
                 r.status = month_status
                 super(FdsFeesCollection, r).save(update_fields=['balance', 'status'])
+                
+        # Finally, trigger a recalculation on the student's main fee account
+        if hasattr(self.student, 'fee_account'):
+            self.student.fee_account.recalculate()
