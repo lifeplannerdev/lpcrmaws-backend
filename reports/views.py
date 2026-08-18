@@ -190,6 +190,11 @@ class AllDailyReportsView(generics.ListAPIView):
             "user", "reviewed_by"
         ).prefetch_related("attachments")
 
+        req_user = self.request.user
+        if not has_dynamic_permission(req_user, 'reports:read_all') and not req_user.db_roles.filter(name__in=REPORT_REVIEWERS).exists():
+            if has_dynamic_permission(req_user, 'reports:documentation'):
+                qs = qs.filter(user__db_roles__name="DOCUMENTATION")
+
         status = self.request.query_params.get("status")
         user = self.request.query_params.get("user")
         date = self.request.query_params.get("date")
@@ -272,6 +277,12 @@ class ReviewDailyReportView(APIView):
     def patch(self, request, pk):
         report = get_object_or_404(DailyReport, pk=pk)
 
+        req_user = request.user
+        if not has_dynamic_permission(req_user, 'reports:read_all') and not req_user.db_roles.filter(name__in=REPORT_REVIEWERS).exists():
+            if has_dynamic_permission(req_user, 'reports:documentation'):
+                if not report.user.db_roles.filter(name="DOCUMENTATION").exists():
+                    return Response({"error": "Permission denied"}, status=403)
+
         status_value = request.data.get("status")
         comment = request.data.get("review_comment", "")
 
@@ -328,6 +339,11 @@ class MissingReportsView(APIView):
         company = request.query_params.get("company")
         if company and company != 'all':
             users = users.filter(company=company)
+
+        req_user = request.user
+        if not has_dynamic_permission(req_user, 'reports:read_all') and not req_user.db_roles.filter(name__in=REPORT_REVIEWERS).exists():
+            if has_dynamic_permission(req_user, 'reports:documentation'):
+                users = users.filter(db_roles__name="DOCUMENTATION")
             
         submitted_user_ids = DailyReport.objects.filter(report_date=date).values_list('user_id', flat=True)
         missing_users = users.exclude(id__in=submitted_user_ids)
@@ -349,6 +365,11 @@ class AdminReportStatsView(APIView):
     def get(self, request):
         today = now()
         qs = DailyReport.objects.all()
+        
+        req_user = request.user
+        if not has_dynamic_permission(req_user, 'reports:read_all') and not req_user.db_roles.filter(name__in=REPORT_REVIEWERS).exists():
+            if has_dynamic_permission(req_user, 'reports:documentation'):
+                qs = qs.filter(user__db_roles__name="DOCUMENTATION")
         
         company = request.query_params.get("company")
         user = request.query_params.get("user")
@@ -399,10 +420,10 @@ class DailyReportDetailView(APIView):
             DailyReport.objects.select_related("user", "reviewed_by").prefetch_related("attachments"), pk=pk
         )
 
-        if (
-            report.user != request.user
-            and not (has_dynamic_permission(request.user, 'reports:read_all') or request.user.db_roles.filter(name__in=REPORT_REVIEWERS).exists())
-        ):
+        is_reviewer = has_dynamic_permission(request.user, 'reports:read_all') or request.user.db_roles.filter(name__in=REPORT_REVIEWERS).exists()
+        is_doc_reviewer = has_dynamic_permission(request.user, 'reports:documentation') and report.user.db_roles.filter(name="DOCUMENTATION").exists()
+
+        if report.user != request.user and not (is_reviewer or is_doc_reviewer):
             return Response({"error": "Permission denied"}, status=403)
 
         serializer = DailyReportSerializer(
@@ -419,10 +440,10 @@ class ViewReportFileView(APIView):
             DailyReport.objects.prefetch_related("attachments"), pk=pk
         )
 
-        if (
-            report.user != request.user
-            and not (has_dynamic_permission(request.user, 'reports:read_all') or request.user.db_roles.filter(name__in=REPORT_REVIEWERS).exists())
-        ):
+        is_reviewer = has_dynamic_permission(request.user, 'reports:read_all') or request.user.db_roles.filter(name__in=REPORT_REVIEWERS).exists()
+        is_doc_reviewer = has_dynamic_permission(request.user, 'reports:documentation') and report.user.db_roles.filter(name="DOCUMENTATION").exists()
+
+        if report.user != request.user and not (is_reviewer or is_doc_reviewer):
             return Response({"error": "Permission denied"}, status=403)
 
         attachments = report.attachments.all()
@@ -470,7 +491,9 @@ class DownloadAttachmentView(APIView):
 
         is_owner    = attachment.report.user == request.user
         is_reviewer = has_dynamic_permission(request.user, 'reports:read_all') or request.user.db_roles.filter(name__in=REPORT_REVIEWERS).exists()
-        if not (is_owner or is_reviewer):
+        is_doc_reviewer = has_dynamic_permission(request.user, 'reports:documentation') and attachment.report.user.db_roles.filter(name="DOCUMENTATION").exists()
+        
+        if not (is_owner or is_reviewer or is_doc_reviewer):
             return Response({"error": "Permission denied"}, status=403)
 
         if not attachment.attached_file:

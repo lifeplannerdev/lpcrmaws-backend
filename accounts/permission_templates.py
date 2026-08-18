@@ -9,7 +9,7 @@ ROLE_PERMISSIONS = {
         'fees:read_tenant', 'fees:manage', 'fees:restructure', 'fees:analytics',
         'fees:partial_payment', 'fees:issue_notice', 'fees:view_reports',
         'attendance:create', 'attendance:edit_any', 'attendance:edit_tenant', 'attendance:edit_own', 'attendance:mark', 'attendance:approvals', 'attendance:view_docs',
-        'reports:read_all', 'voxbay:read_all', 'voxbay:admin',
+        'reports:read_all', 'reports:documentation', 'voxbay:read_all', 'voxbay:admin',
         'tasks:edit_any', 'penalties:edit_any', 'candidates:edit_any', 'staff:edit_any', 'staff:delete_any',
         'staff:access_flag', 'assets:read_any', 'assets:manage', 'assets:read_tenant', 'staff:edit_contact_logic',
         'credentials:view', 'credentials:manage', 'credentials:share',

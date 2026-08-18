@@ -14,7 +14,8 @@ class IsReportReviewer(BasePermission):
     def has_permission(self, request, view):
         return (
             request.user.is_authenticated and
-            has_dynamic_permission(request.user, 'reports:read_all')
+            (has_dynamic_permission(request.user, 'reports:read_all') or
+             has_dynamic_permission(request.user, 'reports:documentation'))
         )
 
 
