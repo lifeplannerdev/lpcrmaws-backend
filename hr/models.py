@@ -98,6 +98,7 @@ class Branch(models.Model):
     COMPANY_CHOICES = [
         ('LP', 'LP'),
         ('FLAG', 'FLAG'),
+        ('FDS', 'FILMAATIC'),
     ]
     name = models.CharField(max_length=255)
     company = models.CharField(max_length=10, choices=COMPANY_CHOICES, default='LP', db_index=True)
@@ -115,6 +116,7 @@ class Location(models.Model):
     COMPANY_CHOICES = [
         ('LP', 'LP'),
         ('FLAG', 'FLAG'),
+        ('FDS', 'FILMAATIC'),
     ]
     name = models.CharField(max_length=255)
     company = models.CharField(max_length=10, choices=COMPANY_CHOICES, default='LP', db_index=True)
@@ -158,6 +160,7 @@ class Asset(models.Model):
     COMPANY_CHOICES = [
         ('LP', 'LP'),
         ('FLAG', 'FLAG'),
+        ('FDS', 'FILMAATIC'),
     ]
 
     name = models.CharField(max_length=255)

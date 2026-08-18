@@ -36,6 +36,7 @@ class User(AbstractUser):
     COMPANY_CHOICES = [
         ('LP', 'LP'),
         ('FLAG', 'FLAG'),
+        ('FDS', 'FILMAATIC'),
     ]
     company = models.CharField(
         max_length=10,
