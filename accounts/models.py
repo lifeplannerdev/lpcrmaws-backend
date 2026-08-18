@@ -181,7 +181,7 @@ class ActivityLog(models.Model):
     ]
  
     user        = models.ForeignKey(settings.AUTH_USER_MODEL,on_delete=models.SET_NULL,null=True, blank=True,related_name='activity_logs')
-    company     = models.CharField(max_length=10, choices=[('LP', 'LP'), ('FLAG', 'FLAG')], default='LP', db_index=True)
+    company     = models.CharField(max_length=10, choices=[('LP', 'LP'), ('FLAG', 'FLAG'), ('FDS', 'FILMAATIC')], default='LP', db_index=True)
     action      = models.CharField(max_length=60, choices=ACTION_CHOICES, db_index=True)
     entity_type = models.CharField(max_length=50, db_index=True)
     entity_id   = models.PositiveIntegerField(null=True, blank=True)
@@ -218,7 +218,7 @@ class MicroWork(models.Model):
         on_delete=models.CASCADE,
         related_name='micro_works'
     )
-    company = models.CharField(max_length=10, choices=[('LP', 'LP'), ('FLAG', 'FLAG')], default='LP', db_index=True)
+    company = models.CharField(max_length=10, choices=[('LP', 'LP'), ('FLAG', 'FLAG'), ('FDS', 'FILMAATIC')], default='LP', db_index=True)
     job_title = models.CharField(
         max_length=200,
         verbose_name='Job Title',

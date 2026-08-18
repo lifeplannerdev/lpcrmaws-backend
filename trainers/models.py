@@ -240,7 +240,7 @@ class Student(models.Model):
         null=True
     )
     
-    company = models.CharField(max_length=10, choices=[('LP', 'LP'), ('FLAG', 'FLAG')], default='LP', db_index=True)
+    company = models.CharField(max_length=10, choices=[('LP', 'LP'), ('FLAG', 'FLAG'), ('FDS', 'FILMAATIC')], default='LP', db_index=True)
 
     branch = models.ForeignKey(
         Branch,
@@ -506,7 +506,7 @@ class Attendance(models.Model):
     ]
 
     date = models.DateField()
-    company = models.CharField(max_length=10, choices=[('LP', 'LP'), ('FLAG', 'FLAG')], default='LP', db_index=True)
+    company = models.CharField(max_length=10, choices=[('LP', 'LP'), ('FLAG', 'FLAG'), ('FDS', 'FILMAATIC')], default='LP', db_index=True)
 
     trainer = models.ForeignKey(
         Trainer,

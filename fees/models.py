@@ -19,7 +19,7 @@ class FeePlanTemplate(models.Model):
         ('PACKAGE', 'Package'),
     ]
 
-    company = models.CharField(max_length=10, choices=[('LP', 'LP'), ('FLAG', 'FLAG')], default='LP', db_index=True)
+    company = models.CharField(max_length=10, choices=[('LP', 'LP'), ('FLAG', 'FLAG'), ('FDS', 'FILMAATIC')], default='LP', db_index=True)
     code = models.CharField(max_length=80, unique=True)
     name = models.CharField(max_length=150)
     course_label = models.CharField(max_length=150, blank=True)
@@ -57,7 +57,7 @@ class StudentFeeAccount(models.Model):
     ]
 
     student = models.OneToOneField(Student, on_delete=models.CASCADE, related_name='fee_account')
-    company = models.CharField(max_length=10, choices=[('LP', 'LP'), ('FLAG', 'FLAG')], default='LP', db_index=True)
+    company = models.CharField(max_length=10, choices=[('LP', 'LP'), ('FLAG', 'FLAG'), ('FDS', 'FILMAATIC')], default='LP', db_index=True)
     template = models.ForeignKey(FeePlanTemplate, on_delete=models.SET_NULL, null=True, blank=True, related_name='student_accounts')
     plan_code = models.CharField(max_length=80, blank=True)
     plan_name = models.CharField(max_length=150, blank=True)
@@ -187,7 +187,7 @@ class FeePayment(models.Model):
         ('OTHER', 'Other'),
     ]
 
-    company = models.CharField(max_length=10, choices=[('LP', 'LP'), ('FLAG', 'FLAG')], default='LP', db_index=True)
+    company = models.CharField(max_length=10, choices=[('LP', 'LP'), ('FLAG', 'FLAG'), ('FDS', 'FILMAATIC')], default='LP', db_index=True)
     account = models.ForeignKey(StudentFeeAccount, on_delete=models.CASCADE, related_name='payments')
     installment = models.ForeignKey(FeeInstallment, on_delete=models.SET_NULL, null=True, blank=True, related_name='payments')
     receipt_number = models.CharField(max_length=80, unique=True)

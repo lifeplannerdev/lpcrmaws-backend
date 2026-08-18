@@ -79,7 +79,7 @@ class Lead(models.Model):
     meta_lead_id = models.CharField(max_length=255, blank=True, null=True, db_index=True)
     raw_form_data = models.JSONField(blank=True, null=True)
 
-    company = models.CharField(max_length=10, choices=[('LP', 'LP'), ('FLAG', 'FLAG'), ('FDS', 'FDS')], default='LP', db_index=True)
+    company = models.CharField(max_length=10, choices=[('LP', 'LP'), ('FLAG', 'FLAG'), ('FDS', 'FILMAATIC'), ('FDS', 'FDS')], default='LP', db_index=True)
     created_by = models.ForeignKey(User,on_delete=models.SET_NULL,null=True, blank=True,related_name='created_leads')
     # Processing workflow fields
     processing_status = models.CharField(max_length=20, choices=PROCESSING_STATUS_CHOICES, default='PENDING')
