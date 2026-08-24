@@ -177,7 +177,7 @@ class FdsBatchViewSet(viewsets.ModelViewSet):
     filterset_fields = ['class_category', 'batch_type', 'status', 'trainer']
     search_fields = ['name']
     ordering_fields = ['name', 'class_category', 'created_at']
-    ordering = ['class_category', 'name']
+    ordering = ['class_category', 'name', '-id']
 
     def get_queryset(self):
         if not fds_read(self.request.user):
@@ -225,7 +225,7 @@ class FdsEnquiryViewSet(viewsets.ModelViewSet):
     filterset_fields = ['status', 'class_interest', 'source', 'joined']
     search_fields = ['name', 'phone', 'whatsapp_no', 'enquiry_id', 'location']
     ordering_fields = ['date', 'name', 'created_at', 'status']
-    ordering = ['-date']
+    ordering = ['-date', '-id']
 
     def get_queryset(self):
         if not fds_read(self.request.user):
@@ -432,7 +432,7 @@ class FdsTrialViewSet(viewsets.ModelViewSet):
     filterset_fields = ['status', 'class_category', 'converted']
     search_fields = ['name', 'phone', 'trial_id']
     ordering_fields = ['date', 'name', 'created_at']
-    ordering = ['-date']
+    ordering = ['-date', '-id']
 
     def get_queryset(self):
         if not fds_read(self.request.user):
@@ -757,7 +757,7 @@ class FdsWeddingGroupViewSet(viewsets.ModelViewSet):
     filterset_fields = ['status', 'package_type', 'trainer']
     search_fields = ['event_name', 'lead_contact_name', 'group_id', 'lead_contact_phone']
     ordering_fields = ['event_date', 'created_at', 'event_name']
-    ordering = ['-created_at']
+    ordering = ['-created_at', '-id']
 
     def get_queryset(self):
         if not fds_read(self.request.user):
@@ -807,7 +807,7 @@ class FdsAttendanceViewSet(viewsets.ModelViewSet):
     filterset_fields = ['batch', 'date', 'status', 'class_category', 'late_arrival']
     search_fields = ['student__name', 'student__student_id']
     ordering_fields = ['date', 'class_category']
-    ordering = ['-date']
+    ordering = ['-date', '-id']
 
     def get_queryset(self):
         if not fds_read(self.request.user):
@@ -980,7 +980,7 @@ class FdsFeesCollectionViewSet(viewsets.ModelViewSet):
     filterset_fields = ['status', 'mode_of_pay', 'fees_type', 'fee_month', 'fee_year']
     search_fields = ['payment_id', 'student__name', 'student__student_id', 'wedding_group__event_name']
     ordering_fields = ['pay_date', 'paid_amount', 'created_at']
-    ordering = ['-pay_date']
+    ordering = ['-pay_date', '-id']
 
     def get_queryset(self):
         if not fds_fees_access(self.request.user) and not fds_read(self.request.user):
