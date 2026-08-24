@@ -1118,11 +1118,19 @@ class FdsDashboardView(APIView):
         today = timezone.now().date()
         this_month_start = today.replace(day=1)
 
+        from django.db.models import Q
         students = FdsStudent.objects.filter(is_active=True)
         batches = FdsBatch.objects.filter(status='ACTIVE')
         enquiries = FdsEnquiry.objects.all()
         trials = FdsTrial.objects.all()
         payments = FdsFeesCollection.objects.all()
+
+        if fds_admin_own(request.user) and not fds_admin_all(request.user):
+            students = students.filter(Q(created_by=request.user) | Q(batch__trainer=request.user)).distinct()
+            batches = batches.filter(trainer=request.user)
+            enquiries = enquiries.filter(created_by=request.user)
+            trials = trials.filter(Q(created_by=request.user) | Q(conducted_by=request.user)).distinct()
+            payments = payments.filter(created_by=request.user)
 
         response = {
             'students': {
