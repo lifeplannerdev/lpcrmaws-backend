@@ -66,7 +66,7 @@ class FdsFeeStructureViewSet(viewsets.ModelViewSet):
         return qs
 
     def check_write_permission(self):
-        if not fds_admin_all(self.request.user):
+        if not fds_write(self.request.user):
             self.permission_denied(self.request, message="FDS write permission required.")
 
     def create(self, request, *args, **kwargs):
@@ -117,7 +117,7 @@ class FdsFeeStructureViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'])
     def import_excel(self, request):
-        if not fds_admin_all(request.user):
+        if not fds_write(request.user):
             return Response({"error": "FDS write permission required."}, status=403)
         file = request.FILES.get('file')
         if not file:
@@ -192,7 +192,7 @@ class FdsBatchViewSet(viewsets.ModelViewSet):
         return qs
 
     def check_write_permission(self):
-        if not fds_admin_all(self.request.user):
+        if not fds_write(self.request.user):
             self.permission_denied(self.request, message="FDS write permission required.")
 
     def create(self, request, *args, **kwargs):
@@ -705,7 +705,7 @@ class FdsStudentViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'])
     def import_excel(self, request):
-        if not fds_admin_all(request.user):
+        if not fds_write(request.user):
             return Response({"error": "FDS write permission required."}, status=403)
         file = request.FILES.get('file')
         if not file:
