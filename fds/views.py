@@ -33,13 +33,17 @@ def has_fds_permission(user, *perms):
     """Check if user has any of the given FDS permissions."""
     return any(has_dynamic_permission(user, p) for p in perms)
 
-def fds_read_only(user):
-    return has_fds_permission(user, 'fds:admin', 'fds:view')
-
-
-def fds_admin(user):
+def fds_admin_all(user):
     return has_fds_permission(user, 'fds:admin')
 
+def fds_admin_own(user):
+    return has_fds_permission(user, 'fds:admin_own')
+
+def fds_write(user):
+    return has_fds_permission(user, 'fds:admin', 'fds:admin_own')
+
+def fds_read(user):
+    return has_fds_permission(user, 'fds:admin', 'fds:admin_own', 'fds:view')
 
 def fds_fees_access(user):
     return has_fds_permission(user, 'fds:admin', 'fds_fees:view')
@@ -53,7 +57,7 @@ class FdsFeeStructureViewSet(viewsets.ModelViewSet):
     queryset = FdsFeeStructure.objects.all()
 
     def get_queryset(self):
-        if not fds_read_only(self.request.user) and not fds_fees_access(self.request.user):
+        if not fds_read(self.request.user) and not fds_fees_access(self.request.user):
             return FdsFeeStructure.objects.none()
         qs = FdsFeeStructure.objects.all()
         is_active = self.request.query_params.get('is_active')
@@ -62,8 +66,8 @@ class FdsFeeStructureViewSet(viewsets.ModelViewSet):
         return qs
 
     def check_write_permission(self):
-        if not fds_admin(self.request.user):
-            self.permission_denied(self.request, message="FDS admin permission required.")
+        if not fds_admin_all(self.request.user):
+            self.permission_denied(self.request, message="FDS write permission required.")
 
     def create(self, request, *args, **kwargs):
         self.check_write_permission()
@@ -78,9 +82,43 @@ class FdsFeeStructureViewSet(viewsets.ModelViewSet):
         return super().destroy(request, *args, **kwargs)
 
     @action(detail=False, methods=['post'])
+    @action(detail=False, methods=['post'])
+    def bulk_import_excel(self, request):
+        if not fds_write(request.user):
+            return Response({"error": "FDS write permission required."}, status=403)
+        data = request.data.get('records', [])
+        created = 0
+        from datetime import datetime
+        for row in data:
+            try:
+                date_str = row.get('date')
+                if date_str:
+                    date_val = datetime.strptime(date_str, '%Y-%m-%d').date()
+                else:
+                    date_val = datetime.now().date()
+            except Exception:
+                date_val = datetime.now().date()
+
+            FdsEnquiry.objects.create(
+                date=date_val,
+                name=row.get('name', ''),
+                location=row.get('location', ''),
+                age=row.get('age') or None,
+                phone=row.get('phone', ''),
+                whatsapp_no=row.get('whatsapp_no', ''),
+                preferred_timing=row.get('preferred_timing', ''),
+                remarks=row.get('remarks', ''),
+                source=row.get('source', 'WALK_IN'),
+                class_interest=row.get('class_interest', 'DANCE'),
+                created_by=request.user,
+            )
+            created += 1
+        return Response({"created": created, "skipped": 0})
+
+    @action(detail=False, methods=['post'])
     def import_excel(self, request):
-        if not fds_admin(request.user):
-            return Response({"error": "FDS admin permission required."}, status=403)
+        if not fds_admin_all(request.user):
+            return Response({"error": "FDS write permission required."}, status=403)
         file = request.FILES.get('file')
         if not file:
             return Response({"error": "No file provided."}, status=400)
@@ -142,13 +180,20 @@ class FdsBatchViewSet(viewsets.ModelViewSet):
     ordering = ['class_category', 'name']
 
     def get_queryset(self):
-        if not fds_read_only(self.request.user):
+        if not fds_read(self.request.user):
             return FdsBatch.objects.none()
-        return FdsBatch.objects.select_related('trainer').all()
+        qs = FdsBatch.objects.select_related('trainer').all()
+        if fds_admin_all(self.request.user):
+            trainer_id = self.request.query_params.get('trainer')
+            if trainer_id:
+                qs = qs.filter(trainer_id=trainer_id)
+        elif fds_admin_own(self.request.user):
+            qs = qs.filter(trainer=self.request.user)
+        return qs
 
     def check_write_permission(self):
-        if not fds_admin(self.request.user):
-            self.permission_denied(self.request, message="FDS admin permission required.")
+        if not fds_admin_all(self.request.user):
+            self.permission_denied(self.request, message="FDS write permission required.")
 
     def create(self, request, *args, **kwargs):
         self.check_write_permission()
@@ -183,9 +228,16 @@ class FdsEnquiryViewSet(viewsets.ModelViewSet):
     ordering = ['-date']
 
     def get_queryset(self):
-        if not fds_read_only(self.request.user):
+        if not fds_read(self.request.user):
             return FdsEnquiry.objects.none()
         qs = FdsEnquiry.objects.select_related('created_by').prefetch_related('trials')
+        
+        if fds_admin_all(self.request.user):
+            location = self.request.query_params.get('location')
+            if location:
+                qs = qs.filter(location__icontains=location)
+        elif fds_admin_own(self.request.user):
+            qs = qs.filter(created_by=self.request.user)
 
         # Date range filter
         date_from = self.request.query_params.get('date_from')
@@ -212,8 +264,8 @@ class FdsEnquiryViewSet(viewsets.ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
-        if not fds_admin(self.request.user):
-            self.permission_denied(self.request, message="FDS admin permission required.")
+        if not fds_write(self.request.user):
+            self.permission_denied(self.request, message="FDS write permission required.")
         serializer.save(created_by=self.request.user)
 
     def perform_update(self, serializer):
@@ -226,13 +278,13 @@ class FdsEnquiryViewSet(viewsets.ModelViewSet):
                 student.fee_account.save(update_fields=['active_package'])
 
     def update(self, request, *args, **kwargs):
-        if not fds_admin(self.request.user):
-            self.permission_denied(self.request, message="FDS admin permission required.")
+        if not fds_write(self.request.user):
+            self.permission_denied(self.request, message="FDS write permission required.")
         return super().update(request, *args, **kwargs)
 
     def destroy(self, request, *args, **kwargs):
-        if not fds_admin(self.request.user):
-            self.permission_denied(self.request, message="FDS admin permission required.")
+        if not fds_write(self.request.user):
+            self.permission_denied(self.request, message="FDS write permission required.")
         return super().destroy(request, *args, **kwargs)
 
     @action(detail=False, methods=['get'])
@@ -261,7 +313,7 @@ class FdsEnquiryViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def export_excel(self, request):
         """Export enquiries to Excel matching the original template."""
-        if not fds_read_only(request.user):
+        if not fds_read(request.user):
             return Response(status=403)
         qs = self.filter_queryset(self.get_queryset())
         wb = openpyxl.Workbook()
@@ -293,10 +345,44 @@ class FdsEnquiryViewSet(viewsets.ModelViewSet):
         return resp
 
     @action(detail=False, methods=['post'])
+    @action(detail=False, methods=['post'])
+    def bulk_import_excel(self, request):
+        if not fds_write(request.user):
+            return Response({"error": "FDS write permission required."}, status=403)
+        data = request.data.get('records', [])
+        created = 0
+        from datetime import datetime
+        for row in data:
+            try:
+                date_str = row.get('date')
+                if date_str:
+                    date_val = datetime.strptime(date_str, '%Y-%m-%d').date()
+                else:
+                    date_val = datetime.now().date()
+            except Exception:
+                date_val = datetime.now().date()
+
+            FdsEnquiry.objects.create(
+                date=date_val,
+                name=row.get('name', ''),
+                location=row.get('location', ''),
+                age=row.get('age') or None,
+                phone=row.get('phone', ''),
+                whatsapp_no=row.get('whatsapp_no', ''),
+                preferred_timing=row.get('preferred_timing', ''),
+                remarks=row.get('remarks', ''),
+                source=row.get('source', 'WALK_IN'),
+                class_interest=row.get('class_interest', 'DANCE'),
+                created_by=request.user,
+            )
+            created += 1
+        return Response({"created": created, "skipped": 0})
+
+    @action(detail=False, methods=['post'])
     def import_excel(self, request):
         """Import enquiries from Excel."""
-        if not fds_admin(request.user):
-            return Response({"error": "FDS admin permission required."}, status=403)
+        if not fds_write(request.user):
+            return Response({"error": "FDS write permission required."}, status=403)
         file = request.FILES.get('file')
         if not file:
             return Response({"error": "No file provided."}, status=400)
@@ -349,9 +435,16 @@ class FdsTrialViewSet(viewsets.ModelViewSet):
     ordering = ['-date']
 
     def get_queryset(self):
-        if not fds_read_only(self.request.user):
+        if not fds_read(self.request.user):
             return FdsTrial.objects.none()
         qs = FdsTrial.objects.select_related('enquiry', 'conducted_by', 'created_by')
+        
+        if fds_admin_all(self.request.user):
+            location = self.request.query_params.get('location')
+            if location:
+                qs = qs.filter(location__icontains=location)
+        elif fds_admin_own(self.request.user):
+            qs = qs.filter(created_by=self.request.user)
         date_from = self.request.query_params.get('date_from')
         date_to = self.request.query_params.get('date_to')
         if date_from:
@@ -371,8 +464,8 @@ class FdsTrialViewSet(viewsets.ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
-        if not fds_admin(self.request.user):
-            self.permission_denied(self.request, message="FDS admin permission required.")
+        if not fds_write(self.request.user):
+            self.permission_denied(self.request, message="FDS write permission required.")
         trial = serializer.save(created_by=self.request.user)
         if trial.enquiry:
             trial.enquiry.status = 'TRIAL_SCHEDULED'
@@ -388,13 +481,13 @@ class FdsTrialViewSet(viewsets.ModelViewSet):
                 student.fee_account.save(update_fields=['active_package'])
 
     def update(self, request, *args, **kwargs):
-        if not fds_admin(self.request.user):
-            self.permission_denied(self.request, message="FDS admin permission required.")
+        if not fds_write(self.request.user):
+            self.permission_denied(self.request, message="FDS write permission required.")
         return super().update(request, *args, **kwargs)
 
     def destroy(self, request, *args, **kwargs):
-        if not fds_admin(self.request.user):
-            self.permission_denied(self.request, message="FDS admin permission required.")
+        if not fds_write(self.request.user):
+            self.permission_denied(self.request, message="FDS write permission required.")
         return super().destroy(request, *args, **kwargs)
 
     @action(detail=False, methods=['get'])
@@ -422,7 +515,7 @@ class FdsTrialViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def export_excel(self, request):
-        if not fds_read_only(request.user):
+        if not fds_read(request.user):
             return Response(status=403)
         qs = self.filter_queryset(self.get_queryset())
         wb = openpyxl.Workbook()
@@ -468,11 +561,18 @@ class FdsStudentViewSet(viewsets.ModelViewSet):
     ordering = ['name']
 
     def get_queryset(self):
-        if not fds_read_only(self.request.user):
+        if not fds_read(self.request.user):
             return FdsStudent.objects.none()
         qs = FdsStudent.objects.select_related(
             'batch', 'fee_structure', 'created_by', 'enquiry', 'trial'
         ).prefetch_related('fds_attendances')
+
+        if fds_admin_all(self.request.user):
+            trainer_id = self.request.query_params.get('trainer')
+            if trainer_id:
+                qs = qs.filter(batch__trainer_id=trainer_id)
+        elif fds_admin_own(self.request.user):
+            qs = qs.filter(created_by=self.request.user)
 
         # Class category filter (via batch)
         class_cat = self.request.query_params.get('class_category')
@@ -489,8 +589,8 @@ class FdsStudentViewSet(viewsets.ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
-        if not fds_admin(self.request.user):
-            self.permission_denied(self.request, message="FDS admin permission required.")
+        if not fds_write(self.request.user):
+            self.permission_denied(self.request, message="FDS write permission required.")
         student = serializer.save(created_by=self.request.user)
         
         if student.enquiry:
@@ -523,18 +623,18 @@ class FdsStudentViewSet(viewsets.ModelViewSet):
                 student.fee_account.save(update_fields=['active_package'])
 
     def update(self, request, *args, **kwargs):
-        if not fds_admin(self.request.user):
-            self.permission_denied(self.request, message="FDS admin permission required.")
+        if not fds_write(self.request.user):
+            self.permission_denied(self.request, message="FDS write permission required.")
         return super().update(request, *args, **kwargs)
 
     def destroy(self, request, *args, **kwargs):
-        if not fds_admin(self.request.user):
-            self.permission_denied(self.request, message="FDS admin permission required.")
+        if not fds_write(self.request.user):
+            self.permission_denied(self.request, message="FDS write permission required.")
         return super().destroy(request, *args, **kwargs)
 
     @action(detail=False, methods=['get'])
     def export_excel(self, request):
-        if not fds_read_only(request.user):
+        if not fds_read(request.user):
             return Response(status=403)
         qs = self.filter_queryset(self.get_queryset())
         wb = openpyxl.Workbook()
@@ -570,9 +670,43 @@ class FdsStudentViewSet(viewsets.ModelViewSet):
         return resp
 
     @action(detail=False, methods=['post'])
+    @action(detail=False, methods=['post'])
+    def bulk_import_excel(self, request):
+        if not fds_write(request.user):
+            return Response({"error": "FDS write permission required."}, status=403)
+        data = request.data.get('records', [])
+        created = 0
+        from datetime import datetime
+        for row in data:
+            try:
+                date_str = row.get('date')
+                if date_str:
+                    date_val = datetime.strptime(date_str, '%Y-%m-%d').date()
+                else:
+                    date_val = datetime.now().date()
+            except Exception:
+                date_val = datetime.now().date()
+
+            FdsEnquiry.objects.create(
+                date=date_val,
+                name=row.get('name', ''),
+                location=row.get('location', ''),
+                age=row.get('age') or None,
+                phone=row.get('phone', ''),
+                whatsapp_no=row.get('whatsapp_no', ''),
+                preferred_timing=row.get('preferred_timing', ''),
+                remarks=row.get('remarks', ''),
+                source=row.get('source', 'WALK_IN'),
+                class_interest=row.get('class_interest', 'DANCE'),
+                created_by=request.user,
+            )
+            created += 1
+        return Response({"created": created, "skipped": 0})
+
+    @action(detail=False, methods=['post'])
     def import_excel(self, request):
-        if not fds_admin(request.user):
-            return Response({"error": "FDS admin permission required."}, status=403)
+        if not fds_admin_all(request.user):
+            return Response({"error": "FDS write permission required."}, status=403)
         file = request.FILES.get('file')
         if not file:
             return Response({"error": "No file provided."}, status=400)
@@ -626,13 +760,22 @@ class FdsWeddingGroupViewSet(viewsets.ModelViewSet):
     ordering = ['-created_at']
 
     def get_queryset(self):
-        if not fds_read_only(self.request.user):
+        if not fds_read(self.request.user):
             return FdsWeddingGroup.objects.none()
-        return FdsWeddingGroup.objects.select_related('batch', 'trainer', 'created_by')
+        qs = FdsWeddingGroup.objects.select_related('batch', 'trainer', 'created_by')
+        
+        if fds_admin_all(self.request.user):
+            trainer_id = self.request.query_params.get('trainer')
+            if trainer_id:
+                qs = qs.filter(trainer_id=trainer_id)
+        elif fds_admin_own(self.request.user):
+            qs = qs.filter(created_by=self.request.user)
+            
+        return qs
 
     def perform_create(self, serializer):
-        if not fds_admin(self.request.user):
-            self.permission_denied(self.request, message="FDS admin permission required.")
+        if not fds_write(self.request.user):
+            self.permission_denied(self.request, message="FDS write permission required.")
         serializer.save(created_by=self.request.user)
 
     def perform_update(self, serializer):
@@ -645,13 +788,13 @@ class FdsWeddingGroupViewSet(viewsets.ModelViewSet):
                 student.fee_account.save(update_fields=['active_package'])
 
     def update(self, request, *args, **kwargs):
-        if not fds_admin(self.request.user):
-            self.permission_denied(self.request, message="FDS admin permission required.")
+        if not fds_write(self.request.user):
+            self.permission_denied(self.request, message="FDS write permission required.")
         return super().update(request, *args, **kwargs)
 
     def destroy(self, request, *args, **kwargs):
-        if not fds_admin(self.request.user):
-            self.permission_denied(self.request, message="FDS admin permission required.")
+        if not fds_write(self.request.user):
+            self.permission_denied(self.request, message="FDS write permission required.")
         return super().destroy(request, *args, **kwargs)
 
 
@@ -667,9 +810,16 @@ class FdsAttendanceViewSet(viewsets.ModelViewSet):
     ordering = ['-date']
 
     def get_queryset(self):
-        if not fds_read_only(self.request.user):
+        if not fds_read(self.request.user):
             return FdsAttendance.objects.none()
         qs = FdsAttendance.objects.select_related('student', 'batch', 'marked_by')
+        
+        if fds_admin_all(self.request.user):
+            trainer_id = self.request.query_params.get('trainer')
+            if trainer_id:
+                qs = qs.filter(batch__trainer_id=trainer_id)
+        elif fds_admin_own(self.request.user):
+            qs = qs.filter(marked_by=self.request.user)
         date_from = self.request.query_params.get('date_from')
         date_to = self.request.query_params.get('date_to')
         student_id = self.request.query_params.get('student')
@@ -682,8 +832,8 @@ class FdsAttendanceViewSet(viewsets.ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
-        if not fds_admin(self.request.user):
-            self.permission_denied(self.request, message="FDS admin permission required.")
+        if not fds_write(self.request.user):
+            self.permission_denied(self.request, message="FDS write permission required.")
         # Auto-fill time fields from batch
         batch = serializer.validated_data.get('batch')
         if batch:
@@ -706,20 +856,20 @@ class FdsAttendanceViewSet(viewsets.ModelViewSet):
                 student.fee_account.save(update_fields=['active_package'])
 
     def update(self, request, *args, **kwargs):
-        if not fds_admin(self.request.user):
-            self.permission_denied(self.request, message="FDS admin permission required.")
+        if not fds_write(self.request.user):
+            self.permission_denied(self.request, message="FDS write permission required.")
         return super().update(request, *args, **kwargs)
 
     def destroy(self, request, *args, **kwargs):
-        if not fds_admin(self.request.user):
-            self.permission_denied(self.request, message="FDS admin permission required.")
+        if not fds_write(self.request.user):
+            self.permission_denied(self.request, message="FDS write permission required.")
         return super().destroy(request, *args, **kwargs)
 
     @action(detail=False, methods=['post'])
     def bulk_mark(self, request):
         """Mark attendance for all students in a batch on a date."""
-        if not fds_admin(request.user):
-            return Response({"error": "FDS admin permission required."}, status=403)
+        if not fds_write(request.user):
+            return Response({"error": "FDS write permission required."}, status=403)
         serializer = FdsAttendanceBulkSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
@@ -762,7 +912,7 @@ class FdsAttendanceViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def monthly_report(self, request):
         """Per-student monthly attendance summary for a batch."""
-        if not fds_read_only(request.user):
+        if not fds_read(request.user):
             return Response(status=403)
         batch_id = request.query_params.get('batch_id')
         month = request.query_params.get('month')
@@ -809,7 +959,7 @@ class FdsStudentFeeAccountViewSet(viewsets.ModelViewSet):
     ordering = ['-updated_at']
 
     def get_queryset(self):
-        if not fds_fees_access(self.request.user) and not fds_read_only(self.request.user):
+        if not fds_fees_access(self.request.user) and not fds_read(self.request.user):
             return FdsStudentFeeAccount.objects.none()
         qs = FdsStudentFeeAccount.objects.select_related('student', 'active_package')
         student_id = self.request.query_params.get('student_id')
@@ -833,7 +983,7 @@ class FdsFeesCollectionViewSet(viewsets.ModelViewSet):
     ordering = ['-pay_date']
 
     def get_queryset(self):
-        if not fds_fees_access(self.request.user) and not fds_read_only(self.request.user):
+        if not fds_fees_access(self.request.user) and not fds_read(self.request.user):
             return FdsFeesCollection.objects.none()
         qs = FdsFeesCollection.objects.select_related(
             'student', 'wedding_group', 'fees_type', 'collected_by'
@@ -853,8 +1003,8 @@ class FdsFeesCollectionViewSet(viewsets.ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
-        if not fds_admin(self.request.user):
-            self.permission_denied(self.request, message="FDS admin permission required.")
+        if not fds_write(self.request.user):
+            self.permission_denied(self.request, message="FDS write permission required.")
         serializer.save(collected_by=self.request.user)
 
     def perform_update(self, serializer):
@@ -867,19 +1017,19 @@ class FdsFeesCollectionViewSet(viewsets.ModelViewSet):
                 student.fee_account.save(update_fields=['active_package'])
 
     def update(self, request, *args, **kwargs):
-        if not fds_admin(self.request.user):
-            self.permission_denied(self.request, message="FDS admin permission required.")
+        if not fds_write(self.request.user):
+            self.permission_denied(self.request, message="FDS write permission required.")
         return super().update(request, *args, **kwargs)
 
     def destroy(self, request, *args, **kwargs):
-        if not fds_admin(self.request.user):
-            self.permission_denied(self.request, message="FDS admin permission required.")
+        if not fds_write(self.request.user):
+            self.permission_denied(self.request, message="FDS write permission required.")
         return super().destroy(request, *args, **kwargs)
 
     @action(detail=False, methods=['get'])
     def summary(self, request):
         """Financial summary stats."""
-        if not fds_fees_access(request.user) and not fds_read_only(request.user):
+        if not fds_fees_access(request.user) and not fds_read(request.user):
             return Response(status=403)
         qs = self.get_queryset()
         # Sum collected directly
@@ -920,7 +1070,7 @@ class FdsFeesCollectionViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def export_excel(self, request):
-        if not fds_fees_access(request.user) and not fds_read_only(request.user):
+        if not fds_fees_access(request.user) and not fds_read(request.user):
             return Response(status=403)
         qs = self.filter_queryset(self.get_queryset())
         wb = openpyxl.Workbook()
@@ -961,7 +1111,7 @@ class FdsDashboardView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        if not fds_read_only(request.user) and not fds_fees_access(request.user):
+        if not fds_read(request.user) and not fds_fees_access(request.user):
             return Response({"error": "Permission denied."}, status=403)
 
         from django.utils import timezone
@@ -1025,7 +1175,7 @@ class FdsTrainerListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        if not fds_read_only(request.user):
+        if not fds_read(request.user):
             return Response(status=403)
         trainers = User.objects.filter(company='FDS', is_active=True).values(
             'id', 'first_name', 'last_name', 'username'
