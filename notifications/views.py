@@ -54,3 +54,41 @@ class ClearNotificationsView(APIView):
     def delete(self, request):
         Notification.objects.filter(user=request.user).delete()
         return Response({'status': 'ok'})
+
+
+class RegisterDeviceTokenView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        token = request.data.get('token')
+        if not token:
+            return Response({'error': 'Token is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        platform = request.data.get('platform', 'android')
+        device_name = request.data.get('device_name', '')
+
+        from .models import DevicePushToken
+        device_token, created = DevicePushToken.objects.update_or_create(
+            token=token,
+            defaults={
+                'user': request.user,
+                'platform': platform,
+                'device_name': device_name,
+                'is_active': True
+            }
+        )
+
+        return Response({
+            'status': 'ok',
+            'created': created,
+            'token': device_token.token
+        }, status=status.HTTP_200_OK if not created else status.HTTP_201_CREATED)
+
+    def delete(self, request):
+        token = request.data.get('token')
+        from .models import DevicePushToken
+        if token:
+            DevicePushToken.objects.filter(user=request.user, token=token).delete()
+        else:
+            DevicePushToken.objects.filter(user=request.user).delete()
+        return Response({'status': 'ok'})

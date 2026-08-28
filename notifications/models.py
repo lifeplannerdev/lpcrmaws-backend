@@ -10,6 +10,9 @@ class Notification(models.Model):
         ('lead', 'Lead'),
         ('chat', 'Chat'),
         ('fee', 'Fee'),
+        ('penalty', 'Penalty'),
+        ('report', 'Report'),
+        ('system', 'System'),
     ]
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='notifications')
     type = models.CharField(max_length=20, choices=TYPE_CHOICES)
@@ -24,3 +27,20 @@ class Notification(models.Model):
 
     def __str__(self):
         return f"{self.user} - {self.message}"
+
+
+class DevicePushToken(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='device_tokens')
+    token = models.CharField(max_length=255, unique=True)
+    platform = models.CharField(max_length=20, default='android')
+    device_name = models.CharField(max_length=100, blank=True, null=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-updated_at']
+
+    def __str__(self):
+        return f"{self.user} - {self.platform} ({self.token[:20]}...)"
+

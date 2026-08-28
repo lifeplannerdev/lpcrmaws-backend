@@ -47,6 +47,11 @@ def log_penalty_activity(sender, instance, created, **kwargs):
                 'date':   str(instance.date),
             },
         )
+        try:
+            from utils.pusher import notify_penalty_issued
+            notify_penalty_issued(instance)
+        except Exception as e:
+            print(f"[Penalty] Notification error: {e}")
     else:
         log_activity(
             action='PENALTY_UPDATED',

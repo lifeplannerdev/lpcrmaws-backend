@@ -132,12 +132,25 @@ class LeadListView(generics.ListAPIView):
         else:
             serializer = self.get_serializer(queryset, many=True)
 
+        from datetime import datetime
+        agenda_date_str = request.query_params.get('agenda_date')
+        if agenda_date_str:
+            try:
+                target_date = datetime.strptime(agenda_date_str, '%Y-%m-%d').date()
+            except ValueError:
+                target_date = timezone.localtime(timezone.now()).date()
+        else:
+            target_date = timezone.localtime(timezone.now()).date()
+        date_pattern1 = target_date.strftime('%d/%m/%Y')
+        date_pattern2 = target_date.strftime('%Y-%m-%d')
+
         stats = queryset.aggregate(
             new=Count('id', filter=DQ(status__iexact='ENQUIRY')),
             qualified=Count('id', filter=DQ(status__iexact='QUALIFIED')),
             converted=Count('id', filter=DQ(status__iexact='CONVERTED')),
             total_assigned=Count('id', filter=DQ(assigned_to=request.user)),
             total_sub_assigned=Count('id', filter=DQ(sub_assigned_to=request.user)),
+            attended=Count('id', filter=DQ(remarks__icontains=date_pattern1) | DQ(remarks__icontains=date_pattern2)),
         )
 
         return self.get_paginated_response({

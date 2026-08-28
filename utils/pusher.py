@@ -28,14 +28,23 @@ def trigger_pusher(channel: str, event: str, data: dict):
         print(f"[Pusher] Trigger error: {e}")
 
 @shared_task
-def save_notification(user_id, type, message, by=None, related_id=None):
-    """Save notification to DB — import inside function to avoid circular imports"""
+def save_notification(user_id, type, message, by=None, related_id=None, title=None):
+    """Save notification to DB and automatically dispatch Expo Push notification to phone"""
     try:
         from notifications.models import Notification
         from django.contrib.auth import get_user_model
+        from utils.expo_push import send_expo_push_notification
         User = get_user_model()
         user = User.objects.get(id=user_id)
         Notification.objects.create(user=user, type=type, message=message, by=by, related_id=related_id)
+        
+        push_title = title or f"LP CRM · {type.capitalize()}"
+        send_expo_push_notification.delay(
+            user_ids=user_id,
+            title=push_title,
+            body=message,
+            data={"type": type, "id": related_id}
+        )
     except Exception as e:
         print(f"[Notification] Save failed: {e}")
 
@@ -52,6 +61,7 @@ def notify_task_assigned(task, assigned_by):
         message=message,
         by=by_name,
         related_id=task.id,
+        title="New Task Assigned"
     )
 
     trigger_pusher.delay(
@@ -78,6 +88,7 @@ def notify_task_status_updated(task, updated_by, old_status, new_status, notes):
         message=message,
         by=by_name,
         related_id=task.id,
+        title="Task Status Updated"
     )
 
     trigger_pusher.delay(
@@ -110,6 +121,7 @@ def notify_task_remark(task, update):
         message=message,
         by=by_name,
         related_id=task.id,
+        title="Task Remark Added"
     )
 
     trigger_pusher.delay(
@@ -140,6 +152,7 @@ def notify_lead_assigned(assignee, assigned_by, lead, assignment_type):
         message=message,
         by=by_name,
         related_id=lead.id,
+        title="New Lead Assigned"
     )
 
     trigger_pusher.delay(
@@ -179,6 +192,31 @@ def notify_lead_deleted(lead_id):
         data={"lead_id": lead_id}
     )
 
+# ── Penalty helpers ───────────────────────────────────
+
+def notify_penalty_issued(penalty):
+    if not penalty.user_id:
+        return
+    message = f"Penalty of ₹{penalty.amount} issued for: {penalty.act}"
+    save_notification.delay(
+        user_id=penalty.user_id,
+        type='penalty',
+        message=message,
+        by="Management",
+        related_id=penalty.id,
+        title="Penalty Issued"
+    )
+    trigger_pusher.delay(
+        channel=f"private-user-{penalty.user_id}",
+        event="penalty.issued",
+        data={
+            "penalty_id": penalty.id,
+            "amount": str(penalty.amount),
+            "act": penalty.act,
+            "message": message
+        }
+    )
+
 # ── Chat helpers ──────────────────────────────────────
 
 def notify_new_message(conversation_id, message_data):
@@ -193,12 +231,28 @@ def notify_new_message(conversation_id, message_data):
     
     try:
         from chats.models import Conversation
+        from utils.expo_push import send_expo_push_notification
         conversation = Conversation.objects.get(id=conversation_id)
-        for user in conversation.participants.all():
+        sender_id = message_data.get('sender', {}).get('id') if isinstance(message_data.get('sender'), dict) else message_data.get('sender_id')
+        sender_name = message_data.get('sender', {}).get('username') if isinstance(message_data.get('sender'), dict) else (message_data.get('sender_name') or 'Someone')
+        msg_text = message_data.get('text') or 'Sent an attachment'
+
+        recipient_ids = [u.id for u in conversation.participants.all() if u.id != sender_id]
+
+        for user_id in recipient_ids:
             trigger_pusher.delay(
-                channel=f"private-user-{user.id}",
+                channel=f"private-user-{user_id}",
                 event="chat.new_message",
                 data=payload
+            )
+
+        if recipient_ids:
+            chat_title = conversation.name if conversation.type == 'GROUP' else sender_name
+            send_expo_push_notification.delay(
+                user_ids=recipient_ids,
+                title=f"Message from {chat_title}",
+                body=msg_text,
+                data={"type": "chat", "id": conversation_id}
             )
     except Exception as e:
         print(f"[Pusher] Error notifying participants: {e}")
@@ -235,6 +289,7 @@ def notify_new_conversation(user_id, conversation_id, conversation_type, name=No
         type='chat',
         message=message,
         related_id=conversation_id,
+        title="New Conversation"
     )
 
     data = {"conversation_id": conversation_id, "type": conversation_type}
