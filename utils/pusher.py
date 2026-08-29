@@ -1,7 +1,7 @@
 # utils/pusher.py
 import pusher
+import threading
 from django.conf import settings
-from celery import shared_task
 
 def get_pusher_client():
     try:
@@ -18,8 +18,7 @@ def get_pusher_client():
 
 pusher_client = get_pusher_client()
 
-@shared_task
-def trigger_pusher(channel: str, event: str, data: dict):
+def _trigger_pusher_sync(channel: str, event: str, data: dict):
     if not pusher_client:
         return
     try:
@@ -27,15 +26,27 @@ def trigger_pusher(channel: str, event: str, data: dict):
     except Exception as e:
         print(f"[Pusher] Trigger error: {e}")
 
-@shared_task
-def save_notification(user_id, type, message, by=None, related_id=None, title=None):
+class AsyncPusherTask:
+    def __call__(self, *args, **kwargs):
+        return _trigger_pusher_sync(*args, **kwargs)
+        
+    def delay(self, *args, **kwargs):
+        t = threading.Thread(target=_trigger_pusher_sync, args=args, kwargs=kwargs, daemon=True)
+        t.start()
+        return t
+
+trigger_pusher = AsyncPusherTask()
+
+def _save_notification_sync(user_id, type, message, by=None, related_id=None, title=None):
     """Save notification to DB and automatically dispatch Expo Push notification to phone"""
     try:
         from notifications.models import Notification
         from django.contrib.auth import get_user_model
         from utils.expo_push import send_expo_push_notification
         User = get_user_model()
-        user = User.objects.get(id=user_id)
+        user = User.objects.filter(id=user_id).first()
+        if not user:
+            return
         Notification.objects.create(user=user, type=type, message=message, by=by, related_id=related_id)
         
         push_title = title or f"LP CRM · {type.capitalize()}"
@@ -47,6 +58,18 @@ def save_notification(user_id, type, message, by=None, related_id=None, title=No
         )
     except Exception as e:
         print(f"[Notification] Save failed: {e}")
+
+class AsyncSaveNotificationTask:
+    def __call__(self, *args, **kwargs):
+        return _save_notification_sync(*args, **kwargs)
+        
+    def delay(self, *args, **kwargs):
+        t = threading.Thread(target=_save_notification_sync, args=args, kwargs=kwargs, daemon=True)
+        t.start()
+        return t
+
+save_notification = AsyncSaveNotificationTask()
+
 
 
 # ── Task helpers ──────────────────────────────────────

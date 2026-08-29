@@ -1,13 +1,12 @@
 # utils/expo_push.py
 import requests
 import json
+import threading
 from typing import List, Union
-from celery import shared_task
 
 EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send"
 
-@shared_task
-def send_expo_push_notification(user_ids: Union[int, List[int]], title: str, body: str, data: dict = None, sound: str = "default"):
+def _send_expo_push_sync(user_ids: Union[int, List[int]], title: str, body: str, data: dict = None, sound: str = "default"):
     """
     Sends native system push notifications to one or multiple users via Expo Push Service.
     Wakes devices, rings sound, shows on lock screen / notification tray even when app is closed.
@@ -26,6 +25,7 @@ def send_expo_push_notification(user_ids: Union[int, List[int]], title: str, bod
         )
         
         if not device_tokens:
+            print(f"[Expo Push] No active device tokens found for user_ids: {user_ids}")
             return
             
         messages = []
@@ -81,3 +81,14 @@ def send_expo_push_notification(user_ids: Union[int, List[int]], title: str, bod
                 
     except Exception as e:
         print(f"[Expo Push] Error sending notification: {e}")
+
+class AsyncPushTask:
+    def __call__(self, *args, **kwargs):
+        return _send_expo_push_sync(*args, **kwargs)
+        
+    def delay(self, *args, **kwargs):
+        t = threading.Thread(target=_send_expo_push_sync, args=args, kwargs=kwargs, daemon=True)
+        t.start()
+        return t
+
+send_expo_push_notification = AsyncPushTask()
