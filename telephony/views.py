@@ -487,15 +487,34 @@ class VoxbayWebhookView(APIView):
             from accounts.models import User
             from leads.models import Lead
             from utils.pusher import trigger_pusher
+            import re
 
             agent_user = None
-            agent_ext = defaults.get("agent_number") or data.get("AgentNumber") or data.get("extension")
+            agent_ext = (
+                defaults.get("agent_number") or
+                data.get("AgentNumber") or
+                data.get("agentNumber") or
+                data.get("extension") or
+                getattr(obj, 'agent_number', None) or
+                getattr(obj, 'extension', None)
+            )
             if not agent_ext and call_type == "outgoing":
-                agent_ext = defaults.get("extension") or data.get("extension")
+                agent_ext = defaults.get("extension") or data.get("extension") or getattr(obj, 'extension', None)
+
             if agent_ext:
-                agent_user = User.objects.filter(is_active=True).filter(Q(voxbay_number=agent_ext) | Q(voxbay_extension=agent_ext)).first()
+                agent_clean = re.sub(r'\D', '', str(agent_ext))
+                agent_10 = agent_clean[-10:] if len(agent_clean) >= 10 else agent_clean
+                agent_user = User.objects.filter(is_active=True).filter(
+                    Q(voxbay_number=str(agent_ext)) |
+                    Q(voxbay_extension=str(agent_ext)) |
+                    Q(voxbay_number=agent_clean) |
+                    Q(voxbay_extension=agent_clean) |
+                    Q(voxbay_number__endswith=agent_10) |
+                    Q(voxbay_extension__endswith=agent_10) |
+                    Q(phone=agent_clean) |
+                    Q(phone__endswith=agent_10)
+                ).first()
             
-            import re
             lead_num = (
                 defaults.get("caller_number") or
                 defaults.get("destination") or
@@ -507,7 +526,9 @@ class VoxbayWebhookView(APIView):
                 data.get("destination") or
                 data.get("phone") or
                 data.get("number") or
-                data.get("phone_number")
+                data.get("phone_number") or
+                getattr(obj, 'caller_number', None) or
+                getattr(obj, 'destination', None)
             )
             clean_digits = re.sub(r'\D', '', str(lead_num)) if lead_num else ""
             search_num = clean_digits[-10:] if len(clean_digits) >= 10 else clean_digits
