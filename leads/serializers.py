@@ -43,14 +43,16 @@ class LeadCreateSerializer(serializers.ModelSerializer):
         return value
 
     def validate_phone(self, value):
+        import re
         value = value.strip()
-        if not value.isdigit():
-            raise serializers.ValidationError('Phone number must contain only digits.')
-        if len(value) < 10:
+        clean = re.sub(r'\D', '', value)
+        if not clean:
+            raise serializers.ValidationError('Phone number must contain digits.')
+        if len(clean) < 10:
             raise serializers.ValidationError('Phone number must be at least 10 digits.')
-        if Lead.objects.filter(phone=value).exists():
+        if Lead.objects.filter(phone=clean).exists() or Lead.objects.filter(phone=value).exists() or Lead.objects.filter(phone__endswith=clean[-10:]).exists():
             raise serializers.ValidationError('A lead with this phone number already exists.')
-        return value
+        return clean
 
     def validate_assigned_to(self, value):
         if value is None:
@@ -67,33 +69,30 @@ class LeadCreateSerializer(serializers.ModelSerializer):
         if not assignee.is_active:
             raise serializers.ValidationError('Cannot assign to inactive user.')
 
-        if creator and creator.db_roles.filter(name='ADM_EXEC').exists():
-            if assignee != creator:
-                raise serializers.ValidationError(
-                    'Admission Executives can assign leads only to themselves.'
-                )
-        elif creator and creator.db_roles.filter(name='FOE').exists():
-            if assignee != creator:
-                raise serializers.ValidationError(
-                    'Front Office Executives can assign leads only to themselves.'
-                )
-        elif creator and creator.db_roles.filter(name='ADM_MANAGER').exists():
-            if assignee != creator and not assignee.db_roles.filter(name__in=['ADM_EXEC', 'FOE']).exists():
-                raise serializers.ValidationError(
-                    'Admission Managers can assign leads to themselves, FOE, or Admission Executives.'
-                )
-        elif creator and creator.db_roles.filter(name__in=MANAGER_ROLES).exists() and not creator.db_roles.filter(name='ADM_MANAGER').exists():
-            if assignee != creator and not assignee.db_roles.filter(name__in=EXECUTIVE_ROLES).exists():
-                raise serializers.ValidationError(
-                    'Managers can assign leads to themselves or executives only.'
-                )
-        elif creator and creator.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists():
-            if not assignee.db_roles.filter(name__in=MANAGER_ROLES + EXECUTIVE_ROLES).exists():
-                raise serializers.ValidationError(
-                    'Admins can assign leads only to managers or executives.'
-                )
-        else:
-            raise serializers.ValidationError('You do not have permission to assign leads.')
+        # 1. Any user assigning lead to themselves is ALWAYS allowed
+        if creator and assignee.id == creator.id:
+            return value
+
+        # 2. Check dynamic permissions & admin/manager roles
+        from accounts.permissions import has_dynamic_permission
+        if creator:
+            if (
+                creator.is_superuser or 
+                creator.is_staff or 
+                has_dynamic_permission(creator, 'leads:assign') or
+                has_dynamic_permission(creator, 'leads:edit_any') or
+                has_dynamic_permission(creator, 'leads:write_any') or
+                has_dynamic_permission(creator, 'leads:write_tenant') or
+                creator.db_roles.filter(name__in=FULL_ACCESS_ROLES + MANAGER_ROLES).exists()
+            ):
+                return value
+
+            if creator.db_roles.filter(name='ADM_MANAGER').exists():
+                return value
+
+        # If user cannot assign to other users
+        if creator and assignee.id != creator.id:
+            raise serializers.ValidationError('You do not have permission to assign leads to other users.')
 
         return value
 

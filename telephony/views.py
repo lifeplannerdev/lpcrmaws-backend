@@ -86,12 +86,12 @@ def process_voxbay_call_log(obj):
         lead_number = obj.destination
         agent_phone = obj.extension
         direction_text = "Outgoing"
-        new_lead_name = f"Voxbay Outgoing Call - {lead_number}"
+        new_lead_name = f"Voxbay Outgoing - {lead_number}"
     else:
         lead_number = obj.caller_number
         agent_phone = obj.agent_number
         direction_text = "Incoming"
-        new_lead_name = f"Voxbay Incoming Call - {lead_number}"
+        new_lead_name = f"Voxbay Incoming - {lead_number}"
 
     if not lead_number:
         return
@@ -100,14 +100,16 @@ def process_voxbay_call_log(obj):
     if agent_phone:
         agent_user = User.objects.filter(is_active=True).filter(Q(voxbay_number=agent_phone) | Q(voxbay_extension=agent_phone)).first()
 
-    search_number = lead_number[-10:] if len(lead_number) >= 10 else lead_number
-    existing_lead = Lead.objects.filter(Q(phone=lead_number) | Q(phone__endswith=search_number)).first()
+    import re
+    clean_digits = re.sub(r'\D', '', str(lead_number))
+    search_number = clean_digits[-10:] if len(clean_digits) >= 10 else clean_digits
+    existing_lead = Lead.objects.filter(Q(phone=lead_number) | Q(phone=clean_digits) | Q(phone__endswith=search_number)).first()
 
     if obj.call_status in ['ANSWER', 'ANSWERED']:
         if not existing_lead and agent_user:
             existing_lead = Lead.objects.create(
                 name=new_lead_name,
-                phone=lead_number,
+                phone=clean_digits or lead_number,
                 source='VOXBAY CALL',
                 status='ENQUIRY',
                 voxbay_status='Answered' if direction_text == "Incoming" else 'Outgoing',
@@ -123,8 +125,8 @@ def process_voxbay_call_log(obj):
                 notes="Auto-assigned on Voxbay Call"
             )
             
-        if existing_lead and direction_text == "Outgoing" and "Missed Call" in existing_lead.name:
-            existing_lead.name = f"Voxbay Outgoing Call - {lead_number}"
+        if existing_lead and direction_text == "Outgoing" and "Missed" in existing_lead.name:
+            existing_lead.name = f"Voxbay Outgoing - {lead_number}"
             existing_lead.save(update_fields=['name'])
 
         if existing_lead and agent_user:
@@ -493,11 +495,29 @@ class VoxbayWebhookView(APIView):
             if agent_ext:
                 agent_user = User.objects.filter(is_active=True).filter(Q(voxbay_number=agent_ext) | Q(voxbay_extension=agent_ext)).first()
             
-            lead_num = defaults.get("caller_number") or defaults.get("destination") or data.get("callerid") or data.get("destination")
+            import re
+            lead_num = (
+                defaults.get("caller_number") or
+                defaults.get("destination") or
+                data.get("callerNumber") or
+                data.get("caller_number") or
+                data.get("callernumber") or
+                data.get("callerid") or
+                data.get("calledNumber") or
+                data.get("destination") or
+                data.get("phone") or
+                data.get("number") or
+                data.get("phone_number")
+            )
+            clean_digits = re.sub(r'\D', '', str(lead_num)) if lead_num else ""
+            search_num = clean_digits[-10:] if len(clean_digits) >= 10 else clean_digits
             existing_lead = None
-            if lead_num:
-                search_num = lead_num[-10:] if len(lead_num) >= 10 else lead_num
-                existing_lead = Lead.objects.filter(Q(phone=lead_num) | Q(phone__endswith=search_num)).first()
+            if clean_digits:
+                existing_lead = Lead.objects.filter(
+                    Q(phone=str(lead_num)) | 
+                    Q(phone=clean_digits) | 
+                    Q(phone__endswith=search_num)
+                ).first()
 
             callevent_lower = callevent.strip().lower()
             is_answered = callevent_lower in ["connect", "answer", "answered"] or (raw_status and raw_status.upper() in ["ANSWER", "ANSWERED"])
@@ -508,14 +528,14 @@ class VoxbayWebhookView(APIView):
             if is_ringing or is_answered:
                 payload = {
                     "call_uuid": call_uuid,
-                    "caller_number": lead_num,
+                    "caller_number": clean_digits or lead_num,
                     "agent_extension": agent_ext,
                     "call_type": call_type,
                     "callevent": callevent_lower,
                     "event_type": "answered" if is_answered else "ringing",
                     "is_new_lead": existing_lead is None,
                     "lead_id": existing_lead.id if existing_lead else None,
-                    "lead_name": existing_lead.name if existing_lead else f"Voxbay {call_type.capitalize()} Call",
+                    "lead_name": existing_lead.name if existing_lead else f"Voxbay {call_type.capitalize()} - {clean_digits or lead_num}",
                     "lead_status": existing_lead.status if existing_lead else "ENQUIRY",
                     "lead_priority": existing_lead.priority if existing_lead else "MEDIUM",
                     "program": existing_lead.program if existing_lead else "",
@@ -791,12 +811,20 @@ class ClickToCallView(APIView):
         logger.info(f"[Click-to-Call] params={params}")
 
         import uuid
+        import re
         from leads.models import Lead
         from utils.pusher import trigger_pusher
 
         dest_num = validated["destination"]
-        search_num = dest_num[-10:] if len(dest_num) >= 10 else dest_num
-        existing_lead = Lead.objects.filter(Q(phone=dest_num) | Q(phone__endswith=search_num)).first()
+        clean_digits = re.sub(r'\D', '', str(dest_num)) if dest_num else ""
+        search_num = clean_digits[-10:] if len(clean_digits) >= 10 else clean_digits
+        existing_lead = None
+        if clean_digits:
+            existing_lead = Lead.objects.filter(
+                Q(phone=str(dest_num)) | 
+                Q(phone=clean_digits) | 
+                Q(phone__endswith=search_num)
+            ).first()
         out_call_uuid = f"out_{uuid.uuid4().hex[:12]}"
 
         try:
@@ -805,14 +833,14 @@ class ClickToCallView(APIView):
 
             payload = {
                 "call_uuid": out_call_uuid,
-                "caller_number": dest_num,
+                "caller_number": clean_digits or dest_num,
                 "agent_extension": voxbay_extension,
                 "call_type": "outgoing",
                 "callevent": "connect",
                 "event_type": "answered",
                 "is_new_lead": existing_lead is None,
                 "lead_id": existing_lead.id if existing_lead else None,
-                "lead_name": existing_lead.name if existing_lead else f"Voxbay Outgoing Call - {dest_num}",
+                "lead_name": existing_lead.name if existing_lead else f"Voxbay Outgoing - {clean_digits or dest_num}",
                 "lead_status": existing_lead.status if existing_lead else "ENQUIRY",
                 "lead_priority": existing_lead.priority if existing_lead else "MEDIUM",
                 "program": existing_lead.program if existing_lead else "",
