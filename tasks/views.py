@@ -145,24 +145,27 @@ class TaskStatsAPIView(APIView):
 # ── Employee List ─────────────────────────────────────────────────────────────
 
 class EmployeeListAPIView(generics.ListAPIView):
-    permission_classes = [IsTaskAssigner]
+    permission_classes = [IsAuthenticated]
     serializer_class = EmployeeSerializer
     filter_backends = [CompanyFilterBackend]
 
     def get_queryset(self):
         user = self.request.user
-        
         include_inactive = self.request.query_params.get('include_inactive') == 'true'
+        exclude_self = self.request.query_params.get('exclude_self') == 'true'
+        for_tasks = self.request.query_params.get('for_tasks') == 'true'
         
-        if user.db_roles.filter(name__in=TOP_MANAGEMENT).exists():
+        if for_tasks and not (user.db_roles.filter(name__in=TOP_MANAGEMENT).exists() or has_dynamic_permission(user, 'tasks:edit_any')):
+            qs = User.objects.filter(db_roles__name__in=TASK_ASSIGNEES).exclude(id=user.id)
+        elif exclude_self:
             qs = User.objects.exclude(id=user.id)
         else:
-            qs = User.objects.filter(db_roles__name__in=TASK_ASSIGNEES).exclude(id=user.id)
+            qs = User.objects.all()
             
         if not include_inactive:
             qs = qs.filter(is_active=True)
             
-        return qs
+        return qs.order_by('first_name', 'last_name', 'username')
 
 
 # ── Task List / Create ────────────────────────────────────────────────────────
