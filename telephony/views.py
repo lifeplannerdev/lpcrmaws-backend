@@ -151,12 +151,53 @@ def process_voxbay_call_log(obj):
             existing_lead.save(update_fields=update_fields)
 
             duration_str = str(obj.duration) + 's' if obj.duration else 'Unknown'
-            notes = f"Answered {direction_text} Call\nDuration: {duration_str}\n"
+            call_summary_lines = [f"Answered {direction_text} Call", f"Duration: {duration_str}"]
             if obj.recording_url:
-                notes += f"Recording: {obj.recording_url}\n"
-            notes += f"\nCall UUID: {obj.call_uuid}"
+                call_summary_lines.append(f"Recording: {obj.recording_url}")
+            call_summary_lines.append(f"Call UUID: {obj.call_uuid}")
+            call_summary_text = "\n".join(call_summary_lines)
 
-            if not FollowUp.objects.filter(lead=existing_lead, assigned_to=agent_user, notes__contains=obj.call_uuid, status='contacted').exists():
+            # Check if FollowUp already exists for this call_uuid or recent call follow-up by this agent
+            existing_followup = None
+            if obj.call_uuid:
+                existing_followup = FollowUp.objects.filter(
+                    lead=existing_lead,
+                    notes__contains=str(obj.call_uuid)
+                ).first()
+
+            if not existing_followup and agent_user:
+                recent_cutoff = timezone.now() - timezone.timedelta(minutes=15)
+                existing_followup = FollowUp.objects.filter(
+                    lead=existing_lead,
+                    assigned_to=agent_user,
+                    followup_type='call',
+                    created_at__gte=recent_cutoff
+                ).first()
+
+            if existing_followup:
+                # Update without disturbing existing user remarks
+                cur_notes = (existing_followup.notes or "").strip()
+                updated_notes = cur_notes
+                if obj.call_uuid and str(obj.call_uuid) not in updated_notes:
+                    updated_notes = f"{updated_notes}\nCall UUID: {obj.call_uuid}" if updated_notes else f"Call UUID: {obj.call_uuid}"
+                
+                if obj.recording_url and str(obj.recording_url) not in updated_notes:
+                    updated_notes = f"{updated_notes}\nRecording: {obj.recording_url}" if updated_notes else f"Recording: {obj.recording_url}"
+                
+                if obj.duration and f"Duration: {obj.duration}s" not in updated_notes:
+                    if "Duration:" in updated_notes:
+                        import re
+                        updated_notes = re.sub(r'Duration:\s*[^\n]+', f'Duration: {obj.duration}s', updated_notes)
+                    else:
+                        updated_notes = f"{updated_notes}\nDuration: {obj.duration}s" if updated_notes else f"Duration: {obj.duration}s"
+                
+                # If there are no call summary header lines at all (e.g. only user remarks)
+                if not any(kw in updated_notes for kw in ["Answered ", "Missed ", "Outgoing Call", "Incoming Call"]):
+                    updated_notes = f"{updated_notes}\n\n{call_summary_text}" if updated_notes else call_summary_text
+
+                existing_followup.notes = updated_notes
+                existing_followup.save(update_fields=['notes'])
+            else:
                 FollowUp.objects.create(
                     lead=existing_lead,
                     assigned_to=agent_user,
@@ -164,7 +205,7 @@ def process_voxbay_call_log(obj):
                     followup_type='call',
                     status='contacted',
                     priority='medium',
-                    notes=notes,
+                    notes=call_summary_text,
                 )
     else:
         if not existing_lead and direction_text == "Incoming":
@@ -240,18 +281,24 @@ def process_voxbay_call_log(obj):
         if existing_lead:
             answered_exists = VoxbayCallLog.objects.filter(call_uuid=obj.call_uuid, call_status__in=['ANSWER', 'ANSWERED']).exists()
             if not answered_exists:
-                notes = f"Missed {direction_text} Call from Lead\nCall UUID: {obj.call_uuid}" if direction_text == "Incoming" else f"Unanswered {direction_text} Call to Lead\nCall UUID: {obj.call_uuid}"
+                missed_notes = f"Missed {direction_text} Call from Lead\nCall UUID: {obj.call_uuid}" if direction_text == "Incoming" else f"Unanswered {direction_text} Call to Lead\nCall UUID: {obj.call_uuid}"
                 lead_owner = existing_lead.assigned_to
-                if lead_owner and not FollowUp.objects.filter(lead=existing_lead, status='pending', notes__contains=obj.call_uuid).exists():
-                    FollowUp.objects.create(
-                        lead=existing_lead,
-                        assigned_to=lead_owner,
-                        follow_up_date=timezone.now().date(),
-                        followup_type='call',
-                        status='pending',
-                        priority='high',
-                        notes=notes,
-                    )
+                if lead_owner:
+                    existing_fu = FollowUp.objects.filter(lead=existing_lead, notes__contains=str(obj.call_uuid)).first()
+                    if existing_fu:
+                        if obj.call_uuid and str(obj.call_uuid) not in existing_fu.notes:
+                            existing_fu.notes = f"{existing_fu.notes.strip()}\nCall UUID: {obj.call_uuid}"
+                            existing_fu.save(update_fields=['notes'])
+                    else:
+                        FollowUp.objects.create(
+                            lead=existing_lead,
+                            assigned_to=lead_owner,
+                            follow_up_date=timezone.now().date(),
+                            followup_type='call',
+                            status='pending',
+                            priority='high',
+                            notes=missed_notes,
+                        )
 
 
 
