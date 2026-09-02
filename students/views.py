@@ -121,7 +121,7 @@ class AttendanceRecordViewSet(viewsets.ModelViewSet):
     serializer_class = AttendanceRecordSerializer
     permission_classes = [FlagBasePermission]
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['session', 'student']
+    filterset_fields = ['session', 'student', 'session__batch']
 
 class PromotionEventViewSet(viewsets.ModelViewSet):
     queryset = PromotionEvent.objects.all()
