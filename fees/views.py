@@ -522,22 +522,26 @@ class FeeStudentsAPIView(APIView):
     permission_classes = [IsAuthenticated, CanViewFees]
 
     def get(self, request):
-        qs = Student.objects.filter(is_active=True).select_related('package', 'batch')
-        if hasattr(request.user, 'trainer_profile') and not has_dynamic_permission(request.user, 'fees:read_tenant') and not has_dynamic_permission(request.user, 'fees:manage') and not has_dynamic_permission(request.user, 'fees:view_reports'):
-            qs = qs.filter(trainer=request.user.trainer_profile)
+        qs = Student.objects.filter(status='active').select_related('academic_package', 'batch')
+        if not has_dynamic_permission(request.user, 'fees:read_tenant') and not has_dynamic_permission(request.user, 'fees:manage') and not has_dynamic_permission(request.user, 'fees:view_reports'):
+            qs = qs.filter(trainer=request.user)
 
         search = request.GET.get('search')
         if search:
-            qs = qs.filter(Q(name__icontains=search) | Q(phone_number__icontains=search) | Q(email__icontains=search))
+            qs = qs.filter(Q(name__icontains=search) | Q(phone__icontains=search) | Q(email__icontains=search))
+            
+        pending_only = request.GET.get('pending_only', 'false').lower() == 'true'
+        if pending_only:
+            qs = qs.filter(fee_account__isnull=True)
 
         data = []
         for s in qs.order_by('name')[:500]:
             data.append({
                 'id': s.id,
                 'name': s.name,
-                'branch_name': '',
+                'branch_name': s.campus.name if hasattr(s, 'campus') and s.campus else '',
                 'batch_name': s.batch.name if s.batch else '',
-                'phone': s.mobile_number,
+                'phone': getattr(s, 'phone', ''),
             })
         return Response(data)
 
@@ -545,22 +549,22 @@ class ExportAdmissionsReportAPIView(APIView):
     permission_classes = [IsAuthenticated, CanViewFees]
 
     def get(self, request):
-        qs = StudentFeeAccount.objects.select_related('student', 'student__package', 'student__batch', 'template').prefetch_related('payments')
+        qs = StudentFeeAccount.objects.select_related('student', 'student__academic_package', 'student__batch', 'template').prefetch_related('payments')
         
         data = []
         for i, account in enumerate(qs, start=1):
             student = account.student
             row = {
                 "SL NO": i,
-                "HANDLED BY": student.trainer.user.get_full_name() if student.trainer else "",
+                "HANDLED BY": student.trainer.get_full_name() if student.trainer else "",
                 "NAME": student.name,
-                "PH NO": student.phone_number,
+                "PH NO": getattr(student, 'phone', ''),
                 "PARENT NAME": student.parent_name,
                 "PARENT NO": student.parent_phone,
                 "MAIL ID": student.email,
-                "CAMPUS": student.branch.name if student.branch else "",
-                "MODE OF STUDY": student.get_mode_of_study_display() if student.mode_of_study else "",
-                "PREFERRED LEVEL": student.get_preferred_level_display() if student.preferred_level else "",
+                "CAMPUS": student.campus.name if hasattr(student, 'campus') and student.campus else "",
+                "MODE OF STUDY": student.get_mode_of_study_display() if hasattr(student, 'mode_of_study') and student.mode_of_study else "",
+                "PREFERRED LEVEL": "", # Deprecated in new FLAG
                 "PACKAGE CHOSEN": account.plan_name or account.plan_type,
                 "TOTAL FEE": account.total_due,
                 "SPECIAL DISCOUNT": 0,

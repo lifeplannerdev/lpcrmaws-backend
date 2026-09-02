@@ -1,18 +1,25 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
-    AcademicGradeViewSet, AcademicPackageViewSet, AcademicBatchViewSet,
-    StudentViewSet, ExamResultViewSet, BatchAttendanceViewSet, DailyRemarkViewSet
+    GradeViewSet, CampusViewSet, AcademicPackageViewSet, AttendancePolicyViewSet,
+    AcademicBatchViewSet, StudentViewSet, StudentBatchHistoryViewSet,
+    GradeExamRecordViewSet, AttendanceSessionViewSet, AttendanceRecordViewSet,
+    PromotionEventViewSet, DemotionEventViewSet
 )
 
 router = DefaultRouter()
-router.register(r'grades', AcademicGradeViewSet)
+router.register(r'grades', GradeViewSet)
+router.register(r'campuses', CampusViewSet)
 router.register(r'packages', AcademicPackageViewSet)
+router.register(r'attendance-policies', AttendancePolicyViewSet)
 router.register(r'batches', AcademicBatchViewSet)
 router.register(r'students', StudentViewSet)
-router.register(r'exam-results', ExamResultViewSet)
-router.register(r'attendances', BatchAttendanceViewSet)
-router.register(r'remarks', DailyRemarkViewSet)
+router.register(r'student-history', StudentBatchHistoryViewSet)
+router.register(r'exams', GradeExamRecordViewSet)
+router.register(r'attendance-sessions', AttendanceSessionViewSet)
+router.register(r'attendance-records', AttendanceRecordViewSet)
+router.register(r'promotions', PromotionEventViewSet)
+router.register(r'demotions', DemotionEventViewSet)
 
 urlpatterns = [
     path('', include(router.urls)),

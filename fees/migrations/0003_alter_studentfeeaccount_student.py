@@ -8,7 +8,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('fees', '0002_feepolicy'),
-        ('students', '0004_academicbatch_schedule_academicbatch_start_date_and_more'),
+        ('students', '0001_initial'),
     ]
 
     operations = [

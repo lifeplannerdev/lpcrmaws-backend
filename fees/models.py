@@ -209,6 +209,21 @@ class FeePayment(models.Model):
     def __str__(self):
         return f"{self.receipt_number} - {self.account.student.name}"
 
+    def save(self, *args, **kwargs):
+        is_new = self.pk is None
+        super().save(*args, **kwargs)
+        if is_new:
+            self.account.recalculate()
+            if self.account.status in ['ACTIVE', 'SETTLED', 'PARTIAL']:
+                # Regularize pending attendance for FLAG students
+                if self.company == 'FLAG':
+                    from students.models import AttendanceRecord
+                    pending_records = AttendanceRecord.objects.filter(
+                        student=self.account.student, status='pending'
+                    )
+                    for record in pending_records:
+                        record.regularize(user=self.created_by)
+
 
 class FeeAdjustment(models.Model):
     ADJUSTMENT_TYPE_CHOICES = [

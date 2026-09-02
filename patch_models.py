@@ -1,4 +1,4 @@
-from django.db import models
+content = '''from django.db import models
 from django.conf import settings
 from django.utils import timezone
 from django.core.validators import MinValueValidator, MaxValueValidator
@@ -6,7 +6,7 @@ from django.core.validators import MinValueValidator, MaxValueValidator
 User = settings.AUTH_USER_MODEL
 
 class Grade(models.Model):
-    GRADE_CHOICES = [('A1', 'A1 - Beginner'), ('A2', 'A2 - Elementary'), ('B1', 'B1 - Intermediate'), ('B2', 'B2 - Upper Intermediate')]
+    GRADE_CHOICES = [('A1', 'A1 – Beginner'), ('A2', 'A2 – Elementary'), ('B1', 'B1 – Intermediate'), ('B2', 'B2 – Upper Intermediate')]
     code = models.CharField(max_length=5, unique=True, choices=GRADE_CHOICES)
     name = models.CharField(max_length=50)
     order = models.PositiveSmallIntegerField(unique=True, help_text="1=A1, 2=A2, 3=B1, 4=B2")
@@ -37,7 +37,7 @@ class AcademicPackage(models.Model):
     @property
     def grade_range(self):
         if self.starting_grade == self.ending_grade: return self.starting_grade.code
-        return f"{self.starting_grade.code} -> {self.ending_grade.code}"
+        return f"{self.starting_grade.code} ? {self.ending_grade.code}"
 
 class AttendancePolicy(models.Model):
     name = models.CharField(max_length=100, unique=True)
@@ -71,10 +71,10 @@ class AcademicBatch(models.Model):
     @property
     def student_count(self): return self.students.filter(status='active').count()
     @property
-    def grade_progress(self): return f"{self.starting_grade.code} -> {self.current_grade.code}"
+    def grade_progress(self): return f"{self.starting_grade.code} ? {self.current_grade.code}"
 
 class Student(models.Model):
-    STATUS_CHOICES = [('active', 'Active'), ('demoted', 'Demoted - Awaiting Reassignment'), ('exited', 'Exited'), ('on_hold', 'On Hold')]
+    STATUS_CHOICES = [('active', 'Active'), ('demoted', 'Demoted – Awaiting Reassignment'), ('exited', 'Exited'), ('on_hold', 'On Hold')]
     name = models.CharField(max_length=200)
     phone = models.CharField(max_length=20, blank=True)
     email = models.EmailField(blank=True)
@@ -98,11 +98,11 @@ class Student(models.Model):
         return self.batch.current_grade if self.batch else None
     @property
     def has_pending_fees(self):
-        if hasattr(self, 'fee_account'): return self.fee_account.is_overdue
+        if hasattr(self, \'fee_account\'): return self.fee_account.is_overdue
         return False
     @property
     def pending_fee_amount(self):
-        if hasattr(self, 'fee_account'): return self.fee_account.overdue_amount
+        if hasattr(self, \'fee_account\'): return self.fee_account.overdue_amount
         return 0
 
 class StudentBatchHistory(models.Model):
@@ -118,7 +118,7 @@ class StudentBatchHistory(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     class Meta:
         ordering = ['-from_date']
-    def __str__(self): return f"{self.student.name} - {self.action} - {self.batch.name}"
+    def __str__(self): return f"{self.student.name} – {self.action} – {self.batch.name}"
 
 class GradeExamRecord(models.Model):
     RESULT_CHOICES = [('pass', 'Pass'), ('fail', 'Fail'), ('pending', 'Result Pending')]
@@ -177,7 +177,7 @@ class AttendanceSession(models.Model):
     class Meta:
         ordering = ['-date']
         unique_together = ['batch', 'date']
-    def __str__(self): return f"{self.batch.name} - {self.date}"
+    def __str__(self): return f"{self.batch.name} – {self.date}"
     @property
     def present_count(self): return self.records.filter(status='present').count()
     @property
@@ -198,7 +198,7 @@ class AttendanceRecord(models.Model):
     notes = models.CharField(max_length=200, blank=True)
     class Meta:
         unique_together = ['session', 'student']
-    def __str__(self): return f"{self.student.name} - {self.session.date} - {self.status}"
+    def __str__(self): return f"{self.student.name} – {self.session.date} – {self.status}"
     def regularize(self, user=None):
         if self.status == 'pending':
             self.status = 'present'
@@ -217,7 +217,7 @@ class PromotionEvent(models.Model):
     notes = models.TextField(blank=True)
     done_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
-    def __str__(self): return f"Promotion: {self.batch.name} | {self.from_grade} -> {self.to_grade} | {self.created_at.date()}"
+    def __str__(self): return f"Promotion: {self.batch.name} | {self.from_grade} ? {self.to_grade} | {self.created_at.date()}"
 
 class DemotionEvent(models.Model):
     student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name='demotion_events')
@@ -231,3 +231,8 @@ class DemotionEvent(models.Model):
     done_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     def __str__(self): return f"Demotion: {self.student.name} from {self.from_batch.name}"
+'''
+with open('students/models.py', 'w', encoding='utf-8') as f:
+    f.write(content)
+print('students/models.py updated successfully')
+
