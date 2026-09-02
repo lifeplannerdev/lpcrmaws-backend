@@ -95,6 +95,7 @@ class AttendanceSessionSerializer(serializers.ModelSerializer):
 
 class AttendanceRecordSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source='student.name', read_only=True)
+    session_date = serializers.DateField(source='session.date', read_only=True)
     class Meta:
         model = AttendanceRecord
         fields = '__all__'
