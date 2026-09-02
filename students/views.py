@@ -1,5 +1,6 @@
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
+from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.response import Response
 from django.utils import timezone
 from .models import (
@@ -63,6 +64,7 @@ class AcademicBatchViewSet(viewsets.ModelViewSet):
     queryset = AcademicBatch.objects.all()
     serializer_class = AcademicBatchSerializer
     permission_classes = [FlagBasePermission]
+    filter_backends = [DjangoFilterBackend]
     filterset_fields = ['status', 'campus', 'starting_grade', 'current_grade']
 
     def get_queryset(self):
@@ -76,6 +78,7 @@ class StudentViewSet(viewsets.ModelViewSet):
     queryset = Student.objects.all()
     serializer_class = StudentSerializer
     permission_classes = [FlagBasePermission]
+    filter_backends = [DjangoFilterBackend]
     filterset_fields = ['batch', 'status', 'campus', 'academic_package']
 
     def get_permissions(self):
