@@ -63,6 +63,7 @@ class AcademicBatchViewSet(viewsets.ModelViewSet):
     queryset = AcademicBatch.objects.all()
     serializer_class = AcademicBatchSerializer
     permission_classes = [FlagBasePermission]
+    filterset_fields = ['status', 'campus', 'starting_grade', 'current_grade']
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -75,6 +76,7 @@ class StudentViewSet(viewsets.ModelViewSet):
     queryset = Student.objects.all()
     serializer_class = StudentSerializer
     permission_classes = [FlagBasePermission]
+    filterset_fields = ['batch', 'status', 'campus', 'academic_package']
 
     def get_permissions(self):
         return super().get_permissions()
