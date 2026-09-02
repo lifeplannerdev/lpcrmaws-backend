@@ -52,6 +52,7 @@ class StudentSerializer(serializers.ModelSerializer):
     package_name = serializers.CharField(source='package.name', read_only=True)
     trainer_name = serializers.CharField(source='trainer.get_full_name', read_only=True)
     current_grade = serializers.CharField(source='current_grade.code', read_only=True)
+    current_grade_id = serializers.IntegerField(source='current_grade.id', read_only=True)
     has_pending_fees = serializers.ReadOnlyField()
     pending_fee_amount = serializers.ReadOnlyField()
     fee_status = serializers.ReadOnlyField()
