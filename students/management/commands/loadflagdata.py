@@ -246,13 +246,81 @@ class Command(BaseCommand):
             created_count += 1
             self.stdout.write(f'  ✓ Student: {name} → {batch_name}')
 
+        # ── Fee Accounts for all students ────────────────────────
+        self.stdout.write('Creating fee accounts and installments for students...')
+        from fees.models import StudentFeeAccount, FeeInstallment, FeePayment
+        from decimal import Decimal
+
+        fee_mapping = {
+            'Level Based': (Decimal('15000'), 'INSTALLMENT', [('Level 1 Fee', Decimal('15000'), datetime.date(2026, 6, 15))]),
+            'GCC Package': (Decimal('40000'), 'INSTALLMENT', [('Installment 1', Decimal('20000'), datetime.date(2026, 6, 15)), ('Installment 2', Decimal('20000'), datetime.date(2026, 7, 15))]),
+            'Seat Booking': (Decimal('5000'), 'ONE_TIME', [('Seat Booking', Decimal('5000'), datetime.date(2026, 6, 15))]),
+            'Intensive': (Decimal('20000'), 'ONE_TIME', [('Course Fee', Decimal('20000'), datetime.date(2026, 6, 15))]),
+            'Intensive (Installment)': (Decimal('45000'), 'INSTALLMENT', [('Installment 1', Decimal('15000'), datetime.date(2026, 6, 15)), ('Installment 2', Decimal('15000'), datetime.date(2026, 7, 15)), ('Installment 3', Decimal('15000'), datetime.date(2026, 8, 15))]),
+            'Installment': (Decimal('45000'), 'INSTALLMENT', [('Installment 1', Decimal('15000'), datetime.date(2026, 6, 15)), ('Installment 2', Decimal('15000'), datetime.date(2026, 7, 15)), ('Installment 3', Decimal('15000'), datetime.date(2026, 8, 15))]),
+            'One Time': (Decimal('40000'), 'ONE_TIME', [('Full Upfront Fee', Decimal('40000'), datetime.date(2026, 6, 15))]),
+            'A1-B2 Package': (Decimal('50000'), 'INSTALLMENT', [('Installment 1', Decimal('12500'), datetime.date(2026, 6, 15)), ('Installment 2', Decimal('12500'), datetime.date(2026, 7, 15)), ('Installment 3', Decimal('12500'), datetime.date(2026, 8, 15)), ('Installment 4', Decimal('12500'), datetime.date(2026, 9, 15))]),
+            'Package': (Decimal('30000'), 'INSTALLMENT', [('Installment 1', Decimal('15000'), datetime.date(2026, 6, 15)), ('Installment 2', Decimal('15000'), datetime.date(2026, 7, 15))]),
+        }
+
+        fee_acc_count = 0
+        for s in Student.objects.all():
+            if hasattr(s, 'fee_account'):
+                continue
+            
+            note_plan = ''
+            if s.notes and 'Original Fee Plan: ' in s.notes:
+                note_plan = s.notes.split('Original Fee Plan: ')[-1].strip()
+            
+            plan_info = fee_mapping.get(note_plan)
+            if not plan_info:
+                if s.academic_package.name == 'A1 Foundation':
+                    plan_info = fee_mapping['Level Based']
+                elif s.academic_package.name == 'A1 to A2 Package':
+                    plan_info = fee_mapping['GCC Package']
+                elif s.academic_package.name == 'A1 to B2 Package':
+                    plan_info = fee_mapping['A1-B2 Package']
+                elif s.academic_package.name == 'B1 to B2 Package':
+                    plan_info = fee_mapping['Package']
+                else:
+                    plan_info = fee_mapping['Level Based']
+
+            total_amt, plan_type, inst_list = plan_info
+            
+            acc = StudentFeeAccount.objects.create(
+                student=s,
+                company='FLAG',
+                plan_name=note_plan or s.academic_package.name,
+                plan_code=f"FLAG-{s.id}",
+                plan_type=plan_type,
+                total_due=total_amt,
+                start_date=s.joined_date or datetime.date(2026, 6, 8),
+                due_day=15
+            )
+            
+            for idx, (label, amount, due_date) in enumerate(inst_list, 1):
+                FeeInstallment.objects.create(
+                    account=acc,
+                    sequence_number=idx,
+                    label=label,
+                    due_date=due_date,
+                    scheduled_amount=amount,
+                    paid_amount=Decimal('0'),
+                    balance_amount=amount,
+                    status='PENDING'
+                )
+            
+            acc.recalculate(save=True)
+            fee_acc_count += 1
+
         self.stdout.write(self.style.SUCCESS(
             f'\n=== Done! ===\n'
             f'  Grades: 4\n'
             f'  Campuses: 2 (KTM, CHN)\n'
             f'  Packages: {AcademicPackage.objects.count()}\n'
             f'  Batches: {AcademicBatch.objects.count()}\n'
-            f'  Students created: {created_count}\n'
-            f'  Total students in DB: {Student.objects.count()}\n'
+            f'  Students in DB: {Student.objects.count()}\n'
+            f'  Fee Accounts created: {fee_acc_count}\n'
+            f'  Total Fee Accounts in DB: {StudentFeeAccount.objects.count()}\n'
         ))
 
