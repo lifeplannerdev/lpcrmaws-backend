@@ -7,7 +7,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import BasePermission
 
 from fees.models import StudentFeeAccount, FeePayment, FeeAdjustment
-from trainers.models import Student
+from students.models import Student
 
 
 class CanViewFeesGrid(BasePermission):
@@ -22,7 +22,6 @@ class CanExportFees(BasePermission):
 
 def get_grid_data(request):
     """Helper to fetch and shape the data based on request filters"""
-    # User requested to specifically fetch from FLAG
     company = 'FLAG'
     
     # Optional filters
@@ -34,32 +33,34 @@ def get_grid_data(request):
     
     accounts = StudentFeeAccount.objects.filter(company=company).select_related(
         'student',
-        'student__trainer__user',
-        'student__branch'
+        'student__trainer',
+        'student__campus',
+        'student__batch',
+        'student__academic_package'
     ).prefetch_related(
         Prefetch('payments', queryset=FeePayment.objects.order_by('payment_date')),
         Prefetch('adjustments', queryset=FeeAdjustment.objects.filter(adjustment_type='DISCOUNT'))
     )
 
     if start_date:
-        accounts = accounts.filter(student__admission_date__gte=start_date)
+        accounts = accounts.filter(student__joined_date__gte=start_date)
     if end_date:
-        accounts = accounts.filter(student__admission_date__lte=end_date)
+        accounts = accounts.filter(student__joined_date__lte=end_date)
     if batch_name:
-        accounts = accounts.filter(student__batch=batch_name)
+        accounts = accounts.filter(Q(student__batch__name=batch_name) | Q(student__batch_id=batch_name))
     if branch_id:
-        accounts = accounts.filter(student__branch_id=branch_id)
+        accounts = accounts.filter(student__campus_id=branch_id)
     if status:
         accounts = accounts.filter(status=status)
 
-    accounts = accounts.order_by('-student__admission_date', 'student__name')
+    accounts = accounts.order_by('-student__joined_date', 'student__name')
 
     data = []
     max_payments = 0
 
     for idx, acc in enumerate(accounts, 1):
         student = acc.student
-        trainer_name = student.trainer.user.get_full_name() if student.trainer else ""
+        trainer_name = student.trainer.get_full_name() if student.trainer else ""
         
         # Calculate discount
         discount = sum(adj.amount_delta for adj in acc.adjustments.all())
@@ -79,17 +80,17 @@ def get_grid_data(request):
             "id": acc.id,
             "sl_no": idx,
             "handled_by": trainer_name,
-            "date_of_joining": student.admission_date.strftime('%Y-%m-%d') if student.admission_date else "",
+            "date_of_joining": student.joined_date.strftime('%Y-%m-%d') if student.joined_date else "",
             "name": student.name,
-            "ph_no": student.phone_number or "",
+            "ph_no": student.phone or "",
             "parent_name": student.parent_name or "",
             "parent_no": student.parent_phone or "",
             "mail_id": student.email or "",
-            "qualification": student.qualification or "",
-            "campus": student.branch.name if student.branch else "",
-            "mode_of_study": student.get_mode_of_study_display(),
-            "preferred_country": student.preferred_country or "",
-            "preferred_level": student.get_preferred_level_display() or "",
+            "qualification": "",
+            "campus": student.campus.name if student.campus else "",
+            "mode_of_study": student.get_mode_of_study_display() if hasattr(student, 'get_mode_of_study_display') else student.mode_of_study,
+            "preferred_country": "",
+            "preferred_level": "",
             "package_chosen": acc.plan_name or acc.plan_type,
             "total_fee": float(acc.total_due),
             "special_discount": float(discount),

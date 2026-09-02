@@ -49,7 +49,7 @@ class AcademicBatchSerializer(serializers.ModelSerializer):
 class StudentSerializer(serializers.ModelSerializer):
     campus_name = serializers.CharField(source='campus.name', read_only=True)
     batch_name = serializers.CharField(source='batch.name', read_only=True)
-    package_name = serializers.CharField(source='package.name', read_only=True)
+    package_name = serializers.CharField(source='academic_package.name', read_only=True)
     trainer_name = serializers.CharField(source='trainer.get_full_name', read_only=True)
     current_grade = serializers.CharField(source='current_grade.code', read_only=True)
     current_grade_id = serializers.IntegerField(source='current_grade.id', read_only=True)

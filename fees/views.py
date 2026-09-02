@@ -95,7 +95,7 @@ class FeeAccountListCreateAPIView(APIView):
     permission_classes = [IsAuthenticated, CanViewFees]
 
     def get(self, request):
-        qs = StudentFeeAccount.objects.select_related('student', 'student__package', 'student__batch', 'template').prefetch_related('installments', 'payments', 'adjustments')
+        qs = StudentFeeAccount.objects.select_related('student', 'student__academic_package', 'student__batch', 'template').prefetch_related('installments', 'payments', 'adjustments')
         company = request.GET.get('company')
         status_filter = request.GET.get('status')
         student_id = request.GET.get('student')
@@ -156,7 +156,7 @@ class FeeAccountDetailAPIView(APIView):
 
     def get_object(self, request, pk):
         account = get_object_or_404(
-            StudentFeeAccount.objects.select_related('student', 'student__package', 'student__batch', 'template'),
+            StudentFeeAccount.objects.select_related('student', 'student__academic_package', 'student__batch', 'template'),
             pk=pk
         )
         if not _can_view_fee_account(request.user, account):
@@ -427,7 +427,7 @@ class FeeSummaryAPIView(APIView):
     permission_classes = [IsAuthenticated, CanViewFees]
 
     def get(self, request):
-        qs = StudentFeeAccount.objects.select_related('student', 'student__package', 'student__batch')
+        qs = StudentFeeAccount.objects.select_related('student', 'student__academic_package', 'student__batch')
         company = request.GET.get('company')
         if company:
             qs = qs.filter(company=company)
@@ -522,7 +522,7 @@ class FeeStudentsAPIView(APIView):
     permission_classes = [IsAuthenticated, CanViewFees]
 
     def get(self, request):
-        qs = Student.objects.filter(status='active').select_related('academic_package', 'batch')
+        qs = Student.objects.filter(status='active').select_related('academic_package', 'batch', 'campus')
         if not has_dynamic_permission(request.user, 'fees:read_tenant') and not has_dynamic_permission(request.user, 'fees:manage') and not has_dynamic_permission(request.user, 'fees:view_reports'):
             qs = qs.filter(trainer=request.user)
 
@@ -653,7 +653,7 @@ class FeeAnalyticsOverviewAPIView(APIView):
     def get(self, request):
         from decimal import Decimal
         company = request.GET.get('company')
-        qs = StudentFeeAccount.objects.select_related('student', 'student__package', 'student__batch')
+        qs = StudentFeeAccount.objects.select_related('student', 'student__academic_package', 'student__batch')
         if company:
             qs = qs.filter(company=company)
         
