@@ -54,6 +54,8 @@ class StudentSerializer(serializers.ModelSerializer):
     current_grade = serializers.CharField(source='current_grade.code', read_only=True)
     has_pending_fees = serializers.ReadOnlyField()
     pending_fee_amount = serializers.ReadOnlyField()
+    fee_status = serializers.ReadOnlyField()
+    fee_account_id = serializers.ReadOnlyField()
 
     class Meta:
         model = Student

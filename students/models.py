@@ -98,8 +98,20 @@ class Student(models.Model):
         return self.batch.current_grade if self.batch else None
     @property
     def has_pending_fees(self):
-        if hasattr(self, 'fee_account'): return self.fee_account.is_overdue
+        if hasattr(self, 'fee_account'): return self.fee_account.overdue_amount > 0
         return False
+        
+    @property
+    def fee_status(self):
+        if not hasattr(self, 'fee_account'):
+            return 'NO_ACCOUNT'
+        return self.fee_account.status
+        
+    @property
+    def fee_account_id(self):
+        if hasattr(self, 'fee_account'):
+            return self.fee_account.id
+        return None
     @property
     def pending_fee_amount(self):
         if hasattr(self, 'fee_account'): return self.fee_account.overdue_amount
