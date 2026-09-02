@@ -99,24 +99,28 @@ class StudentBatchHistoryViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = StudentBatchHistory.objects.all()
     serializer_class = StudentBatchHistorySerializer
     permission_classes = [FlagBasePermission]
+    filter_backends = [DjangoFilterBackend]
     filterset_fields = ['student']
 
 class GradeExamRecordViewSet(viewsets.ModelViewSet):
     queryset = GradeExamRecord.objects.all()
     serializer_class = GradeExamRecordSerializer
     permission_classes = [FlagBasePermission]
+    filter_backends = [DjangoFilterBackend]
     filterset_fields = ['student', 'batch', 'grade']
 
 class AttendanceSessionViewSet(viewsets.ModelViewSet):
     queryset = AttendanceSession.objects.all()
     serializer_class = AttendanceSessionSerializer
     permission_classes = [FlagBasePermission]
+    filter_backends = [DjangoFilterBackend]
     filterset_fields = ['batch', 'date']
 
 class AttendanceRecordViewSet(viewsets.ModelViewSet):
     queryset = AttendanceRecord.objects.all()
     serializer_class = AttendanceRecordSerializer
     permission_classes = [FlagBasePermission]
+    filter_backends = [DjangoFilterBackend]
     filterset_fields = ['session', 'student']
 
 class PromotionEventViewSet(viewsets.ModelViewSet):
