@@ -261,7 +261,10 @@ class StaffListAPI(APIView):
         
         if not (has_dynamic_permission(request.user, 'staff:read_any') or 
                 has_dynamic_permission(request.user, 'staff:read_tenant')):
-            users = users.filter(id=request.user.id)
+            if has_dynamic_permission(request.user, 'reports:kochi'):
+                users = users.filter(location__iexact="KOCHI")
+            else:
+                users = users.filter(id=request.user.id)
             
         # Filter by role
         role = request.GET.get("role")
