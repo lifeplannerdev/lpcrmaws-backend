@@ -4,7 +4,8 @@ from .views import (
     GradeViewSet, CampusViewSet, AcademicPackageViewSet, AttendancePolicyViewSet,
     AcademicBatchViewSet, StudentViewSet, StudentBatchHistoryViewSet,
     GradeExamRecordViewSet, AttendanceSessionViewSet, AttendanceRecordViewSet,
-    PromotionEventViewSet, DemotionEventViewSet
+    PromotionEventViewSet, DemotionEventViewSet,
+    FlagTrainerView
 )
 
 router = DefaultRouter()
@@ -22,5 +23,7 @@ router.register(r'promotions', PromotionEventViewSet)
 router.register(r'demotions', DemotionEventViewSet)
 
 urlpatterns = [
+    path('trainers/', FlagTrainerView.as_view(), name='flag-trainers'),
     path('', include(router.urls)),
 ]
+

@@ -40,8 +40,13 @@ class AcademicBatchSerializer(serializers.ModelSerializer):
     grade_progress = serializers.ReadOnlyField()
     campus_name = serializers.CharField(source='campus.name', read_only=True)
     package_name = serializers.CharField(source='package.name', read_only=True)
-    trainer_name = serializers.CharField(source='trainer.get_full_name', read_only=True)
+    trainer_name = serializers.SerializerMethodField()
     
+    def get_trainer_name(self, obj):
+        if obj.trainer:
+            return obj.trainer.get_full_name().strip() or obj.trainer.username
+        return None
+
     class Meta:
         model = AcademicBatch
         fields = '__all__'
@@ -50,13 +55,18 @@ class StudentSerializer(serializers.ModelSerializer):
     campus_name = serializers.CharField(source='campus.name', read_only=True)
     batch_name = serializers.CharField(source='batch.name', read_only=True)
     package_name = serializers.CharField(source='academic_package.name', read_only=True)
-    trainer_name = serializers.CharField(source='trainer.get_full_name', read_only=True)
+    trainer_name = serializers.SerializerMethodField()
     current_grade = serializers.CharField(source='current_grade.code', read_only=True)
     current_grade_id = serializers.IntegerField(source='current_grade.id', read_only=True)
     has_pending_fees = serializers.ReadOnlyField()
     pending_fee_amount = serializers.ReadOnlyField()
     fee_status = serializers.ReadOnlyField()
     fee_account_id = serializers.ReadOnlyField()
+
+    def get_trainer_name(self, obj):
+        if obj.trainer:
+            return obj.trainer.get_full_name().strip() or obj.trainer.username
+        return None
 
     class Meta:
         model = Student

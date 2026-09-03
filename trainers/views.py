@@ -118,7 +118,10 @@ class TrainerUserListAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        trainers = User.objects.filter(role='TRAINER', is_active=True)
+        trainers = User.objects.filter(
+            Q(db_roles__name__iexact='TRAINER') | Q(trainer_profile__isnull=False),
+            is_active=True
+        ).distinct()
         
         search = request.GET.get('search')
         if search:

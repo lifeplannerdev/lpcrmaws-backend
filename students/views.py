@@ -1,4 +1,5 @@
 from rest_framework import viewsets, permissions, status
+from rest_framework.views import APIView
 from rest_framework.decorators import action
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.response import Response
@@ -132,3 +133,52 @@ class DemotionEventViewSet(viewsets.ModelViewSet):
     queryset = DemotionEvent.objects.all()
     serializer_class = DemotionEventSerializer
     permission_classes = [FlagBasePermission]
+
+class FlagTrainerView(APIView):
+    permission_classes = [FlagBasePermission]
+
+    def get(self, request):
+        from django.db.models import Q
+        from accounts.models import User
+
+        # Find users marked as trainer via db_roles, trainer_profile, or assigned to batches/students
+        trainers_qs = User.objects.filter(
+            Q(db_roles__name__iexact='TRAINER') |
+            Q(trainer_profile__isnull=False) |
+            Q(managed_batches__isnull=False) |
+            Q(assigned_students__isnull=False),
+            is_active=True
+        ).distinct()
+
+        user_ids = set(trainers_qs.values_list('id', flat=True))
+
+        # Also include any active users that have 'flag:trainer' in their permissions list
+        for u in User.objects.filter(is_active=True).only('id', 'permissions'):
+            perms = u.permissions if isinstance(u.permissions, list) else []
+            if 'flag:trainer' in perms:
+                user_ids.add(u.id)
+
+        # Fallback to active users if no users have been assigned the trainer role yet
+        if not user_ids:
+            trainers = User.objects.filter(is_active=True).order_by('first_name', 'username')
+        else:
+            trainers = User.objects.filter(id__in=user_ids).order_by('first_name', 'username')
+
+        search = request.GET.get('search')
+        if search:
+            trainers = trainers.filter(
+                Q(first_name__icontains=search) |
+                Q(last_name__icontains=search) |
+                Q(username__icontains=search)
+            )
+
+        data = [
+            {
+                'id': t.id,
+                'name': t.get_full_name().strip() or t.username,
+                'username': t.username,
+                'email': t.email or ''
+            }
+            for t in trainers
+        ]
+        return Response(data)
