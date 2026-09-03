@@ -64,8 +64,9 @@ class StudentSerializer(serializers.ModelSerializer):
     fee_account_id = serializers.ReadOnlyField()
 
     def get_trainer_name(self, obj):
-        if obj.trainer:
-            return obj.trainer.get_full_name().strip() or obj.trainer.username
+        trainer = obj.trainer or (obj.batch.trainer if obj.batch else None)
+        if trainer:
+            return trainer.get_full_name().strip() or trainer.username
         return None
 
     class Meta:

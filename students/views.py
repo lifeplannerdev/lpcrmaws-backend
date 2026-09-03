@@ -84,15 +84,12 @@ class AcademicBatchViewSet(viewsets.ModelViewSet):
     serializer_class = AcademicBatchSerializer
     permission_classes = [FlagBasePermission]
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['status', 'campus', 'starting_grade', 'current_grade']
+    filterset_fields = ['status', 'campus', 'starting_grade', 'current_grade', 'trainer']
 
     def get_queryset(self):
         qs = super().get_queryset()
         if is_flag_trainer(self.request.user):
-            from django.db.models import Q
-            qs = qs.filter(
-                Q(trainer=self.request.user) | Q(students__trainer=self.request.user)
-            ).distinct()
+            qs = qs.filter(trainer=self.request.user)
         return qs
 
     def perform_create(self, serializer):
@@ -106,15 +103,12 @@ class StudentViewSet(viewsets.ModelViewSet):
     serializer_class = StudentSerializer
     permission_classes = [FlagBasePermission]
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['batch', 'status', 'campus', 'academic_package']
+    filterset_fields = ['batch', 'status', 'campus', 'academic_package', 'trainer']
 
     def get_queryset(self):
         qs = super().get_queryset()
         if is_flag_trainer(self.request.user):
-            from django.db.models import Q
-            qs = qs.filter(
-                Q(trainer=self.request.user) | Q(batch__trainer=self.request.user)
-            ).distinct()
+            qs = qs.filter(batch__trainer=self.request.user)
         return qs
         
     def create(self, request, *args, **kwargs):
@@ -138,12 +132,7 @@ class StudentBatchHistoryViewSet(viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         qs = super().get_queryset()
         if is_flag_trainer(self.request.user):
-            from django.db.models import Q
-            qs = qs.filter(
-                Q(student__trainer=self.request.user) |
-                Q(batch__trainer=self.request.user) |
-                Q(done_by=self.request.user)
-            ).distinct()
+            qs = qs.filter(batch__trainer=self.request.user)
         return qs
 
 class GradeExamRecordViewSet(viewsets.ModelViewSet):
@@ -156,12 +145,7 @@ class GradeExamRecordViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         qs = super().get_queryset()
         if is_flag_trainer(self.request.user):
-            from django.db.models import Q
-            qs = qs.filter(
-                Q(batch__trainer=self.request.user) |
-                Q(student__trainer=self.request.user) |
-                Q(recorded_by=self.request.user)
-            ).distinct()
+            qs = qs.filter(batch__trainer=self.request.user)
         return qs
 
     def perform_create(self, serializer):
@@ -177,12 +161,7 @@ class AttendanceSessionViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         qs = super().get_queryset()
         if is_flag_trainer(self.request.user):
-            from django.db.models import Q
-            qs = qs.filter(
-                Q(batch__trainer=self.request.user) |
-                Q(batch__students__trainer=self.request.user) |
-                Q(created_by=self.request.user)
-            ).distinct()
+            qs = qs.filter(batch__trainer=self.request.user)
         return qs
 
     def perform_create(self, serializer):
@@ -198,11 +177,7 @@ class AttendanceRecordViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         qs = super().get_queryset()
         if is_flag_trainer(self.request.user):
-            from django.db.models import Q
-            qs = qs.filter(
-                Q(session__batch__trainer=self.request.user) |
-                Q(student__trainer=self.request.user)
-            ).distinct()
+            qs = qs.filter(session__batch__trainer=self.request.user)
         return qs
 
 class PromotionEventViewSet(viewsets.ModelViewSet):
@@ -213,12 +188,7 @@ class PromotionEventViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         qs = super().get_queryset()
         if is_flag_trainer(self.request.user):
-            from django.db.models import Q
-            qs = qs.filter(
-                Q(batch__trainer=self.request.user) |
-                Q(new_batch__trainer=self.request.user) |
-                Q(done_by=self.request.user)
-            ).distinct()
+            qs = qs.filter(batch__trainer=self.request.user)
         return qs
 
     def perform_create(self, serializer):
@@ -232,13 +202,7 @@ class DemotionEventViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         qs = super().get_queryset()
         if is_flag_trainer(self.request.user):
-            from django.db.models import Q
-            qs = qs.filter(
-                Q(student__trainer=self.request.user) |
-                Q(from_batch__trainer=self.request.user) |
-                Q(to_batch__trainer=self.request.user) |
-                Q(done_by=self.request.user)
-            ).distinct()
+            qs = qs.filter(from_batch__trainer=self.request.user)
         return qs
 
     def perform_create(self, serializer):

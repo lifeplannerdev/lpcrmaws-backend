@@ -73,6 +73,11 @@ class AcademicBatch(models.Model):
     @property
     def grade_progress(self): return f"{self.starting_grade.code} -> {self.current_grade.code}"
 
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        # Always propagate batch's trainer to all enrolled students
+        self.students.all().update(trainer=self.trainer)
+
 class Student(models.Model):
     STATUS_CHOICES = [('active', 'Active'), ('demoted', 'Demoted - Awaiting Reassignment'), ('exited', 'Exited'), ('on_hold', 'On Hold')]
     name = models.CharField(max_length=200)
@@ -93,6 +98,14 @@ class Student(models.Model):
     class Meta:
         ordering = ['name']
     def __str__(self): return self.name
+
+    def save(self, *args, **kwargs):
+        if self.batch:
+            self.trainer = self.batch.trainer
+        else:
+            self.trainer = None
+        super().save(*args, **kwargs)
+
     @property
     def current_grade(self):
         return self.batch.current_grade if self.batch else None
