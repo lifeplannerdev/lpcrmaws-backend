@@ -261,7 +261,6 @@ class StaffListAPI(APIView):
         
         if not (has_dynamic_permission(request.user, 'staff:read_any') or 
                 has_dynamic_permission(request.user, 'staff:read_tenant')):
-            from django.db.models import Q
             scoped_staff = Q()
             if has_dynamic_permission(request.user, 'reports:sales_all'):
                 scoped_staff |= Q(db_roles__name__in=['ADM_COUNSELLOR', 'ADM_MANAGER', 'BMCO', 'FLAG COORDINATOR', 'FLAG_COORDINATOR'])

@@ -11,7 +11,7 @@ from rest_framework.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404
 from accounts.permissions import has_dynamic_permission
 from django.http import JsonResponse, StreamingHttpResponse, HttpResponse
-from django.db.models import Case, When, Value, IntegerField
+from django.db.models import Case, When, Value, IntegerField, Q
 import urllib.parse
 import urllib.request
 from utils.pusher import save_notification, trigger_pusher
@@ -194,7 +194,6 @@ class AllDailyReportsView(generics.ListAPIView):
 
         req_user = self.request.user
         if not has_dynamic_permission(req_user, 'reports:read_all') and not req_user.db_roles.filter(name__in=REPORT_REVIEWERS).exists():
-            from django.db.models import Q
             scoped_filters = Q()
             if has_dynamic_permission(req_user, 'reports:sales_all'):
                 scoped_filters |= Q(user__db_roles__name__in=SALES_REPORT_ROLES)
@@ -228,7 +227,6 @@ class AllDailyReportsView(generics.ListAPIView):
         if company and company != 'all':
             qs = qs.filter(Q(company=company) | Q(user__company=company))
         if search:
-            from django.db.models import Q
             qs = qs.filter(
                 Q(name__icontains=search) | 
                 Q(report_heading__icontains=search) | 
@@ -361,7 +359,6 @@ class MissingReportsView(APIView):
 
         req_user = request.user
         if not has_dynamic_permission(req_user, 'reports:read_all') and not req_user.db_roles.filter(name__in=REPORT_REVIEWERS).exists():
-            from django.db.models import Q
             scoped_filters = Q()
             if has_dynamic_permission(req_user, 'reports:sales_all'):
                 scoped_filters |= Q(db_roles__name__in=SALES_REPORT_ROLES)
@@ -397,7 +394,6 @@ class AdminReportStatsView(APIView):
         
         req_user = request.user
         if not has_dynamic_permission(req_user, 'reports:read_all') and not req_user.db_roles.filter(name__in=REPORT_REVIEWERS).exists():
-            from django.db.models import Q
             scoped_filters = Q()
             if has_dynamic_permission(req_user, 'reports:sales_all'):
                 scoped_filters |= Q(user__db_roles__name__in=SALES_REPORT_ROLES)
@@ -427,7 +423,6 @@ class AdminReportStatsView(APIView):
             else:
                 qs = qs.filter(report_date=date)
         if search:
-            from django.db.models import Q
             qs = qs.filter(
                 Q(name__icontains=search) | 
                 Q(report_heading__icontains=search) | 
