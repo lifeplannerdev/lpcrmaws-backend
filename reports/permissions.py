@@ -16,7 +16,8 @@ class IsReportReviewer(BasePermission):
             request.user.is_authenticated and
             (has_dynamic_permission(request.user, 'reports:read_all') or
              has_dynamic_permission(request.user, 'reports:documentation') or
-             has_dynamic_permission(request.user, 'reports:kochi'))
+             has_dynamic_permission(request.user, 'reports:kochi') or
+             has_dynamic_permission(request.user, 'reports:sales_all'))
         )
 
 

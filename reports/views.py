@@ -14,8 +14,9 @@ from django.http import JsonResponse, StreamingHttpResponse, HttpResponse
 from django.db.models import Case, When, Value, IntegerField
 import urllib.parse
 import urllib.request
-from utils.pusher import save_notification, trigger_pusher
 from accounts.models import User
+
+SALES_REPORT_ROLES = ['ADM_COUNSELLOR', 'ADM_MANAGER', 'BMCO', 'FLAG COORDINATOR', 'FLAG_COORDINATOR']
 
 
 class DailyReportPagination(PageNumberPagination):
@@ -194,13 +195,15 @@ class AllDailyReportsView(generics.ListAPIView):
         if not has_dynamic_permission(req_user, 'reports:read_all') and not req_user.db_roles.filter(name__in=REPORT_REVIEWERS).exists():
             from django.db.models import Q
             scoped_filters = Q()
+            if has_dynamic_permission(req_user, 'reports:sales_all'):
+                scoped_filters |= Q(user__db_roles__name__in=SALES_REPORT_ROLES)
             if has_dynamic_permission(req_user, 'reports:kochi'):
                 scoped_filters |= Q(user__location__iexact="KOCHI")
             if has_dynamic_permission(req_user, 'reports:documentation'):
                 scoped_filters |= Q(user__db_roles__name="DOCUMENTATION")
             
             if scoped_filters:
-                qs = qs.filter(scoped_filters)
+                qs = qs.filter(scoped_filters).distinct()
             else:
                 qs = qs.none()
 
@@ -222,7 +225,7 @@ class AllDailyReportsView(generics.ListAPIView):
             else:
                 qs = qs.filter(report_date=date)
         if company and company != 'all':
-            qs = qs.filter(user__company=company)
+            qs = qs.filter(Q(company=company) | Q(user__company=company))
         if search:
             from django.db.models import Q
             qs = qs.filter(
@@ -289,7 +292,9 @@ class ReviewDailyReportView(APIView):
         req_user = request.user
         if not has_dynamic_permission(req_user, 'reports:read_all') and not req_user.db_roles.filter(name__in=REPORT_REVIEWERS).exists():
             allowed = False
-            if has_dynamic_permission(req_user, 'reports:kochi') and (report.user.location or "").upper() == "KOCHI":
+            if has_dynamic_permission(req_user, 'reports:sales_all') and report.user.db_roles.filter(name__in=SALES_REPORT_ROLES).exists():
+                allowed = True
+            elif has_dynamic_permission(req_user, 'reports:kochi') and (report.user.location or "").upper() == "KOCHI":
                 allowed = True
             elif has_dynamic_permission(req_user, 'reports:documentation') and report.user.db_roles.filter(name="DOCUMENTATION").exists():
                 allowed = True
@@ -357,12 +362,14 @@ class MissingReportsView(APIView):
         if not has_dynamic_permission(req_user, 'reports:read_all') and not req_user.db_roles.filter(name__in=REPORT_REVIEWERS).exists():
             from django.db.models import Q
             scoped_filters = Q()
+            if has_dynamic_permission(req_user, 'reports:sales_all'):
+                scoped_filters |= Q(db_roles__name__in=SALES_REPORT_ROLES)
             if has_dynamic_permission(req_user, 'reports:kochi'):
                 scoped_filters |= Q(location__iexact="KOCHI")
             if has_dynamic_permission(req_user, 'reports:documentation'):
                 scoped_filters |= Q(db_roles__name="DOCUMENTATION")
             if scoped_filters:
-                users = users.filter(scoped_filters)
+                users = users.filter(scoped_filters).distinct()
             else:
                 users = users.none()
             
@@ -391,12 +398,14 @@ class AdminReportStatsView(APIView):
         if not has_dynamic_permission(req_user, 'reports:read_all') and not req_user.db_roles.filter(name__in=REPORT_REVIEWERS).exists():
             from django.db.models import Q
             scoped_filters = Q()
+            if has_dynamic_permission(req_user, 'reports:sales_all'):
+                scoped_filters |= Q(user__db_roles__name__in=SALES_REPORT_ROLES)
             if has_dynamic_permission(req_user, 'reports:kochi'):
                 scoped_filters |= Q(user__location__iexact="KOCHI")
             if has_dynamic_permission(req_user, 'reports:documentation'):
                 scoped_filters |= Q(user__db_roles__name="DOCUMENTATION")
             if scoped_filters:
-                qs = qs.filter(scoped_filters)
+                qs = qs.filter(scoped_filters).distinct()
             else:
                 qs = qs.none()
         
@@ -406,7 +415,7 @@ class AdminReportStatsView(APIView):
         search = request.query_params.get("search")
 
         if company and company != 'all':
-            qs = qs.filter(user__company=company)
+            qs = qs.filter(Q(company=company) | Q(user__company=company))
         if user and user != 'all':
             qs = qs.filter(user__id=user)
         if date and date != 'all':
@@ -450,10 +459,11 @@ class DailyReportDetailView(APIView):
         )
 
         is_reviewer = has_dynamic_permission(request.user, 'reports:read_all') or request.user.db_roles.filter(name__in=REPORT_REVIEWERS).exists()
+        is_sales_reviewer = has_dynamic_permission(request.user, 'reports:sales_all') and report.user.db_roles.filter(name__in=SALES_REPORT_ROLES).exists()
         is_kochi_reviewer = has_dynamic_permission(request.user, 'reports:kochi') and (report.user.location or "").upper() == "KOCHI"
         is_doc_reviewer = has_dynamic_permission(request.user, 'reports:documentation') and report.user.db_roles.filter(name="DOCUMENTATION").exists()
 
-        if report.user != request.user and not (is_reviewer or is_kochi_reviewer or is_doc_reviewer):
+        if report.user != request.user and not (is_reviewer or is_sales_reviewer or is_kochi_reviewer or is_doc_reviewer):
             return Response({"error": "Permission denied"}, status=403)
 
         serializer = DailyReportSerializer(
@@ -471,10 +481,11 @@ class ViewReportFileView(APIView):
         )
 
         is_reviewer = has_dynamic_permission(request.user, 'reports:read_all') or request.user.db_roles.filter(name__in=REPORT_REVIEWERS).exists()
+        is_sales_reviewer = has_dynamic_permission(request.user, 'reports:sales_all') and report.user.db_roles.filter(name__in=SALES_REPORT_ROLES).exists()
         is_kochi_reviewer = has_dynamic_permission(request.user, 'reports:kochi') and (report.user.location or "").upper() == "KOCHI"
         is_doc_reviewer = has_dynamic_permission(request.user, 'reports:documentation') and report.user.db_roles.filter(name="DOCUMENTATION").exists()
 
-        if report.user != request.user and not (is_reviewer or is_kochi_reviewer or is_doc_reviewer):
+        if report.user != request.user and not (is_reviewer or is_sales_reviewer or is_kochi_reviewer or is_doc_reviewer):
             return Response({"error": "Permission denied"}, status=403)
 
         attachments = report.attachments.all()
@@ -522,10 +533,11 @@ class DownloadAttachmentView(APIView):
 
         is_owner    = attachment.report.user == request.user
         is_reviewer = has_dynamic_permission(request.user, 'reports:read_all') or request.user.db_roles.filter(name__in=REPORT_REVIEWERS).exists()
+        is_sales_reviewer = has_dynamic_permission(request.user, 'reports:sales_all') and attachment.report.user.db_roles.filter(name__in=SALES_REPORT_ROLES).exists()
         is_kochi_reviewer = has_dynamic_permission(request.user, 'reports:kochi') and (attachment.report.user.location or "").upper() == "KOCHI"
         is_doc_reviewer = has_dynamic_permission(request.user, 'reports:documentation') and attachment.report.user.db_roles.filter(name="DOCUMENTATION").exists()
         
-        if not (is_owner or is_reviewer or is_kochi_reviewer or is_doc_reviewer):
+        if not (is_owner or is_reviewer or is_sales_reviewer or is_kochi_reviewer or is_doc_reviewer):
             return Response({"error": "Permission denied"}, status=403)
 
         if not attachment.attached_file:
