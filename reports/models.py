@@ -125,7 +125,8 @@ class DailyReport(models.Model):
             return self.agenda_submitted_at > deadline
         elif settings.agenda_policy == 'EVENING_BEFORE':
             from datetime import timedelta
-            deadline_date = self.report_date - timedelta(days=1)
+            delta_days = 2 if self.report_date.weekday() == 0 else 1
+            deadline_date = self.report_date - timedelta(days=delta_days)
             deadline = timezone.datetime.combine(deadline_date, settings.agenda_deadline)
             deadline = timezone.make_aware(deadline) if timezone.is_naive(deadline) else deadline
             return self.agenda_submitted_at > deadline
@@ -171,7 +172,8 @@ class DailyReport(models.Model):
                 return self._format_timedelta(self.agenda_submitted_at - deadline)
         elif settings.agenda_policy == 'EVENING_BEFORE':
             from datetime import timedelta
-            deadline_date = self.report_date - timedelta(days=1)
+            delta_days = 2 if self.report_date.weekday() == 0 else 1
+            deadline_date = self.report_date - timedelta(days=delta_days)
             deadline = timezone.datetime.combine(deadline_date, settings.agenda_deadline)
             deadline = timezone.make_aware(deadline) if timezone.is_naive(deadline) else deadline
             if self.agenda_submitted_at > deadline:

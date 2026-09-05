@@ -41,18 +41,19 @@ class DailyReportCreateView(generics.CreateAPIView):
         user = self.request.user
         report_date = data.get('report_date', now().date())
         
-        # If no agenda provided in request, check yesterday's report
+        # If no agenda provided in request, check previous working day's report
         agenda_heading = data.get('agenda_heading')
         next_day_agenda = data.get('next_day_agenda')
         
         if not next_day_agenda:
-            from datetime import timedelta
-            yesterday = report_date - timedelta(days=1)
-            yesterday_report = DailyReport.objects.filter(user=user, report_date=yesterday).order_by('-created_at').first()
-            if yesterday_report and yesterday_report.next_day_agenda:
-                agenda_heading = yesterday_report.agenda_heading
-                next_day_agenda = yesterday_report.next_day_agenda
-                agenda_submitted_at = yesterday_report.agenda_submitted_at
+            prev_report = DailyReport.objects.filter(
+                user=user, 
+                report_date__lt=report_date
+            ).order_by('-report_date', '-created_at').first()
+            if prev_report and prev_report.next_day_agenda:
+                agenda_heading = prev_report.agenda_heading
+                next_day_agenda = prev_report.next_day_agenda
+                agenda_submitted_at = prev_report.agenda_submitted_at
 
         report = serializer.save(
             user=user,
@@ -175,6 +176,35 @@ class MyDailyReportUpdateView(generics.UpdateAPIView):
             report_submitted_at=report_submitted_at,
             agenda_submitted_at=agenda_submitted_at
         )
+
+        # Notify reviewers on report update
+        try:
+            user = self.request.user
+            reviewer_users = User.objects.filter(
+                db_roles__name__in=REPORT_REVIEWERS,
+                is_active=True
+            ).distinct()
+
+            for reviewer in reviewer_users:
+                message = f"Report updated by {user.get_full_name() or user.username}"
+                save_notification.delay(
+                    user_id=reviewer.id,
+                    type='report',
+                    message=message,
+                    by=user.get_full_name() or user.username,
+                    related_id=report.id
+                )
+                trigger_pusher.delay(
+                    channel=f"private-user-{reviewer.id}",
+                    event="report.submitted",
+                    data={
+                        "report_id": report.id,
+                        "user_name": user.get_full_name() or user.username,
+                        "message": message
+                    }
+                )
+        except Exception:
+            pass
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
@@ -588,16 +618,37 @@ class PreviousEveningAgendaView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        latest_evening_report = DailyReport.objects.filter(
-            user=request.user, 
-            report_type='EVENING'
-        ).order_by('-created_at').first()
+        qs = DailyReport.objects.filter(user=request.user)
+        
+        before_date = request.query_params.get("before_date") or request.query_params.get("date")
+        if before_date:
+            from django.utils.dateparse import parse_date
+            parsed = parse_date(before_date)
+            if parsed:
+                qs = qs.filter(report_date__lt=parsed)
+                
+        exclude_id = request.query_params.get("exclude_id")
+        if exclude_id:
+            try:
+                qs = qs.exclude(id=int(exclude_id))
+            except (ValueError, TypeError):
+                pass
+
+        latest_evening_report = qs.order_by('-report_date', '-created_at').first()
 
         agenda = None
+        heading = None
+        report_date = None
         if latest_evening_report and latest_evening_report.next_day_agenda:
             agenda = latest_evening_report.next_day_agenda
+            heading = latest_evening_report.agenda_heading
+            report_date = str(latest_evening_report.report_date)
             
-        return Response({'next_day_agenda': agenda})
+        return Response({
+            'next_day_agenda': agenda,
+            'agenda_heading': heading,
+            'report_date': report_date,
+        })
 
 class AdminReportSettingsListView(generics.ListCreateAPIView):
     serializer_class = ReportTimingSettingsSerializer
