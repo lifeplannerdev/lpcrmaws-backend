@@ -43,14 +43,20 @@ class Lead(models.Model):
         ('REJECTED', 'Rejected')
     ]
     STATUS_CHOICES = [
-    ('ENQUIRY', 'Enquiry'),
+    # ── New Canonical Statuses ──────────────────────────────
+    ('ENQUIRY',    'Enquiry'),
     ('JOB_ENQUIRY', 'Job Enquiry'),
-    ('CONTACTED', 'Contacted'),
-    ('QUALIFIED', 'Qualified'),
+    ('B2B',        'B2B'),
+    ('COLD_WARM',  'Cold Warm'),
+    ('HOT',        'Hot'),
+    ('CLOSED',     'Closed'),
+    ('CONVERTED',  'Converted'),
+    # ── Legacy Statuses (kept for backward compatibility) ───
+    ('CONTACTED',     'Contacted'),
+    ('QUALIFIED',     'Qualified'),
     ('NOT_INTERESTED', 'Not Interested'),
-    ('CONVERTED', 'Converted'),
-    ('CNR', 'Could Not Reach'),
-    ('REGISTERED', 'Registered'),
+    ('CNR',           'Could Not Reach'),
+    ('REGISTERED',    'Registered'),
 ]
     # Basic lead info
     name = models.CharField(max_length=100, validators=[MinLengthValidator(3)], null=True, blank=True)

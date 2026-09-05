@@ -10,7 +10,8 @@ ROLE_PERMISSIONS = {
         'staff:access_flag', 'assets:read_any', 'assets:manage', 'assets:read_tenant', 'staff:edit_contact_logic',
         'credentials:view', 'credentials:manage', 'credentials:share',
         'fds:admin', 'fds:view', 'fds_fees:view',
-        'flag:admin', 'flag:view', 'flag:trainer', 'flag:fees'
+        'flag:admin', 'flag:view', 'flag:trainer', 'flag:fees',
+        'staff_analysis:admin',
     ],
     'CEO': [
         'dashboard:read', 'leads:read_tenant', 'staff:read_tenant', 'tasks:read_all', 
@@ -18,7 +19,8 @@ ROLE_PERMISSIONS = {
         'tasks:edit_any', 'staff:access_flag',
         'credentials:view', 'credentials:manage', 'credentials:share',
         'fds:admin', 'fds:view', 'fds_fees:view',
-        'flag:admin', 'flag:view', 'flag:trainer', 'flag:fees'
+        'flag:admin', 'flag:view', 'flag:trainer', 'flag:fees',
+        'staff_analysis:admin',
     ],
     'BUSINESS_HEAD': [
         'dashboard:read', 'leads:read_tenant', 'staff:read_tenant', 'tasks:read_own', 
