@@ -622,9 +622,9 @@ class ExportLeadsExcelView(LeadListView):
                 
                 status_colors = {
                     'ENQUIRY': 'DBEAFE', 'JOB_ENQUIRY': 'E0E7FF', 'B2B': 'EDE9FE',
-                    'COLD_WARM': 'CFFAFE', 'HOT': 'FFEDD5', 'CLOSED': 'FFE4E6',
-                    'CONVERTED': 'D1FAE5', 'CONTACTED': 'FEF3C7', 'QUALIFIED': 'F3E8FF',
-                    'NOT_INTERESTED': 'FEE2E2', 'CNR': 'F3F4F6', 'REGISTERED': 'DCFCE7',
+                    'COLD': 'E0F2FE', 'WARM': 'FEF08A', 'HOT': 'FFEDD5', 'CLOSED': 'FFE4E6',
+                    'CONVERTED': 'D1FAE5', 'CONTACTED': 'FEF3C7',
+                    'QUALIFIED': 'F3E8FF', 'NOT_INTERESTED': 'FEE2E2', 'CNR': 'F3F4F6', 'REGISTERED': 'DCFCE7',
                 }
                 fup_status_colors = {'contacted': 'D1FAE5', 'pending': 'FEF3C7', 'not_interested': 'FEE2E2', 'rescheduled': 'DBEAFE'}
                 

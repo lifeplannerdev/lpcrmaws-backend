@@ -43,11 +43,12 @@ class Lead(models.Model):
         ('REJECTED', 'Rejected')
     ]
     STATUS_CHOICES = [
-    # ── New Canonical Statuses ──────────────────────────────
+    # ── Canonical Statuses ──────────────────────────────
     ('ENQUIRY',    'Enquiry'),
     ('JOB_ENQUIRY', 'Job Enquiry'),
     ('B2B',        'B2B'),
-    ('COLD_WARM',  'Cold Warm'),
+    ('COLD',       'Cold'),
+    ('WARM',       'Warm'),
     ('HOT',        'Hot'),
     ('CLOSED',     'Closed'),
     ('CONVERTED',  'Converted'),
