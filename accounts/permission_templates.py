@@ -37,10 +37,10 @@ ROLE_PERMISSIONS = {
         'dashboard:read', 'leads:read_tenant', 'tasks:read_all', 'reports:read_own', 'voxbay:read_own', 'voxbay_ai:read_own', 'flag:view'
     ],
     'ADM_COUNSELLOR': [
-        'dashboard:read', 'leads:read_tenant', 'tasks:read_all', 'reports:read_own', 'voxbay:read_own', 'voxbay_ai:read_own', 'flag:view'
+        'dashboard:read', 'leads:read_own', 'tasks:read_all', 'reports:read_own', 'voxbay:read_own', 'voxbay_ai:read_own', 'flag:view'
     ],
     'ADM_EXEC': [
-        'dashboard:read', 'leads:read_tenant', 'tasks:read_all', 'reports:read_own', 'voxbay:read_own', 'voxbay_ai:read_own'
+        'dashboard:read', 'leads:read_own', 'tasks:read_all', 'reports:read_own', 'voxbay:read_own', 'voxbay_ai:read_own'
     ],
     'PROCESSING': [
         'dashboard:read', 'tasks:read_all', 'reports:read_own'

@@ -538,25 +538,132 @@ class ExportLeadsExcelView(LeadListView):
     def get(self, request, *args, **kwargs):
         import io
         from django.http import HttpResponse
+        from openpyxl.styles import PatternFill, Font, Alignment
         
-        queryset = self.filter_queryset(self.get_queryset())
+        # Prefetch related data for full history export
+        queryset = self.filter_queryset(self.get_queryset()).prefetch_related(
+            models.Prefetch('followups', queryset=FollowUp.objects.order_by('-created_at')),
+            models.Prefetch('remark_history', queryset=RemarkHistory.objects.order_by('-changed_at'))
+        )
         
-        data = list(queryset.values(
-            'id', 'name', 'phone', 'email', 'status', 'source', 
-            'campaign_name', 'adset_name', 'ad_name', 'created_at', 'remarks'
-        ))
-        
-        df = pd.DataFrame(data)
-        if not df.empty:
-            # Remove timezone for Excel export
-            df['created_at'] = df['created_at'].dt.tz_localize(None)
+        leads_data = []
+        remarks_data = []
+        followups_data = []
+
+        for lead in queryset:
+            # Main Leads Sheet Data
+            latest_fup = lead.followups.first()
+            call_type = 'unknown'
+            if lead.voxbay_status:
+                vs = lead.voxbay_status.lower()
+                if 'inbound' in vs or 'incoming' in vs: call_type = 'incoming'
+                elif 'outbound' in vs or 'outgoing' in vs: call_type = 'outgoing'
+            elif lead.source == 'VOXBAY CALL':
+                call_type = 'outgoing'
+                
+            leads_data.append({
+                'ID': lead.id,
+                'Name': lead.name,
+                'Phone': lead.phone,
+                'Email': lead.email,
+                'Status': lead.status,
+                'Call Type': call_type,
+                'Latest Remarks': lead.remarks,
+                'Latest Followup Date': latest_fup.follow_up_date.strftime('%Y-%m-%d') if latest_fup and latest_fup.follow_up_date else None,
+                'Latest Followup Status': latest_fup.status if latest_fup else None,
+                'Source': lead.source,
+                'Assigned To': lead.assigned_to.get_full_name() if lead.assigned_to else None,
+                'Created At': lead.created_at.replace(tzinfo=None) if lead.created_at else None,
+            })
             
+            # Remarks History Data
+            for rm in lead.remark_history.all():
+                remarks_data.append({
+                    'Lead ID': lead.id,
+                    'Lead Name': lead.name,
+                    'Previous Remarks': rm.previous_remarks,
+                    'New Remarks': rm.new_remarks,
+                    'Changed By': rm.changed_by.get_full_name() if rm.changed_by else 'System',
+                    'Changed At': rm.changed_at.replace(tzinfo=None) if rm.changed_at else None,
+                })
+                
+            # Followups History Data
+            for fup in lead.followups.all():
+                followups_data.append({
+                    'Lead ID': lead.id,
+                    'Lead Name': lead.name,
+                    'Follow-up Date': fup.follow_up_date.strftime('%Y-%m-%d') if fup.follow_up_date else None,
+                    'Type': fup.followup_type,
+                    'Status': fup.status,
+                    'Notes': fup.notes,
+                    'Assigned To': fup.assigned_to.get_full_name() if fup.assigned_to else None,
+                    'Created At': fup.created_at.replace(tzinfo=None) if fup.created_at else None,
+                })
+                
+        df_leads = pd.DataFrame(leads_data)
+        df_remarks = pd.DataFrame(remarks_data)
+        df_fups = pd.DataFrame(followups_data)
+
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, sheet_name='Leads', index=False)
+            if not df_leads.empty: df_leads.to_excel(writer, sheet_name='Leads Overview', index=False)
+            if not df_remarks.empty: df_remarks.to_excel(writer, sheet_name='Remarks History', index=False)
+            if not df_fups.empty: df_fups.to_excel(writer, sheet_name='Follow-ups History', index=False)
             
+            # If no leads at all, create an empty sheet to prevent Excel writer error
+            if df_leads.empty and df_remarks.empty and df_fups.empty:
+                pd.DataFrame(['No data available']).to_excel(writer, sheet_name='Empty', index=False)
+                
+            workbook = writer.book
+            
+            # ── Format Leads Sheet ──
+            if 'Leads Overview' in workbook.sheetnames:
+                ws_leads = workbook['Leads Overview']
+                
+                status_colors = {
+                    'ENQUIRY': 'DBEAFE', 'JOB_ENQUIRY': 'E0E7FF', 'B2B': 'EDE9FE',
+                    'COLD_WARM': 'CFFAFE', 'HOT': 'FFEDD5', 'CLOSED': 'FFE4E6',
+                    'CONVERTED': 'D1FAE5', 'CONTACTED': 'FEF3C7', 'QUALIFIED': 'F3E8FF',
+                    'NOT_INTERESTED': 'FEE2E2', 'CNR': 'F3F4F6', 'REGISTERED': 'DCFCE7',
+                }
+                fup_status_colors = {'contacted': 'D1FAE5', 'pending': 'FEF3C7', 'not_interested': 'FEE2E2', 'rescheduled': 'DBEAFE'}
+                
+                header_font = Font(bold=True, color='FFFFFF')
+                header_fill = PatternFill(start_color='4F46E5', end_color='4F46E5', fill_type='solid')
+                
+                for cell in ws_leads[1]:
+                    cell.font = header_font
+                    cell.fill = header_fill
+                    cell.alignment = Alignment(horizontal='center', vertical='center')
+                    
+                status_col_idx = df_leads.columns.get_loc('Status') + 1 if not df_leads.empty and 'Status' in df_leads.columns else None
+                fup_col_idx = df_leads.columns.get_loc('Latest Followup Status') + 1 if not df_leads.empty and 'Latest Followup Status' in df_leads.columns else None
+                
+                for row_idx, row in enumerate(ws_leads.iter_rows(min_row=2), start=2):
+                    if status_col_idx:
+                        cell = row[status_col_idx - 1]
+                        if cell.value in status_colors:
+                            cell.fill = PatternFill(start_color=status_colors[cell.value], end_color=status_colors[cell.value], fill_type='solid')
+                    if fup_col_idx:
+                        cell = row[fup_col_idx - 1]
+                        if cell.value in fup_status_colors:
+                            cell.fill = PatternFill(start_color=fup_status_colors[cell.value], end_color=fup_status_colors[cell.value], fill_type='solid')
+                            
+                # Legend
+                ws_leads.append([])
+                ws_leads.append(['COLOR LEGEND - LEAD STATUS'])
+                for status, hex_code in status_colors.items():
+                    ws_leads.append([status])
+                    ws_leads.cell(row=ws_leads.max_row, column=1).fill = PatternFill(start_color=hex_code, end_color=hex_code, fill_type='solid')
+                    
+            for sheet_name in ['Remarks History', 'Follow-ups History']:
+                if sheet_name in workbook.sheetnames:
+                    ws = workbook[sheet_name]
+                    for cell in ws[1]:
+                        cell.font = Font(bold=True)
+                        cell.fill = PatternFill(start_color='E5E7EB', end_color='E5E7EB', fill_type='solid')
+
         output.seek(0)
-        
         response = HttpResponse(
             output.read(),
             content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'

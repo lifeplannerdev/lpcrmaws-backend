@@ -152,13 +152,25 @@ class Lead(models.Model):
         if self.status == 'REGISTERED' and not self.registration_date:
             self.registration_date = timezone.now()
         
-        # Update processing status date when processing status changes
+        is_status_terminal = False
         if self.pk:
             original = Lead.objects.get(pk=self.pk)
             if original.processing_status != self.processing_status:
                 self.processing_status_date = timezone.now()
+            if original.status != self.status and self.status in ['CLOSED', 'CONVERTED']:
+                is_status_terminal = True
+        elif self.status in ['CLOSED', 'CONVERTED']:
+            is_status_terminal = True
         
         super().save(*args, **kwargs)
+
+        # Auto-resolve pending followups if lead is closed or converted
+        if is_status_terminal:
+            pending_fups = self.followups.filter(status='pending')
+            for fup in pending_fups:
+                fup.status = 'contacted'
+                fup.notes = f"{fup.notes}\n\n[Auto-resolved: Lead status changed to {self.status}]".strip()
+                fup.save(update_fields=['status', 'notes'])
 
     def update_processing_status(self, status, executive=None, notes=''):
         """Helper method to update processing status with proper tracking"""

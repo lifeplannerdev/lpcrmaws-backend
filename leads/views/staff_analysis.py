@@ -1,7 +1,9 @@
-﻿from datetime import date, timedelta
+from datetime import date, timedelta
 from django.utils import timezone
-from django.db.models import Count, Q, Prefetch
+from django.db.models import Count, Q, Prefetch, Case, When, Value, CharField
 from rest_framework.views import APIView
+from rest_framework import generics, filters
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 
@@ -48,66 +50,46 @@ class StaffAnalysisAPIView(APIView):
             return Response({'detail': 'Permission denied.'}, status=403)
 
         start_date, end_date = _get_date_range(request)
-        employee_id = request.query_params.get('employee_id', 'all')
         status_filter = request.query_params.get('status', '')
         source_filter = request.query_params.get('source', '')
+        call_type_filter = request.query_params.get('call_type', '')
 
         employees_qs = User.objects.filter(is_active=True).prefetch_related('db_roles')
-        if employee_id and employee_id != 'all':
-            try:
-                employees_qs = employees_qs.filter(id=int(employee_id))
-            except ValueError:
-                pass
 
-        lead_base = Lead.objects.select_related(
-            'assigned_to', 'sub_assigned_to', 'assigned_by'
-        ).prefetch_related(
-            Prefetch('followups', queryset=FollowUp.objects.order_by('-follow_up_date', '-created_at'))
-        )
+        # Filter base for leads
+        lead_qs = Lead.objects.all()
         if start_date and end_date:
-            lead_base = lead_base.filter(created_at__date__gte=start_date, created_at__date__lte=end_date)
+            lead_qs = lead_qs.filter(created_at__date__gte=start_date, created_at__date__lte=end_date)
         if status_filter:
             statuses = [s.strip() for s in status_filter.split(',') if s.strip()]
             if statuses:
-                lead_base = lead_base.filter(status__in=statuses)
+                lead_qs = lead_qs.filter(status__in=statuses)
         if source_filter:
             sources = [s.strip() for s in source_filter.split(',') if s.strip()]
             if sources:
-                lead_base = lead_base.filter(source__in=sources)
+                lead_qs = lead_qs.filter(source__in=sources)
+        if call_type_filter:
+            ctypes = [c.strip().lower() for c in call_type_filter.split(',') if c.strip()]
+            if 'incoming' in ctypes and 'outgoing' not in ctypes:
+                lead_qs = lead_qs.filter(Q(voxbay_status__icontains='inbound') | Q(voxbay_status__icontains='incoming'))
+            elif 'outgoing' in ctypes and 'incoming' not in ctypes:
+                lead_qs = lead_qs.filter(Q(voxbay_status__icontains='outbound') | Q(voxbay_status__icontains='outgoing') | Q(source='VOXBAY CALL'))
 
-        fu_base = FollowUp.objects.select_related('lead', 'assigned_to')
+        # Filter base for followups
+        fu_qs = FollowUp.objects.all()
         if start_date and end_date:
-            fu_base = fu_base.filter(created_at__date__gte=start_date, created_at__date__lte=end_date)
+            fu_qs = fu_qs.filter(created_at__date__gte=start_date, created_at__date__lte=end_date)
 
         results = []
-        for emp in employees_qs:
-            emp_leads = lead_base.filter(Q(assigned_to=emp) | Q(sub_assigned_to=emp)).distinct()
-            leads_data = []
-            for lead in emp_leads:
-                fups = list(lead.followups.all())
-                leads_data.append({
-                    'id': lead.id,
-                    'name': lead.name,
-                    'phone': lead.phone,
-                    'email': lead.email,
-                    'status': lead.status,
-                    'source': lead.source,
-                    'remarks': lead.remarks,
-                    'program': lead.program,
-                    'location': lead.location,
-                    'priority': lead.priority,
-                    'created_at': lead.created_at.isoformat() if lead.created_at else None,
-                    'updated_at': lead.updated_at.isoformat() if lead.updated_at else None,
-                    'assigned_to': emp.get_full_name() or emp.username,
-                    'call_type': _infer_call_type(lead),
-                    'followups': [_serialize_followup(f) for f in fups],
-                })
+        today = timezone.now().date()
 
-            emp_followups = fu_base.filter(assigned_to=emp)
+        for emp in employees_qs:
+            total_leads = lead_qs.filter(Q(assigned_to=emp) | Q(sub_assigned_to=emp)).count()
+            
+            emp_followups = fu_qs.filter(assigned_to=emp)
             total_fups = emp_followups.count()
             contacted_fups = emp_followups.filter(status='contacted').count()
             pending_fups = emp_followups.filter(status='pending').count()
-            today = timezone.now().date()
             overdue_fups = emp_followups.filter(status='pending', follow_up_date__lt=today).count()
             deficit = contacted_fups - total_fups
 
@@ -120,14 +102,13 @@ class StaffAnalysisAPIView(APIView):
                     'roles': list(emp.db_roles.values_list('name', flat=True)),
                 },
                 'summary': {
-                    'total_leads': len(leads_data),
+                    'total_leads': total_leads,
                     'followups_total': total_fups,
                     'followups_contacted': contacted_fups,
                     'followups_pending': pending_fups,
                     'followups_overdue': overdue_fups,
                     'followup_deficit': deficit,
-                },
-                'leads': leads_data,
+                }
             })
 
         grand_total_leads = sum(r['summary']['total_leads'] for r in results)
@@ -149,27 +130,107 @@ class StaffAnalysisAPIView(APIView):
         })
 
 
-def _infer_call_type(lead):
-    if lead.voxbay_status:
-        vs = lead.voxbay_status.lower()
-        if 'inbound' in vs or 'incoming' in vs:
-            return 'incoming'
-        if 'outbound' in vs or 'outgoing' in vs:
-            return 'outgoing'
-    if lead.source == 'VOXBAY CALL':
-        return 'outgoing'
-    return 'unknown'
+class StaffAnalysisPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = 'page_size'
+    max_page_size = 100
 
+class StaffAnalysisLeadsAPIView(generics.ListAPIView):
+    permission_classes = [IsAuthenticated]
+    pagination_class = StaffAnalysisPagination
+    filter_backends = [filters.SearchFilter]
+    search_fields = ['name', 'phone', 'email', 'remarks']
 
-def _serialize_followup(f):
-    return {
-        'id': f.id,
-        'follow_up_date': f.follow_up_date.isoformat() if f.follow_up_date else None,
-        'follow_up_time': str(f.follow_up_time) if f.follow_up_time else None,
-        'followup_type': f.followup_type,
-        'status': f.status,
-        'priority': f.priority,
-        'notes': f.notes,
-        'is_overdue': f.is_overdue,
-        'created_at': f.created_at.isoformat() if f.created_at else None,
-    }
+    def get_queryset(self):
+        user = self.request.user
+        is_admin = (
+            user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists()
+            or has_dynamic_permission(user, 'leads:read_tenant')
+            or has_dynamic_permission(user, 'leads:read_any')
+            or has_dynamic_permission(user, 'staff_analysis:admin')
+        )
+        if not is_admin:
+            return Lead.objects.none()
+
+        start_date, end_date = _get_date_range(self.request)
+        employee_id = self.request.query_params.get('employee_id')
+        status_filter = self.request.query_params.get('status', '')
+        source_filter = self.request.query_params.get('source', '')
+        call_type_filter = self.request.query_params.get('call_type', '')
+
+        lead_qs = Lead.objects.select_related(
+            'assigned_to', 'sub_assigned_to'
+        ).prefetch_related(
+            Prefetch('followups', queryset=FollowUp.objects.order_by('-follow_up_date', '-created_at'))
+        )
+
+        if employee_id:
+            lead_qs = lead_qs.filter(Q(assigned_to_id=employee_id) | Q(sub_assigned_to_id=employee_id))
+
+        if start_date and end_date:
+            lead_qs = lead_qs.filter(created_at__date__gte=start_date, created_at__date__lte=end_date)
+            
+        if status_filter:
+            statuses = [s.strip() for s in status_filter.split(',') if s.strip()]
+            if statuses:
+                lead_qs = lead_qs.filter(status__in=statuses)
+                
+        if source_filter:
+            sources = [s.strip() for s in source_filter.split(',') if s.strip()]
+            if sources:
+                lead_qs = lead_qs.filter(source__in=sources)
+                
+        if call_type_filter:
+            ctypes = [c.strip().lower() for c in call_type_filter.split(',') if c.strip()]
+            if 'incoming' in ctypes and 'outgoing' not in ctypes:
+                lead_qs = lead_qs.filter(Q(voxbay_status__icontains='inbound') | Q(voxbay_status__icontains='incoming'))
+            elif 'outgoing' in ctypes and 'incoming' not in ctypes:
+                lead_qs = lead_qs.filter(Q(voxbay_status__icontains='outbound') | Q(voxbay_status__icontains='outgoing') | Q(source='VOXBAY CALL'))
+
+        return lead_qs.distinct().order_by('-created_at')
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        
+        def _serialize(lead):
+            # Dynamic call_type inference for JSON
+            ctype = 'unknown'
+            if lead.voxbay_status:
+                vs = lead.voxbay_status.lower()
+                if 'inbound' in vs or 'incoming' in vs: ctype = 'incoming'
+                elif 'outbound' in vs or 'outgoing' in vs: ctype = 'outgoing'
+            elif lead.source == 'VOXBAY CALL':
+                ctype = 'outgoing'
+                
+            return {
+                'id': lead.id,
+                'name': lead.name,
+                'phone': lead.phone,
+                'email': lead.email,
+                'status': lead.status,
+                'source': lead.source,
+                'remarks': lead.remarks,
+                'program': lead.program,
+                'location': lead.location,
+                'priority': lead.priority,
+                'created_at': lead.created_at.isoformat() if lead.created_at else None,
+                'call_type': ctype,
+                'assigned_to_name': lead.assigned_to.get_full_name() if lead.assigned_to else (lead.sub_assigned_to.get_full_name() if lead.sub_assigned_to else ''),
+                'followups': [
+                    {
+                        'id': f.id,
+                        'follow_up_date': f.follow_up_date.isoformat() if f.follow_up_date else None,
+                        'status': f.status,
+                        'notes': f.notes,
+                        'is_overdue': f.is_overdue,
+                    } for f in lead.followups.all()
+                ]
+            }
+
+        if page is not None:
+            data = [_serialize(lead) for lead in page]
+            return self.get_paginated_response(data)
+
+        data = [_serialize(lead) for lead in queryset]
+        return Response(data)

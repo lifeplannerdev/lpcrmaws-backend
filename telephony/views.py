@@ -289,14 +289,13 @@ def process_voxbay_call_log(obj):
                         if obj.call_uuid and str(obj.call_uuid) not in existing_fu.notes:
                             existing_fu.notes = f"{existing_fu.notes.strip()}\nCall UUID: {obj.call_uuid}"
                             existing_fu.save(update_fields=['notes'])
-                    else:
                         FollowUp.objects.create(
                             lead=existing_lead,
                             assigned_to=lead_owner,
                             follow_up_date=timezone.now().date(),
                             followup_type='call',
                             status='pending',
-                            priority='high',
+                            priority='low',
                             notes=missed_notes,
                         )
 
