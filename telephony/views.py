@@ -1181,7 +1181,7 @@ class AssignMissedCallView(APIView):
                 follow_up_date=timezone.now().date(),
                 followup_type='call',
                 status='pending',
-                priority='high',
+                priority='medium',
                 notes=notes,
             )
 

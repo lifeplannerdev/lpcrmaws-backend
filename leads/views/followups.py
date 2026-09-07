@@ -73,12 +73,15 @@ class FollowUpListCreateAPIView(APIView):
         overdue       = request.query_params.get('overdue')
         followup_type = request.query_params.get('followup_type')
         priority      = request.query_params.get('priority')
+        assigned_to   = request.query_params.get('assigned_to')
         search        = request.query_params.get('search')
 
         if lead_id:
             queryset = queryset.filter(lead_id=lead_id)
         if processing_student_id:
             queryset = queryset.filter(processing_student_id=processing_student_id)
+        if assigned_to and assigned_to != 'all':
+            queryset = queryset.filter(assigned_to_id=assigned_to)
         if date:
             queryset = queryset.filter(follow_up_date=date)
         if start_date and end_date:
@@ -86,8 +89,9 @@ class FollowUpListCreateAPIView(APIView):
         if status:
             queryset = queryset.filter(status=status)
         if overdue == 'true':
+            now_date = timezone.localtime(timezone.now()).date()
             queryset = queryset.filter(
-                follow_up_date__lt=timezone.now().date(),
+                follow_up_date__lt=now_date,
                 status='pending'
             )
         if followup_type:

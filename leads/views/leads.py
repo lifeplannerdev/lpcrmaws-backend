@@ -540,8 +540,68 @@ class ExportLeadsExcelView(LeadListView):
         from django.http import HttpResponse
         from openpyxl.styles import PatternFill, Font, Alignment
         
-        # Prefetch related data for full history export
-        queryset = self.filter_queryset(self.get_queryset()).prefetch_related(
+        # Base queryset
+        queryset = self.get_queryset()
+
+        # Date filtering
+        date_preset = request.query_params.get('date_preset')
+        start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date')
+        now = timezone.localtime(timezone.now())
+        today = now.date()
+
+        if date_preset == 'today':
+            queryset = queryset.filter(created_at__date=today)
+        elif date_preset == 'yesterday':
+            yesterday = today - timezone.timedelta(days=1)
+            queryset = queryset.filter(created_at__date=yesterday)
+        elif date_preset == 'this_week':
+            start_week = today - timezone.timedelta(days=today.weekday())
+            queryset = queryset.filter(created_at__date__gte=start_week, created_at__date__lte=today)
+        elif date_preset == 'this_month':
+            queryset = queryset.filter(created_at__year=today.year, created_at__month=today.month)
+        elif date_preset == 'last_month':
+            first_this_month = today.replace(day=1)
+            last_month_end = first_this_month - timezone.timedelta(days=1)
+            queryset = queryset.filter(created_at__year=last_month_end.year, created_at__month=last_month_end.month)
+        elif date_preset == 'custom' or (start_date and end_date):
+            if start_date:
+                queryset = queryset.filter(created_at__date__gte=start_date)
+            if end_date:
+                queryset = queryset.filter(created_at__date__lte=end_date)
+
+        # Status filtering (comma-separated or single)
+        status_param = request.query_params.get('status')
+        if status_param and status_param != 'all':
+            statuses = [s.strip().upper() for s in status_param.split(',') if s.strip() and s.strip().upper() != 'ALL']
+            if statuses:
+                queryset = queryset.filter(status__in=statuses)
+
+        # Source filtering (comma-separated or single)
+        source_param = request.query_params.get('source')
+        if source_param and source_param != 'all':
+            sources = [s.strip() for s in source_param.split(',') if s.strip() and s.strip().lower() != 'all']
+            if sources:
+                queryset = queryset.filter(source__in=sources)
+
+        # Call type filtering
+        call_type_param = request.query_params.get('call_type')
+        if call_type_param and call_type_param != 'all':
+            ct = call_type_param.lower()
+            if ct == 'incoming':
+                queryset = queryset.filter(
+                    models.Q(voxbay_status__icontains='inbound') |
+                    models.Q(voxbay_status__icontains='incoming')
+                )
+            elif ct == 'outgoing':
+                queryset = queryset.filter(
+                    models.Q(voxbay_status__icontains='outbound') |
+                    models.Q(voxbay_status__icontains='outgoing') |
+                    models.Q(source='VOXBAY CALL')
+                )
+
+        # Apply standard filters (search, priority, staff, etc.)
+        queryset = self.filter_queryset(queryset).prefetch_related(
             models.Prefetch('followups', queryset=FollowUp.objects.order_by('-created_at')),
             models.Prefetch('remark_history', queryset=RemarkHistory.objects.order_by('-changed_at'))
         )

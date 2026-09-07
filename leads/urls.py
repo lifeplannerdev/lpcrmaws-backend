@@ -36,6 +36,7 @@ urlpatterns = [
     # ── Leads ────────────────────────────────────────────────
     path('leads/', LeadListView.as_view(), name='lead-list'),
     path('leads/export/', ExportLeadsExcelView.as_view(), name='lead-export'),
+    path('leads/export/excel/', ExportLeadsExcelView.as_view(), name='lead-export-excel'),
     path('leads/create/', LeadCreateView.as_view(), name='lead-create'),
     path('leads/assign/', LeadAssignView.as_view(), name='lead-assign'),
     path('leads/bulk-upload/', BulkLeadUploadView.as_view(), name='lead-bulk-upload'),
