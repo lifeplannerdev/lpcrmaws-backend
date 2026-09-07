@@ -200,6 +200,8 @@ def process_voxbay_call_log(obj):
             else:
                 FollowUp.objects.create(
                     lead=existing_lead,
+                    name=existing_lead.name if existing_lead else None,
+                    phone_number=existing_lead.phone if existing_lead else (lead_number or ''),
                     assigned_to=agent_user,
                     follow_up_date=obj.created_at.date() if obj.created_at else timezone.now().date(),
                     followup_type='call',
@@ -291,6 +293,8 @@ def process_voxbay_call_log(obj):
                             existing_fu.save(update_fields=['notes'])
                         FollowUp.objects.create(
                             lead=existing_lead,
+                            name=existing_lead.name if existing_lead else None,
+                            phone_number=existing_lead.phone if existing_lead else (lead_number or ''),
                             assigned_to=lead_owner,
                             follow_up_date=timezone.now().date(),
                             followup_type='call',
@@ -1177,6 +1181,8 @@ class AssignMissedCallView(APIView):
         if not FollowUp.objects.filter(lead=existing_lead, status='pending', notes__contains=log.call_uuid).exists():
             FollowUp.objects.create(
                 lead=existing_lead,
+                name=existing_lead.name if existing_lead else None,
+                phone_number=existing_lead.phone if existing_lead else (log.customer_number or ''),
                 assigned_to=agent,
                 follow_up_date=timezone.now().date(),
                 followup_type='call',

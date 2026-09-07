@@ -484,10 +484,16 @@ class BulkLeadCreateSerializer(LeadCreateSerializer):
 class FollowUpSerializer(serializers.ModelSerializer):
     is_overdue      = serializers.ReadOnlyField()
     contact_display = serializers.ReadOnlyField()
+    lead_id         = serializers.IntegerField(source='lead.id', read_only=True)
     lead_program    = serializers.CharField(source='lead.program', read_only=True)
     lead_status     = serializers.CharField(source='lead.status', read_only=True)
     lead_name       = serializers.CharField(source='lead.name', read_only=True)
     lead_phone      = serializers.CharField(source='lead.phone', read_only=True)
+    lead_country    = serializers.CharField(source='lead.interested_country', read_only=True)
+    lead_course     = serializers.CharField(source='lead.interested_course', read_only=True)
+    lead_location   = serializers.CharField(source='lead.location', read_only=True)
+    lead_remarks    = serializers.CharField(source='lead.remarks', read_only=True)
+    lead_priority   = serializers.CharField(source='lead.priority', read_only=True)
     
     processing_student_name = serializers.CharField(source='processing_student.name', read_only=True)
     processing_student_program = serializers.CharField(source='processing_student.program_applied', read_only=True)
@@ -510,6 +516,19 @@ class FollowUpSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at',
         ]
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        lead_name = instance.lead.name if instance.lead else None
+        lead_phone = instance.lead.phone if instance.lead else None
+        student_name = instance.processing_student.name if instance.processing_student else None
+        student_phone = instance.processing_student.phone if instance.processing_student else None
+
+        if not data.get('name'):
+            data['name'] = lead_name or student_name or ''
+        if not data.get('phone_number'):
+            data['phone_number'] = lead_phone or student_phone or ''
+        return data
 
         
 

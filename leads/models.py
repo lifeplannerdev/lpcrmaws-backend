@@ -361,6 +361,18 @@ class FollowUp(models.Model):
         return f"{display} — {self.follow_up_date}"
 
     def save(self, *args, **kwargs):
+        # Auto-populate name and phone_number from linked lead or student if missing
+        if self.lead:
+            if not self.name and self.lead.name:
+                self.name = self.lead.name
+            if not self.phone_number and self.lead.phone:
+                self.phone_number = self.lead.phone
+        elif self.processing_student:
+            if not self.name and self.processing_student.name:
+                self.name = self.processing_student.name
+            if not self.phone_number and self.processing_student.phone:
+                self.phone_number = self.processing_student.phone
+
         # Track conversion time
         if self.converted_to_lead and not self.converted_at:
             self.converted_at = timezone.now()
