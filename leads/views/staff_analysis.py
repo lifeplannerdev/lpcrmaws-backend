@@ -56,24 +56,22 @@ class StaffAnalysisAPIView(APIView):
 
         employees_qs = User.objects.filter(is_active=True).prefetch_related('db_roles')
 
-        # Filter base for leads
-        lead_qs = Lead.objects.all()
-        if start_date and end_date:
-            lead_qs = lead_qs.filter(created_at__date__gte=start_date, created_at__date__lte=end_date)
+        # Base queryset with filters
+        lead_base = Lead.objects.all()
         if status_filter:
             statuses = [s.strip() for s in status_filter.split(',') if s.strip()]
             if statuses:
-                lead_qs = lead_qs.filter(status__in=statuses)
+                lead_base = lead_base.filter(status__in=statuses)
         if source_filter:
             sources = [s.strip() for s in source_filter.split(',') if s.strip()]
             if sources:
-                lead_qs = lead_qs.filter(source__in=sources)
+                lead_base = lead_base.filter(source__in=sources)
         if call_type_filter:
             ctypes = [c.strip().lower() for c in call_type_filter.split(',') if c.strip()]
             if 'incoming' in ctypes and 'outgoing' not in ctypes:
-                lead_qs = lead_qs.filter(Q(voxbay_status__icontains='inbound') | Q(voxbay_status__icontains='incoming'))
+                lead_base = lead_base.filter(Q(voxbay_status__icontains='inbound') | Q(voxbay_status__icontains='incoming'))
             elif 'outgoing' in ctypes and 'incoming' not in ctypes:
-                lead_qs = lead_qs.filter(Q(voxbay_status__icontains='outbound') | Q(voxbay_status__icontains='outgoing') | Q(source='VOXBAY CALL'))
+                lead_base = lead_base.filter(Q(voxbay_status__icontains='outbound') | Q(voxbay_status__icontains='outgoing') | Q(source='VOXBAY CALL'))
 
         # Filter base for followups
         fu_qs = FollowUp.objects.all()
@@ -84,7 +82,27 @@ class StaffAnalysisAPIView(APIView):
         today = timezone.now().date()
 
         for emp in employees_qs:
-            total_leads = lead_qs.filter(Q(assigned_to=emp) | Q(sub_assigned_to=emp)).count()
+            if start_date and end_date:
+                fresh_count = lead_base.filter(
+                    Q(assigned_to=emp) | Q(sub_assigned_to=emp),
+                    created_at__date__gte=start_date,
+                    created_at__date__lte=end_date
+                ).distinct().count()
+
+                followup_count = lead_base.filter(
+                    Q(assigned_to=emp) | Q(sub_assigned_to=emp) | Q(followups__assigned_to=emp),
+                    Q(followups__created_at__date__gte=start_date, followups__created_at__date__lte=end_date) |
+                    Q(followups__follow_up_date__gte=start_date, followups__follow_up_date__lte=end_date)
+                ).exclude(
+                    created_at__date__gte=start_date,
+                    created_at__date__lte=end_date
+                ).distinct().count()
+
+                total_leads = fresh_count + followup_count
+            else:
+                total_leads = lead_base.filter(Q(assigned_to=emp) | Q(sub_assigned_to=emp)).distinct().count()
+                fresh_count = total_leads
+                followup_count = 0
             
             emp_followups = fu_qs.filter(assigned_to=emp)
             total_fups = emp_followups.count()
@@ -103,6 +121,8 @@ class StaffAnalysisAPIView(APIView):
                 },
                 'summary': {
                     'total_leads': total_leads,
+                    'fresh_leads': fresh_count,
+                    'followup_leads': followup_count,
                     'followups_total': total_fups,
                     'followups_contacted': contacted_fups,
                     'followups_pending': pending_fups,
@@ -112,6 +132,8 @@ class StaffAnalysisAPIView(APIView):
             })
 
         grand_total_leads = sum(r['summary']['total_leads'] for r in results)
+        grand_fresh_leads = sum(r['summary']['fresh_leads'] for r in results)
+        grand_followup_leads = sum(r['summary']['followup_leads'] for r in results)
         grand_fu_total = sum(r['summary']['followups_total'] for r in results)
         grand_fu_contacted = sum(r['summary']['followups_contacted'] for r in results)
         grand_fu_pending = sum(r['summary']['followups_pending'] for r in results)
@@ -120,6 +142,8 @@ class StaffAnalysisAPIView(APIView):
         return Response({
             'grand_summary': {
                 'total_leads': grand_total_leads,
+                'fresh_leads': grand_fresh_leads,
+                'followup_leads': grand_followup_leads,
                 'followups_total': grand_fu_total,
                 'followups_contacted': grand_fu_contacted,
                 'followups_pending': grand_fu_pending,
@@ -154,6 +178,7 @@ class StaffAnalysisLeadsAPIView(generics.ListAPIView):
 
         start_date, end_date = _get_date_range(self.request)
         employee_id = self.request.query_params.get('employee_id')
+        category_filter = self.request.query_params.get('category', '').lower()
         status_filter = self.request.query_params.get('status', '')
         source_filter = self.request.query_params.get('source', '')
         call_type_filter = self.request.query_params.get('call_type', '')
@@ -165,10 +190,26 @@ class StaffAnalysisLeadsAPIView(generics.ListAPIView):
         )
 
         if employee_id:
-            lead_qs = lead_qs.filter(Q(assigned_to_id=employee_id) | Q(sub_assigned_to_id=employee_id))
+            lead_qs = lead_qs.filter(
+                Q(assigned_to_id=employee_id) |
+                Q(sub_assigned_to_id=employee_id) |
+                Q(followups__assigned_to_id=employee_id)
+            )
 
         if start_date and end_date:
-            lead_qs = lead_qs.filter(created_at__date__gte=start_date, created_at__date__lte=end_date)
+            if category_filter == 'fresh':
+                lead_qs = lead_qs.filter(created_at__date__gte=start_date, created_at__date__lte=end_date)
+            elif category_filter == 'followup':
+                lead_qs = lead_qs.filter(
+                    Q(followups__created_at__date__gte=start_date, followups__created_at__date__lte=end_date) |
+                    Q(followups__follow_up_date__gte=start_date, followups__follow_up_date__lte=end_date)
+                ).exclude(created_at__date__gte=start_date, created_at__date__lte=end_date)
+            else:
+                lead_qs = lead_qs.filter(
+                    Q(created_at__date__gte=start_date, created_at__date__lte=end_date) |
+                    Q(followups__created_at__date__gte=start_date, followups__created_at__date__lte=end_date) |
+                    Q(followups__follow_up_date__gte=start_date, followups__follow_up_date__lte=end_date)
+                )
             
         if status_filter:
             statuses = [s.strip() for s in status_filter.split(',') if s.strip()]
@@ -190,6 +231,7 @@ class StaffAnalysisLeadsAPIView(generics.ListAPIView):
         return lead_qs.distinct().order_by('-created_at')
 
     def list(self, request, *args, **kwargs):
+        start_date, end_date = _get_date_range(self.request)
         queryset = self.filter_queryset(self.get_queryset())
         page = self.paginate_queryset(queryset)
         
@@ -202,6 +244,28 @@ class StaffAnalysisLeadsAPIView(generics.ListAPIView):
                 elif 'outbound' in vs or 'outgoing' in vs: ctype = 'outgoing'
             elif lead.source == 'VOXBAY CALL':
                 ctype = 'outgoing'
+                
+            # Determine Lead Tag (Fresh vs Follow-up)
+            is_fresh = False
+            if start_date and end_date:
+                is_fresh = (lead.created_at.date() >= start_date and lead.created_at.date() <= end_date)
+            else:
+                is_fresh = (lead.followups.count() <= 1)
+                
+            lead_tag = 'FRESH' if is_fresh else 'FOLLOWUP'
+            lead_tag_display = 'Fresh Lead' if is_fresh else 'Follow-up Lead'
+
+            # Get the latest follow-up for this lead
+            latest_fup = lead.followups.first()
+            latest_fup_data = None
+            if latest_fup:
+                latest_fup_data = {
+                    'id': latest_fup.id,
+                    'follow_up_date': latest_fup.follow_up_date.isoformat() if latest_fup.follow_up_date else None,
+                    'status': latest_fup.status,
+                    'notes': latest_fup.notes,
+                    'is_overdue': latest_fup.is_overdue,
+                }
                 
             return {
                 'id': lead.id,
@@ -216,6 +280,9 @@ class StaffAnalysisLeadsAPIView(generics.ListAPIView):
                 'priority': lead.priority,
                 'created_at': lead.created_at.isoformat() if lead.created_at else None,
                 'call_type': ctype,
+                'lead_tag': lead_tag,
+                'lead_tag_display': lead_tag_display,
+                'latest_followup': latest_fup_data,
                 'assigned_to_name': lead.assigned_to.get_full_name() if lead.assigned_to else (lead.sub_assigned_to.get_full_name() if lead.sub_assigned_to else ''),
                 'followups': [
                     {
@@ -234,3 +301,4 @@ class StaffAnalysisLeadsAPIView(generics.ListAPIView):
 
         data = [_serialize(lead) for lead in queryset]
         return Response(data)
+
