@@ -85,10 +85,9 @@ class LeadListView(generics.ListAPIView):
             'sub_assigned_to', 'sub_assigned_by',
         )
 
-        from accounts.permissions import has_dynamic_permission
-        if (user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists() or 
+        if (user.db_roles.filter(name__in=FULL_ACCESS_ROLES + ['SENIOR ADM', 'SENIOR_ADM', 'ADM_MANAGER']).exists() or 
             has_dynamic_permission(user, 'leads:read_any') or 
-            has_dynamic_permission(user, 'leads:read_tenant')):
+            has_dynamic_permission(user, 'leads:read_tenant')) :
             perm_qs = base_qs.all()
         else:
             perm_qs = base_qs.filter(
@@ -534,9 +533,41 @@ class ExportLeadsExcelView(LeadListView):
     Takes the same query parameters as LeadListView.
     """
     pagination_class = None
+    filter_backends = [
+        filters.SearchFilter,
+        filters.OrderingFilter,
+        CompanyFilterBackend,
+    ]
+
+    def get_queryset(self):
+        user = self.request.user
+        base_qs = Lead.objects.select_related(
+            'assigned_to', 'assigned_by',
+            'sub_assigned_to', 'sub_assigned_by',
+        )
+
+        from accounts.permissions import has_dynamic_permission
+        from leads.permissions import FULL_ACCESS_ROLES
+        is_elevated = (
+            user.is_superuser or
+            user.db_roles.filter(name__in=FULL_ACCESS_ROLES + ['SENIOR ADM', 'SENIOR_ADM', 'ADM_MANAGER', 'CM', 'BDM']).exists() or 
+            has_dynamic_permission(user, 'leads:read_any') or 
+            has_dynamic_permission(user, 'leads:read_tenant') or
+            has_dynamic_permission(user, 'reports:sales_all') or
+            has_dynamic_permission(user, 'staff_analysis:admin')
+        )
+        if is_elevated:
+            perm_qs = base_qs.all()
+        else:
+            perm_qs = base_qs.filter(
+                models.Q(assigned_to=user) |
+                models.Q(sub_assigned_to=user)
+            )
+        return perm_qs.distinct()
 
     def get(self, request, *args, **kwargs):
         import io
+        from datetime import datetime as dt_cls
         from django.http import HttpResponse
         from openpyxl.styles import PatternFill, Font, Alignment
         
@@ -547,28 +578,42 @@ class ExportLeadsExcelView(LeadListView):
         date_preset = request.query_params.get('date_preset')
         start_date = request.query_params.get('start_date')
         end_date = request.query_params.get('end_date')
+        tz = timezone.get_current_timezone()
         now = timezone.localtime(timezone.now())
         today = now.date()
 
         if date_preset == 'today':
-            queryset = queryset.filter(created_at__date=today)
+            start_dt = timezone.make_aware(dt_cls.combine(today, dt_cls.min.time()), tz)
+            queryset = queryset.filter(created_at__gte=start_dt, created_at__lte=now)
         elif date_preset == 'yesterday':
             yesterday = today - timezone.timedelta(days=1)
-            queryset = queryset.filter(created_at__date=yesterday)
+            start_dt = timezone.make_aware(dt_cls.combine(yesterday, dt_cls.min.time()), tz)
+            end_dt = timezone.make_aware(dt_cls.combine(yesterday, dt_cls.max.time()), tz)
+            queryset = queryset.filter(created_at__gte=start_dt, created_at__lte=end_dt)
         elif date_preset == 'this_week':
             start_week = today - timezone.timedelta(days=today.weekday())
-            queryset = queryset.filter(created_at__date__gte=start_week, created_at__date__lte=today)
+            start_dt = timezone.make_aware(dt_cls.combine(start_week, dt_cls.min.time()), tz)
+            queryset = queryset.filter(created_at__gte=start_dt, created_at__lte=now)
         elif date_preset == 'this_month':
-            queryset = queryset.filter(created_at__year=today.year, created_at__month=today.month)
+            start_month = today.replace(day=1)
+            start_dt = timezone.make_aware(dt_cls.combine(start_month, dt_cls.min.time()), tz)
+            queryset = queryset.filter(created_at__gte=start_dt, created_at__lte=now)
         elif date_preset == 'last_month':
             first_this_month = today.replace(day=1)
             last_month_end = first_this_month - timezone.timedelta(days=1)
-            queryset = queryset.filter(created_at__year=last_month_end.year, created_at__month=last_month_end.month)
+            first_last_month = last_month_end.replace(day=1)
+            start_dt = timezone.make_aware(dt_cls.combine(first_last_month, dt_cls.min.time()), tz)
+            end_dt = timezone.make_aware(dt_cls.combine(first_this_month, dt_cls.min.time()), tz)
+            queryset = queryset.filter(created_at__gte=start_dt, created_at__lt=end_dt)
         elif date_preset == 'custom' or (start_date and end_date):
             if start_date:
-                queryset = queryset.filter(created_at__date__gte=start_date)
+                s_date = dt_cls.strptime(start_date, '%Y-%m-%d').date() if isinstance(start_date, str) else start_date
+                start_dt = timezone.make_aware(dt_cls.combine(s_date, dt_cls.min.time()), tz)
+                queryset = queryset.filter(created_at__gte=start_dt)
             if end_date:
-                queryset = queryset.filter(created_at__date__lte=end_date)
+                e_date = dt_cls.strptime(end_date, '%Y-%m-%d').date() if isinstance(end_date, str) else end_date
+                end_dt = timezone.make_aware(dt_cls.combine(e_date, dt_cls.max.time()), tz)
+                queryset = queryset.filter(created_at__lte=end_dt)
 
         # Status filtering (comma-separated or single)
         status_param = request.query_params.get('status')
@@ -582,7 +627,13 @@ class ExportLeadsExcelView(LeadListView):
         if source_param and source_param != 'all':
             sources = [s.strip() for s in source_param.split(',') if s.strip() and s.strip().lower() != 'all']
             if sources:
-                queryset = queryset.filter(source__in=sources)
+                source_q = models.Q()
+                for src in sources:
+                    if src.lower() == 'voxbay':
+                        source_q |= models.Q(source__icontains='voxbay')
+                    else:
+                        source_q |= models.Q(source__iexact=src)
+                queryset = queryset.filter(source_q)
 
         # Call type filtering
         call_type_param = request.query_params.get('call_type')
@@ -597,7 +648,7 @@ class ExportLeadsExcelView(LeadListView):
                 queryset = queryset.filter(
                     models.Q(voxbay_status__icontains='outbound') |
                     models.Q(voxbay_status__icontains='outgoing') |
-                    models.Q(source='VOXBAY CALL')
+                    models.Q(source__icontains='voxbay')
                 )
 
         # Apply standard filters (search, priority, staff, etc.)
@@ -618,7 +669,7 @@ class ExportLeadsExcelView(LeadListView):
                 vs = lead.voxbay_status.lower()
                 if 'inbound' in vs or 'incoming' in vs: call_type = 'incoming'
                 elif 'outbound' in vs or 'outgoing' in vs: call_type = 'outgoing'
-            elif lead.source == 'VOXBAY CALL':
+            elif lead.source and 'VOXBAY' in lead.source.upper():
                 call_type = 'outgoing'
                 
             leads_data.append({
@@ -660,20 +711,20 @@ class ExportLeadsExcelView(LeadListView):
                     'Created At': fup.created_at.replace(tzinfo=None) if fup.created_at else None,
                 })
                 
-        df_leads = pd.DataFrame(leads_data)
-        df_remarks = pd.DataFrame(remarks_data)
-        df_fups = pd.DataFrame(followups_data)
+        leads_cols = ['ID', 'Name', 'Phone', 'Email', 'Status', 'Call Type', 'Latest Remarks', 'Latest Followup Date', 'Latest Followup Status', 'Source', 'Assigned To', 'Created At']
+        remarks_cols = ['Lead ID', 'Lead Name', 'Previous Remarks', 'New Remarks', 'Changed By', 'Changed At']
+        fups_cols = ['Lead ID', 'Lead Name', 'Follow-up Date', 'Type', 'Status', 'Notes', 'Assigned To', 'Created At']
+
+        df_leads = pd.DataFrame(leads_data) if leads_data else pd.DataFrame(columns=leads_cols)
+        df_remarks = pd.DataFrame(remarks_data) if remarks_data else pd.DataFrame(columns=remarks_cols)
+        df_fups = pd.DataFrame(followups_data) if followups_data else pd.DataFrame(columns=fups_cols)
 
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            if not df_leads.empty: df_leads.to_excel(writer, sheet_name='Leads Overview', index=False)
-            if not df_remarks.empty: df_remarks.to_excel(writer, sheet_name='Remarks History', index=False)
-            if not df_fups.empty: df_fups.to_excel(writer, sheet_name='Follow-ups History', index=False)
+            df_leads.to_excel(writer, sheet_name='Leads Overview', index=False)
+            df_remarks.to_excel(writer, sheet_name='Remarks History', index=False)
+            df_fups.to_excel(writer, sheet_name='Follow-ups History', index=False)
             
-            # If no leads at all, create an empty sheet to prevent Excel writer error
-            if df_leads.empty and df_remarks.empty and df_fups.empty:
-                pd.DataFrame(['No data available']).to_excel(writer, sheet_name='Empty', index=False)
-                
             workbook = writer.book
             
             # ── Format Leads Sheet ──
@@ -696,8 +747,8 @@ class ExportLeadsExcelView(LeadListView):
                     cell.fill = header_fill
                     cell.alignment = Alignment(horizontal='center', vertical='center')
                     
-                status_col_idx = df_leads.columns.get_loc('Status') + 1 if not df_leads.empty and 'Status' in df_leads.columns else None
-                fup_col_idx = df_leads.columns.get_loc('Latest Followup Status') + 1 if not df_leads.empty and 'Latest Followup Status' in df_leads.columns else None
+                status_col_idx = df_leads.columns.get_loc('Status') + 1 if 'Status' in df_leads.columns else None
+                fup_col_idx = df_leads.columns.get_loc('Latest Followup Status') + 1 if 'Latest Followup Status' in df_leads.columns else None
                 
                 for row_idx, row in enumerate(ws_leads.iter_rows(min_row=2), start=2):
                     if status_col_idx:

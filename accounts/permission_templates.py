@@ -36,6 +36,18 @@ ROLE_PERMISSIONS = {
     'ADM_MANAGER': [
         'dashboard:read', 'leads:read_tenant', 'tasks:read_all', 'reports:read_own', 'voxbay:read_own', 'voxbay_ai:read_own', 'flag:view'
     ],
+    'SENIOR ADM': [
+        'dashboard:read', 'leads:read_tenant', 'leads:create', 'leads:edit_tenant', 'staff:read_tenant',
+        'tasks:read_all', 'reports:read_own', 'reports:read_all', 'reports:sales_all',
+        'voxbay:read_all', 'voxbay_ai:admin', 'staff_analysis:admin', 'flag:view',
+        'credentials:view', 'programs:view',
+    ],
+    'SENIOR_ADM': [
+        'dashboard:read', 'leads:read_tenant', 'leads:create', 'leads:edit_tenant', 'staff:read_tenant',
+        'tasks:read_all', 'reports:read_own', 'reports:read_all', 'reports:sales_all',
+        'voxbay:read_all', 'voxbay_ai:admin', 'staff_analysis:admin', 'flag:view',
+        'credentials:view', 'programs:view',
+    ],
     'ADM_COUNSELLOR': [
         'dashboard:read', 'leads:read_own', 'tasks:read_all', 'reports:read_own', 'voxbay:read_own', 'voxbay_ai:read_own', 'flag:view'
     ],
