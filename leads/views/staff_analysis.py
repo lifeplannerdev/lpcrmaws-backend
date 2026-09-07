@@ -76,7 +76,7 @@ class StaffAnalysisAPIView(APIView):
         # Filter base for followups
         fu_qs = FollowUp.objects.all()
         if start_date and end_date:
-            fu_qs = fu_qs.filter(created_at__date__gte=start_date, created_at__date__lte=end_date)
+            fu_qs = fu_qs.filter(follow_up_date__gte=start_date, follow_up_date__lte=end_date)
 
         results = []
         today = timezone.now().date()
@@ -91,8 +91,8 @@ class StaffAnalysisAPIView(APIView):
 
                 followup_count = lead_base.filter(
                     Q(assigned_to=emp) | Q(sub_assigned_to=emp) | Q(followups__assigned_to=emp),
-                    Q(followups__created_at__date__gte=start_date, followups__created_at__date__lte=end_date) |
-                    Q(followups__follow_up_date__gte=start_date, followups__follow_up_date__lte=end_date)
+                    followups__follow_up_date__gte=start_date,
+                    followups__follow_up_date__lte=end_date
                 ).exclude(
                     created_at__date__gte=start_date,
                     created_at__date__lte=end_date
@@ -201,13 +201,12 @@ class StaffAnalysisLeadsAPIView(generics.ListAPIView):
                 lead_qs = lead_qs.filter(created_at__date__gte=start_date, created_at__date__lte=end_date)
             elif category_filter == 'followup':
                 lead_qs = lead_qs.filter(
-                    Q(followups__created_at__date__gte=start_date, followups__created_at__date__lte=end_date) |
-                    Q(followups__follow_up_date__gte=start_date, followups__follow_up_date__lte=end_date)
+                    followups__follow_up_date__gte=start_date,
+                    followups__follow_up_date__lte=end_date
                 ).exclude(created_at__date__gte=start_date, created_at__date__lte=end_date)
             else:
                 lead_qs = lead_qs.filter(
                     Q(created_at__date__gte=start_date, created_at__date__lte=end_date) |
-                    Q(followups__created_at__date__gte=start_date, followups__created_at__date__lte=end_date) |
                     Q(followups__follow_up_date__gte=start_date, followups__follow_up_date__lte=end_date)
                 )
             
@@ -255,8 +254,17 @@ class StaffAnalysisLeadsAPIView(generics.ListAPIView):
             lead_tag = 'FRESH' if is_fresh else 'FOLLOWUP'
             lead_tag_display = 'Fresh Lead' if is_fresh else 'Follow-up Lead'
 
-            # Get the latest follow-up for this lead
-            latest_fup = lead.followups.first()
+            # Get the follow-up for this lead in the selected date range, or the latest
+            if start_date and end_date:
+                period_fup = None
+                for f in lead.followups.all():
+                    if f.follow_up_date and start_date <= f.follow_up_date <= end_date:
+                        period_fup = f
+                        break
+                latest_fup = period_fup or lead.followups.first()
+            else:
+                latest_fup = lead.followups.first()
+
             latest_fup_data = None
             if latest_fup:
                 latest_fup_data = {
