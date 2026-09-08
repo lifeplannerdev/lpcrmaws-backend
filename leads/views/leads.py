@@ -14,6 +14,7 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.permissions import IsAuthenticated
 
 from accounts.models import User, ActivityLog
+from accounts.permissions import has_dynamic_permission
 from accounts.filters import CompanyFilterBackend
 from utils.pusher import pusher_client, trigger_pusher
 from utils import notify_lead_assigned
