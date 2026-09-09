@@ -283,7 +283,6 @@ def process_voxbay_call_log(obj):
         if existing_lead:
             answered_exists = VoxbayCallLog.objects.filter(call_uuid=obj.call_uuid, call_status__in=['ANSWER', 'ANSWERED']).exists()
             if not answered_exists:
-                missed_notes = f"Missed {direction_text} Call from Lead\nCall UUID: {obj.call_uuid}" if direction_text == "Incoming" else f"Unanswered {direction_text} Call to Lead\nCall UUID: {obj.call_uuid}"
                 lead_owner = existing_lead.assigned_to
                 if lead_owner:
                     existing_fu = FollowUp.objects.filter(lead=existing_lead, notes__contains=str(obj.call_uuid)).first()
@@ -291,17 +290,21 @@ def process_voxbay_call_log(obj):
                         if obj.call_uuid and str(obj.call_uuid) not in existing_fu.notes:
                             existing_fu.notes = f"{existing_fu.notes.strip()}\nCall UUID: {obj.call_uuid}"
                             existing_fu.save(update_fields=['notes'])
-                        FollowUp.objects.create(
-                            lead=existing_lead,
-                            name=existing_lead.name if existing_lead else None,
-                            phone_number=existing_lead.phone if existing_lead else (lead_number or ''),
-                            assigned_to=lead_owner,
-                            follow_up_date=timezone.now().date(),
-                            followup_type='call',
-                            status='pending',
-                            priority='low',
-                            notes=missed_notes,
-                        )
+                    elif existing_lead.status not in ['CLOSED', 'CONVERTED']:
+                        # Don't create duplicate pending followups if one already exists for this lead
+                        has_pending = FollowUp.objects.filter(lead=existing_lead, status='pending').exists()
+                        if not has_pending:
+                            FollowUp.objects.create(
+                                lead=existing_lead,
+                                name=existing_lead.name if existing_lead else None,
+                                phone_number=existing_lead.phone if existing_lead else (lead_number or ''),
+                                assigned_to=lead_owner,
+                                follow_up_date=timezone.now().date(),
+                                followup_type='call',
+                                status='pending',
+                                priority='low',
+                                notes=missed_notes,
+                            )
 
 
 

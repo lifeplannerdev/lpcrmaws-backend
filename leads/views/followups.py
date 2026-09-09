@@ -147,6 +147,10 @@ class FollowUpListCreateAPIView(APIView):
         elif call_uuid:
             existing_followup = FollowUp.objects.filter(notes__contains=str(call_uuid)).first()
             
+        # If resolving/completing, reuse any existing pending follow-up for this lead instead of creating a new one!
+        if not existing_followup and lead_id and data.get('status') in ['contacted', 'completed', 'not_interested']:
+            existing_followup = FollowUp.objects.filter(lead_id=lead_id, status='pending').first()
+
         if not existing_followup and lead_id and request.user and request.user.is_authenticated:
             # Check if there is a recent FollowUp created for this lead by this user in the last 15 minutes
             recent_cutoff = timezone.now() - timezone.timedelta(minutes=15)
