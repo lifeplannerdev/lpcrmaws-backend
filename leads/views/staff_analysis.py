@@ -111,8 +111,8 @@ class StaffAnalysisAPIView(APIView):
         # Base for telephony call logs
         call_qs = VoxbayCallLog.objects.all()
         if start_date and end_date:
-            dt_start = datetime.combine(start_date, datetime.min.time())
-            dt_end = datetime.combine(end_date, datetime.max.time())
+            dt_start = timezone.make_aware(datetime.combine(start_date, datetime.min.time()))
+            dt_end = timezone.make_aware(datetime.combine(end_date, datetime.max.time()))
             call_qs = call_qs.filter(created_at__gte=dt_start, created_at__lte=dt_end)
 
         results = []

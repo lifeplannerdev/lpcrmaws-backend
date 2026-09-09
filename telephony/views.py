@@ -333,11 +333,12 @@ def _date_filter(qs, request):
     def _parse(s, is_end=False):
         p_dt = parse_datetime(s)
         if p_dt:
-            return p_dt
+            return timezone.make_aware(p_dt) if timezone.is_naive(p_dt) else p_dt
         p_d = parse_date(s)
         if p_d:
             t = dt_class.max.time() if is_end else dt_class.min.time()
-            return dt_class.combine(p_d, t)
+            naive = dt_class.combine(p_d, t)
+            return timezone.make_aware(naive)
         return None
 
     if from_str:
