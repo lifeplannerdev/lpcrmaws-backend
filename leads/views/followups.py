@@ -196,6 +196,11 @@ class FollowUpListCreateAPIView(APIView):
                 existing_followup.name = data.get('name')
                 
             existing_followup.save()
+
+            # Auto-resolve any other pending follow-ups for this lead if status is completed/contacted/not_interested
+            if lead_id and existing_followup.status in ['contacted', 'completed', 'not_interested']:
+                FollowUp.objects.filter(lead_id=lead_id, status='pending').exclude(id=existing_followup.id).update(status=existing_followup.status)
+
             serializer = FollowUpSerializer(existing_followup)
             return Response(serializer.data, status=status.HTTP_200_OK)
 
@@ -211,7 +216,12 @@ class FollowUpListCreateAPIView(APIView):
         data['notes'] = final_notes
         serializer = FollowUpSerializer(data=data)
         if serializer.is_valid():
-            serializer.save(assigned_to=request.user)
+            new_followup = serializer.save(assigned_to=request.user)
+
+            # Auto-resolve any pending follow-ups for this lead if status is completed/contacted/not_interested
+            if lead_id and new_followup.status in ['contacted', 'completed', 'not_interested']:
+                FollowUp.objects.filter(lead_id=lead_id, status='pending').exclude(id=new_followup.id).update(status=new_followup.status)
+
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -236,10 +246,16 @@ class FollowUpDetailAPIView(APIView):
         serializer = FollowUpSerializer(followup, data=request.data, partial=True)
 
         if serializer.is_valid():
-            serializer.save()
+            saved_followup = serializer.save()
+            # If status updated to completed/contacted/not_interested, auto-resolve other pending followups for this lead
+            if saved_followup.lead_id and saved_followup.status in ['contacted', 'completed', 'not_interested']:
+                FollowUp.objects.filter(lead_id=saved_followup.lead_id, status='pending').exclude(id=saved_followup.id).update(status=saved_followup.status)
             return Response(serializer.data)
 
         return Response(serializer.errors, status=400)
+
+    def patch(self, request, pk):
+        return self.put(request, pk)
 
     def delete(self, request, pk):
         followup = self.get_object(pk, request.user)
