@@ -75,6 +75,10 @@ class FollowUpListCreateAPIView(APIView):
         priority      = request.query_params.get('priority')
         assigned_to   = request.query_params.get('assigned_to')
         search        = request.query_params.get('search')
+        tab           = request.query_params.get('tab')
+        active_only   = request.query_params.get('active_only')
+        is_past       = request.query_params.get('past')
+        exclude_closed = request.query_params.get('exclude_closed')
 
         if lead_id:
             queryset = queryset.filter(lead_id=lead_id)
@@ -86,14 +90,28 @@ class FollowUpListCreateAPIView(APIView):
             queryset = queryset.filter(follow_up_date=date)
         if start_date and end_date:
             queryset = queryset.filter(follow_up_date__range=[start_date, end_date])
-        if status:
+
+        # Tab handling: active vs past
+        if tab == 'active' or active_only == 'true':
+            queryset = queryset.filter(status='pending').exclude(lead__status__in=['CLOSED', 'CONVERTED'])
+        elif tab == 'past' or is_past == 'true':
+            queryset = queryset.filter(
+                models.Q(status__in=['contacted', 'completed', 'not_interested']) |
+                models.Q(lead__status__in=['CLOSED', 'CONVERTED'])
+            )
+        elif status:
             queryset = queryset.filter(status=status)
+
+        if exclude_closed == 'true':
+            queryset = queryset.exclude(lead__status__in=['CLOSED', 'CONVERTED'])
+
         if overdue == 'true':
             now_date = timezone.localtime(timezone.now()).date()
             queryset = queryset.filter(
                 follow_up_date__lt=now_date,
                 status='pending'
-            )
+            ).exclude(lead__status__in=['CLOSED', 'CONVERTED'])
+
         if followup_type:
             queryset = queryset.filter(followup_type=followup_type)
         if priority:
@@ -101,10 +119,16 @@ class FollowUpListCreateAPIView(APIView):
         if search:
             queryset = queryset.filter(
                 models.Q(name__icontains=search) |
-                models.Q(phone_number__icontains=search)
+                models.Q(phone_number__icontains=search) |
+                models.Q(notes__icontains=search) |
+                models.Q(lead__name__icontains=search) |
+                models.Q(lead__phone__icontains=search)
             )
 
-        queryset = queryset.order_by('follow_up_date', 'follow_up_time')
+        if tab == 'past' or is_past == 'true':
+            queryset = queryset.order_by('-follow_up_date', '-follow_up_time', '-id')
+        else:
+            queryset = queryset.order_by('follow_up_date', 'follow_up_time', 'id')
         serializer = FollowUpSerializer(queryset, many=True)
         return Response(serializer.data)
 
@@ -226,7 +250,7 @@ class TodayFollowUpsAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        today = timezone.now().date()
+        today = timezone.localtime(timezone.now()).date()
 
         from accounts.permissions import has_dynamic_permission
         if (request.user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists() or 
@@ -239,6 +263,7 @@ class TodayFollowUpsAPIView(APIView):
                 follow_up_date=today
             )
 
+        queryset = queryset.filter(status='pending').exclude(lead__status__in=['CLOSED', 'CONVERTED'])
         serializer = FollowUpSerializer(queryset, many=True)
         return Response(serializer.data)
 
@@ -246,7 +271,7 @@ class OverdueFollowUpsAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        today = timezone.now().date()
+        today = timezone.localtime(timezone.now()).date()
 
         from accounts.permissions import has_dynamic_permission
         if (request.user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists() or 
@@ -255,13 +280,13 @@ class OverdueFollowUpsAPIView(APIView):
             queryset = FollowUp.objects.filter(
                 follow_up_date__lt=today,
                 status='pending'
-            )
+            ).exclude(lead__status__in=['CLOSED', 'CONVERTED'])
         else:
             queryset = FollowUp.objects.filter(
                 assigned_to=request.user,
                 follow_up_date__lt=today,
                 status='pending'
-            )
+            ).exclude(lead__status__in=['CLOSED', 'CONVERTED'])
 
         serializer = FollowUpSerializer(queryset, many=True)
         return Response(serializer.data)

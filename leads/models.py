@@ -166,11 +166,11 @@ class Lead(models.Model):
         super().save(*args, **kwargs)
 
         # Auto-resolve pending followups if lead is closed or converted
-        if is_status_terminal:
+        if is_status_terminal or self.status in ['CLOSED', 'CONVERTED']:
             pending_fups = self.followups.filter(status='pending')
             for fup in pending_fups:
                 fup.status = 'contacted'
-                fup.notes = f"{fup.notes}\n\n[Auto-resolved: Lead status changed to {self.status}]".strip()
+                fup.notes = f"{fup.notes}\n\n[Auto-resolved: Lead status is {self.status}]".strip()
                 fup.save(update_fields=['status', 'notes'])
 
     def update_processing_status(self, status, executive=None, notes=''):
@@ -273,6 +273,7 @@ class FollowUp(models.Model):
     STATUS_CHOICES = [
         ('pending', 'Pending'),
         ('contacted', 'Contacted'),
+        ('completed', 'Completed'),
         ('not_interested', 'Not Interested'),
         ('rescheduled', 'Rescheduled'),
     ]
