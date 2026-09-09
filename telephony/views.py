@@ -310,20 +310,42 @@ def process_voxbay_call_log(obj):
 
 def _date_filter(qs, request):
     from django.utils.dateparse import parse_datetime, parse_date
-    from_str = request.query_params.get("from")
-    to_str   = request.query_params.get("to")
+    from django.utils import timezone
+    from datetime import timedelta, datetime as dt_class
 
-    def _parse(s):
-        return parse_datetime(s) or (
-            datetime.combine(parse_date(s), datetime.min.time()) if parse_date(s) else None
-        )
+    preset = request.query_params.get("date_preset")
+    from_str = request.query_params.get("from") or request.query_params.get("start_date")
+    to_str   = request.query_params.get("to") or request.query_params.get("end_date")
+
+    today = timezone.now().date()
+    if preset == 'today':
+        return qs.filter(created_at__date=today)
+    elif preset == 'yesterday':
+        y = today - timedelta(days=1)
+        return qs.filter(created_at__date=y)
+    elif preset == 'this_week':
+        start = today - timedelta(days=today.weekday())
+        return qs.filter(created_at__date__gte=start, created_at__date__lte=today)
+    elif preset == 'this_month':
+        start = today.replace(day=1)
+        return qs.filter(created_at__date__gte=start, created_at__date__lte=today)
+
+    def _parse(s, is_end=False):
+        p_dt = parse_datetime(s)
+        if p_dt:
+            return p_dt
+        p_d = parse_date(s)
+        if p_d:
+            t = dt_class.max.time() if is_end else dt_class.min.time()
+            return dt_class.combine(p_d, t)
+        return None
 
     if from_str:
-        dt = _parse(from_str)
+        dt = _parse(from_str, is_end=False)
         if dt:
             qs = qs.filter(created_at__gte=dt)
     if to_str:
-        dt = _parse(to_str)
+        dt = _parse(to_str, is_end=True)
         if dt:
             qs = qs.filter(created_at__lte=dt)
     return qs
@@ -695,6 +717,20 @@ class CallLogListView(APIView):
                 qs = qs.none()
 
         qs = _date_filter(qs, request)
+
+        employee_id = request.query_params.get("employee_id")
+        if employee_id:
+            emp_user = User.objects.filter(pk=employee_id).first()
+            if emp_user:
+                emp_ext = getattr(emp_user, 'voxbay_extension', None)
+                emp_num = getattr(emp_user, 'voxbay_number', None)
+                q_emp = Q()
+                if emp_ext:
+                    q_emp |= Q(extension=emp_ext) | Q(agent_number=emp_ext)
+                if emp_num:
+                    q_emp |= Q(called_number=emp_num) | Q(caller_number=emp_num) | Q(agent_number=emp_num)
+                if q_emp:
+                    qs = qs.filter(q_emp)
 
         call_type = request.query_params.get("call_type")
         if call_type in ("incoming", "outgoing"):

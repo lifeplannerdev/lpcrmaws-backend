@@ -28,6 +28,7 @@ from .views import (
     BulkPasteLeadsView,
     StaffAnalysisAPIView,
     StaffAnalysisLeadsAPIView,
+    StaffAnalysisFollowUpsAPIView,
 )
 from .analytics import UserPerformanceAnalyticsAPIView
 from .webhooks import meta_webhook, voxbay_webhook, meta_process_webhook
@@ -78,4 +79,5 @@ urlpatterns = [
     # ── Staff Analysis ─────────────────────────────────────────
     path('staff-analysis/', StaffAnalysisAPIView.as_view(), name='staff-analysis'),
     path('staff-analysis/leads/', StaffAnalysisLeadsAPIView.as_view(), name='staff-analysis-leads'),
+    path('staff-analysis/followups/', StaffAnalysisFollowUpsAPIView.as_view(), name='staff-analysis-followups'),
 ]

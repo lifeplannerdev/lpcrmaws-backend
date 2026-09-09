@@ -1,6 +1,6 @@
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 from django.utils import timezone
-from django.db.models import Count, Q, Prefetch, Case, When, Value, CharField
+from django.db.models import Count, Q, Prefetch, Case, When, Value, CharField, Sum, Avg
 from rest_framework.views import APIView
 from rest_framework import generics, filters
 from rest_framework.pagination import PageNumberPagination
@@ -11,6 +11,7 @@ from accounts.models import User
 from accounts.permissions import has_dynamic_permission
 from leads.models import Lead, FollowUp
 from leads.permissions import FULL_ACCESS_ROLES
+from telephony.models import VoxbayCallLog
 
 
 def _get_date_range(request):
@@ -21,18 +22,47 @@ def _get_date_range(request):
     elif preset == 'yesterday':
         y = today - timedelta(days=1)
         return y, y
-    elif preset == 'custom':
-        start = request.query_params.get('start_date')
-        end = request.query_params.get('end_date')
+    elif preset == 'this_week':
+        start = today - timedelta(days=today.weekday())
+        return start, today
+    elif preset == 'this_month':
+        start = today.replace(day=1)
+        return start, today
+    elif preset in ('custom', 'range', 'custom_range', 'single_date', 'custom_date'):
+        start = request.query_params.get('start_date') or request.query_params.get('single_date')
+        end = request.query_params.get('end_date') or start
         if start and end:
             try:
                 from datetime import date as dt_date
                 return dt_date.fromisoformat(start), dt_date.fromisoformat(end)
             except ValueError:
                 pass
+        elif start:
+            try:
+                from datetime import date as dt_date
+                d = dt_date.fromisoformat(start)
+                return d, d
+            except ValueError:
+                pass
+        return None, None
+    elif preset == 'all_time':
         return None, None
     else:
         return None, None
+
+
+def _format_seconds(total_sec):
+    if not total_sec:
+        return "0s"
+    total_sec = int(total_sec)
+    h = total_sec // 3600
+    m = (total_sec % 3600) // 60
+    s = total_sec % 60
+    if h > 0:
+        return f"{h}h {m}m {s}s"
+    elif m > 0:
+        return f"{m}m {s}s"
+    return f"{s}s"
 
 
 class StaffAnalysisAPIView(APIView):
@@ -54,7 +84,7 @@ class StaffAnalysisAPIView(APIView):
         source_filter = request.query_params.get('source', '')
         call_type_filter = request.query_params.get('call_type', '')
 
-        employees_qs = User.objects.filter(is_active=True).prefetch_related('db_roles')
+        employees_qs = User.objects.filter(is_active=True).prefetch_related('db_roles').order_by('first_name', 'username')
 
         # Base queryset with filters
         lead_base = Lead.objects.all()
@@ -78,10 +108,18 @@ class StaffAnalysisAPIView(APIView):
         if start_date and end_date:
             fu_qs = fu_qs.filter(follow_up_date__gte=start_date, follow_up_date__lte=end_date)
 
+        # Base for telephony call logs
+        call_qs = VoxbayCallLog.objects.all()
+        if start_date and end_date:
+            dt_start = datetime.combine(start_date, datetime.min.time())
+            dt_end = datetime.combine(end_date, datetime.max.time())
+            call_qs = call_qs.filter(created_at__gte=dt_start, created_at__lte=dt_end)
+
         results = []
         today = timezone.now().date()
 
         for emp in employees_qs:
+            # 1. Lead metrics
             if start_date and end_date:
                 fresh_count = lead_base.filter(
                     Q(assigned_to=emp) | Q(sub_assigned_to=emp),
@@ -98,18 +136,94 @@ class StaffAnalysisAPIView(APIView):
                     created_at__date__lte=end_date
                 ).distinct().count()
 
-                total_leads = fresh_count + followup_count
+                emp_leads_qs = lead_base.filter(
+                    Q(assigned_to=emp) | Q(sub_assigned_to=emp)
+                ).filter(
+                    Q(created_at__date__gte=start_date, created_at__date__lte=end_date) |
+                    Q(followups__follow_up_date__gte=start_date, followups__follow_up_date__lte=end_date)
+                ).distinct()
             else:
-                total_leads = lead_base.filter(Q(assigned_to=emp) | Q(sub_assigned_to=emp)).distinct().count()
-                fresh_count = total_leads
+                emp_leads_qs = lead_base.filter(Q(assigned_to=emp) | Q(sub_assigned_to=emp)).distinct()
+                fresh_count = emp_leads_qs.count()
                 followup_count = 0
+
+            total_leads = emp_leads_qs.count()
+
+            # Pipeline stage breakdown
+            hot_count = emp_leads_qs.filter(status='HOT').count()
+            warm_count = emp_leads_qs.filter(status='WARM').count()
+            cold_count = emp_leads_qs.filter(status='COLD').count()
+            enquiry_count = emp_leads_qs.filter(status='ENQUIRY').count()
+            job_enquiry_count = emp_leads_qs.filter(status='JOB_ENQUIRY').count()
+            b2b_count = emp_leads_qs.filter(status='B2B').count()
+            closed_count = emp_leads_qs.filter(status='CLOSED').count()
+            converted_count = emp_leads_qs.filter(status__in=['CONVERTED', 'REGISTERED']).count()
             
+            # Legacy statuses breakdown
+            contacted_lead_count = emp_leads_qs.filter(status='CONTACTED').count()
+            qualified_lead_count = emp_leads_qs.filter(status='QUALIFIED').count()
+            not_interested_lead_count = emp_leads_qs.filter(status='NOT_INTERESTED').count()
+            cnr_lead_count = emp_leads_qs.filter(status='CNR').count()
+            registered_lead_count = emp_leads_qs.filter(status='REGISTERED').count()
+
+            conversion_rate = round((converted_count / total_leads * 100), 1) if total_leads > 0 else 0.0
+
+            # 2. Follow-up metrics
             emp_followups = fu_qs.filter(assigned_to=emp)
             total_fups = emp_followups.count()
             contacted_fups = emp_followups.filter(status='contacted').count()
+            completed_fups = emp_followups.filter(status='completed').count()
+            total_resolved_fups = contacted_fups + completed_fups
             pending_fups = emp_followups.filter(status='pending').count()
             overdue_fups = emp_followups.filter(status='pending', follow_up_date__lt=today).count()
-            deficit = contacted_fups - total_fups
+            rescheduled_fups = emp_followups.filter(status='rescheduled').count()
+            not_interested_fups = emp_followups.filter(status='not_interested').count()
+            
+            resolution_rate = round((total_resolved_fups / total_fups * 100), 1) if total_fups > 0 else 0.0
+            unresolved_count = max(0, total_fups - total_resolved_fups)
+
+            # 3. Telephony calls & talktime
+            emp_ext = getattr(emp, 'voxbay_extension', None)
+            emp_num = getattr(emp, 'voxbay_number', None)
+            q_calls = Q()
+            if emp_ext:
+                q_calls |= Q(extension=emp_ext) | Q(agent_number=emp_ext)
+            if emp_num:
+                q_calls |= Q(called_number=emp_num) | Q(caller_number=emp_num) | Q(agent_number=emp_num)
+            
+            if q_calls:
+                emp_calls = call_qs.filter(q_calls)
+            else:
+                emp_calls = call_qs.none()
+
+            calls_total = emp_calls.count()
+            calls_incoming = emp_calls.filter(call_type='incoming').count()
+            calls_outgoing = emp_calls.filter(call_type='outgoing').count()
+            calls_answered = emp_calls.filter(call_status__in=['ANSWER', 'ANSWERED']).count()
+            calls_missed = emp_calls.filter(call_status__in=['MISSED', 'NOANSWER', 'CANCELLED']).count()
+            
+            talktime_agg = emp_calls.aggregate(Sum('conversation_duration'))['conversation_duration__sum'] or 0
+            total_talktime_sec = int(talktime_agg)
+            avg_talktime_sec = round(total_talktime_sec / calls_answered, 1) if calls_answered > 0 else 0.0
+            talktime_display = _format_seconds(total_talktime_sec)
+
+            # 4. Balanced Performance Scorecard (0 to 100)
+            if total_fups > 0:
+                fu_score = (resolution_rate / 100.0) * 40.0
+            else:
+                fu_score = 25.0 if total_leads > 0 else 10.0
+            # Overdue penalty (-2 pts per overdue, max 10 pts penalty)
+            fu_score = max(0.0, fu_score - min(10.0, overdue_fups * 2.0))
+
+            sales_score = min(20.0, converted_count * 5.0)
+            pipeline_ratio = ((hot_count * 2.0 + warm_count * 1.0) / max(total_leads, 1))
+            pipeline_score = min(10.0, pipeline_ratio * 15.0)
+
+            talk_score = min(20.0, (total_talktime_sec / 3600.0) * 10.0)
+            call_activity_score = min(10.0, (calls_total / 20.0) * 10.0)
+
+            raw_perf = fu_score + sales_score + pipeline_score + talk_score + call_activity_score
+            perf_score = round(max(0.0, min(100.0, raw_perf)), 1)
 
             results.append({
                 'employee': {
@@ -118,37 +232,107 @@ class StaffAnalysisAPIView(APIView):
                     'full_name': emp.get_full_name() or emp.username,
                     'email': emp.email,
                     'roles': list(emp.db_roles.values_list('name', flat=True)),
+                    'voxbay_extension': emp_ext,
+                    'voxbay_number': emp_num,
                 },
                 'summary': {
                     'total_leads': total_leads,
                     'fresh_leads': fresh_count,
                     'followup_leads': followup_count,
+                    # Pipeline stages
+                    'hot_leads': hot_count,
+                    'warm_leads': warm_count,
+                    'cold_leads': cold_count,
+                    'enquiry_leads': enquiry_count,
+                    'job_enquiry_leads': job_enquiry_count,
+                    'b2b_leads': b2b_count,
+                    'closed_leads': closed_count,
+                    'converted_leads': converted_count,
+                    'conversion_rate': conversion_rate,
+                    # Legacy lead statuses
+                    'contacted_leads': contacted_lead_count,
+                    'qualified_leads': qualified_lead_count,
+                    'not_interested_leads': not_interested_lead_count,
+                    'cnr_leads': cnr_lead_count,
+                    'registered_leads': registered_lead_count,
+                    # Followups
                     'followups_total': total_fups,
                     'followups_contacted': contacted_fups,
+                    'followups_completed': completed_fups,
+                    'followups_resolved': total_resolved_fups,
                     'followups_pending': pending_fups,
                     'followups_overdue': overdue_fups,
-                    'followup_deficit': deficit,
+                    'followups_rescheduled': rescheduled_fups,
+                    'followups_not_interested': not_interested_fups,
+                    'resolution_rate': resolution_rate,
+                    'unresolved_count': unresolved_count,
+                    'followup_deficit': total_resolved_fups - total_fups,
+                    # Telephony
+                    'calls_total': calls_total,
+                    'calls_incoming': calls_incoming,
+                    'calls_outgoing': calls_outgoing,
+                    'calls_answered': calls_answered,
+                    'calls_missed': calls_missed,
+                    'total_talktime_sec': total_talktime_sec,
+                    'avg_talktime_sec': avg_talktime_sec,
+                    'talktime_display': talktime_display,
+                    # Scorecard & Rank
+                    'performance_score': perf_score,
+                    'rank': 1,
+                    'is_top_performer': False,
                 }
             })
+
+        # Sort employees by performance_score descending, then converted_leads, then total_talktime_sec
+        results.sort(key=lambda r: (r['summary']['performance_score'], r['summary']['converted_leads'], r['summary']['total_talktime_sec']), reverse=True)
+        for idx, r in enumerate(results, start=1):
+            r['summary']['rank'] = idx
+            if idx == 1 and r['summary']['performance_score'] > 0:
+                r['summary']['is_top_performer'] = True
 
         grand_total_leads = sum(r['summary']['total_leads'] for r in results)
         grand_fresh_leads = sum(r['summary']['fresh_leads'] for r in results)
         grand_followup_leads = sum(r['summary']['followup_leads'] for r in results)
+        grand_converted = sum(r['summary']['converted_leads'] for r in results)
+        grand_hot = sum(r['summary']['hot_leads'] for r in results)
+        grand_warm = sum(r['summary']['warm_leads'] for r in results)
+        grand_cold = sum(r['summary']['cold_leads'] for r in results)
         grand_fu_total = sum(r['summary']['followups_total'] for r in results)
         grand_fu_contacted = sum(r['summary']['followups_contacted'] for r in results)
+        grand_fu_completed = sum(r['summary']['followups_completed'] for r in results)
+        grand_fu_resolved = sum(r['summary']['followups_resolved'] for r in results)
         grand_fu_pending = sum(r['summary']['followups_pending'] for r in results)
         grand_fu_overdue = sum(r['summary']['followups_overdue'] for r in results)
+        grand_calls_total = sum(r['summary']['calls_total'] for r in results)
+        grand_calls_answered = sum(r['summary']['calls_answered'] for r in results)
+        grand_calls_missed = sum(r['summary']['calls_missed'] for r in results)
+        grand_talktime_sec = sum(r['summary']['total_talktime_sec'] for r in results)
+
+        top_emp = results[0]['employee'] if results and results[0]['summary']['performance_score'] > 0 else None
 
         return Response({
             'grand_summary': {
                 'total_leads': grand_total_leads,
                 'fresh_leads': grand_fresh_leads,
                 'followup_leads': grand_followup_leads,
+                'converted_leads': grand_converted,
+                'conversion_rate': round((grand_converted / grand_total_leads * 100), 1) if grand_total_leads else 0.0,
+                'hot_leads': grand_hot,
+                'warm_leads': grand_warm,
+                'cold_leads': grand_cold,
                 'followups_total': grand_fu_total,
                 'followups_contacted': grand_fu_contacted,
+                'followups_completed': grand_fu_completed,
+                'followups_resolved': grand_fu_resolved,
                 'followups_pending': grand_fu_pending,
                 'followups_overdue': grand_fu_overdue,
-                'completion_rate': round((grand_fu_contacted / grand_fu_total * 100) if grand_fu_total else 0, 1),
+                'completion_rate': round((grand_fu_resolved / grand_fu_total * 100), 1) if grand_fu_total else 0.0,
+                'calls_total': grand_calls_total,
+                'calls_answered': grand_calls_answered,
+                'calls_missed': grand_calls_missed,
+                'total_talktime_sec': grand_talktime_sec,
+                'talktime_display': _format_seconds(grand_talktime_sec),
+                'top_performer': top_emp,
             },
             'employees': results,
         })
@@ -159,11 +343,12 @@ class StaffAnalysisPagination(PageNumberPagination):
     page_size_query_param = 'page_size'
     max_page_size = 100
 
+
 class StaffAnalysisLeadsAPIView(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
     pagination_class = StaffAnalysisPagination
     filter_backends = [filters.SearchFilter]
-    search_fields = ['name', 'phone', 'email', 'remarks']
+    search_fields = ['name', 'phone', 'email', 'remarks', 'program', 'location']
 
     def get_queryset(self):
         user = self.request.user
@@ -235,7 +420,6 @@ class StaffAnalysisLeadsAPIView(generics.ListAPIView):
         page = self.paginate_queryset(queryset)
         
         def _serialize(lead):
-            # Dynamic call_type inference for JSON
             ctype = 'unknown'
             if lead.voxbay_status:
                 vs = lead.voxbay_status.lower()
@@ -244,7 +428,6 @@ class StaffAnalysisLeadsAPIView(generics.ListAPIView):
             elif lead.source == 'VOXBAY CALL':
                 ctype = 'outgoing'
                 
-            # Determine Lead Tag (Fresh vs Follow-up)
             is_fresh = False
             if start_date and end_date:
                 is_fresh = (lead.created_at.date() >= start_date and lead.created_at.date() <= end_date)
@@ -254,14 +437,13 @@ class StaffAnalysisLeadsAPIView(generics.ListAPIView):
             lead_tag = 'FRESH' if is_fresh else 'FOLLOWUP'
             lead_tag_display = 'Fresh Lead' if is_fresh else 'Follow-up Lead'
 
-            # Get the follow-up for this lead in the selected date range, or the latest
             if start_date and end_date:
                 period_fup = None
                 for f in lead.followups.all():
                     if f.follow_up_date and start_date <= f.follow_up_date <= end_date:
                         period_fup = f
                         break
-                latest_fup = period_fup or lead.followups.first()
+                    latest_fup = period_fup or lead.followups.first()
             else:
                 latest_fup = lead.followups.first()
 
@@ -310,3 +492,73 @@ class StaffAnalysisLeadsAPIView(generics.ListAPIView):
         data = [_serialize(lead) for lead in queryset]
         return Response(data)
 
+
+class StaffAnalysisFollowUpsAPIView(generics.ListAPIView):
+    permission_classes = [IsAuthenticated]
+    pagination_class = StaffAnalysisPagination
+    filter_backends = [filters.SearchFilter]
+    search_fields = ['name', 'phone_number', 'notes', 'lead__name', 'lead__phone']
+
+    def get_queryset(self):
+        user = self.request.user
+        is_admin = (
+            user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists()
+            or has_dynamic_permission(user, 'leads:read_tenant')
+            or has_dynamic_permission(user, 'leads:read_any')
+            or has_dynamic_permission(user, 'staff_analysis:admin')
+        )
+        if not is_admin:
+            return FollowUp.objects.none()
+
+        start_date, end_date = _get_date_range(self.request)
+        employee_id = self.request.query_params.get('employee_id')
+        status_filter = self.request.query_params.get('status', '')
+
+        fu_qs = FollowUp.objects.select_related('lead', 'assigned_to')
+
+        if employee_id:
+            fu_qs = fu_qs.filter(assigned_to_id=employee_id)
+
+        if start_date and end_date:
+            fu_qs = fu_qs.filter(follow_up_date__gte=start_date, follow_up_date__lte=end_date)
+
+        if status_filter:
+            statuses = [s.strip().lower() for s in status_filter.split(',') if s.strip()]
+            fu_qs = fu_qs.filter(status__in=statuses)
+
+        return fu_qs.order_by('-follow_up_date', '-created_at')
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        today = timezone.now().date()
+
+        def _serialize_fu(f):
+            is_overdue = (f.status == 'pending' and f.follow_up_date and f.follow_up_date < today)
+            return {
+                'id': f.id,
+                'name': f.name or (f.lead.name if f.lead else ''),
+                'phone': f.phone_number or (f.lead.phone if f.lead else ''),
+                'follow_up_date': f.follow_up_date.isoformat() if f.follow_up_date else None,
+                'follow_up_time': f.follow_up_time.isoformat() if f.follow_up_time else None,
+                'status': f.status,
+                'priority': f.priority,
+                'followup_type': f.followup_type,
+                'notes': f.notes,
+                'is_overdue': is_overdue,
+                'assigned_to_name': f.assigned_to.get_full_name() if f.assigned_to else '',
+                'lead': {
+                    'id': f.lead.id,
+                    'name': f.lead.name,
+                    'phone': f.lead.phone,
+                    'status': f.lead.status,
+                    'program': f.lead.program,
+                } if f.lead else None,
+            }
+
+        if page is not None:
+            data = [_serialize_fu(f) for f in page]
+            return self.get_paginated_response(data)
+
+        data = [_serialize_fu(f) for f in queryset]
+        return Response(data)
