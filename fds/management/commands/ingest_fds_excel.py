@@ -45,21 +45,42 @@ class Command(BaseCommand):
         parser.add_argument('--workbook1', type=str, help='Path to Enquiry & Trial workbook')
         parser.add_argument('--workbook2', type=str, help='Path to Registration & Accounts workbook')
 
-    def handle(self, *args, **options):
-        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    def find_latest_workbook(self, keywords, explicit_path=None):
+        if explicit_path and os.path.exists(explicit_path):
+            return explicit_path
         
-        # Workbook 1: ENQUIRY, TRIAL, LEAD SOURCING
-        wb1_path = options.get('workbook1') or os.path.join(base_dir, 'FDS KTM-ENQUIRY_ TRIAL-2026 (1).xlsx')
-        if not os.path.exists(wb1_path):
-            wb1_path = os.path.join(os.path.dirname(base_dir), 'FDS KTM-ENQUIRY_ TRIAL-2026 (1).xlsx')
-            
-        # Workbook 2: REGISTRATION DETAILS, FEES STRUCTURE, FEES COLLECTION 2026
-        wb2_path = options.get('workbook2') or os.path.join(base_dir, 'FDS KTM-2026-JOINING DETAILS & ACCOUNTS -FEES STRUCTURE _ FEES COLLECTIONS -REGULAR BATCH (1).xlsx')
-        if not os.path.exists(wb2_path):
-            wb2_path = os.path.join(os.path.dirname(base_dir), 'FDS KTM-2026-JOINING DETAILS & ACCOUNTS -FEES STRUCTURE _ FEES COLLECTIONS -REGULAR BATCH (1).xlsx')
+        base_backend = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+        workspace_root = os.path.dirname(base_backend)
+        downloads_dir = os.path.join(os.path.expanduser('~'), 'Downloads')
+        
+        search_dirs = [workspace_root, base_backend, downloads_dir]
+        candidates = []
+        for d in search_dirs:
+            if not os.path.exists(d):
+                continue
+            try:
+                for f in os.listdir(d):
+                    if f.lower().endswith('.xlsx') and not f.startswith('~$'):
+                        f_upper = f.upper()
+                        if any(k.upper() in f_upper for k in keywords):
+                            full = os.path.join(d, f)
+                            candidates.append((os.path.getmtime(full), full))
+            except Exception:
+                pass
+        if candidates:
+            candidates.sort(key=lambda x: x[0], reverse=True)
+            return candidates[0][1]
+        return None
 
-        self.stdout.write(f"Workbook 1 path: {wb1_path}")
-        self.stdout.write(f"Workbook 2 path: {wb2_path}")
+    def handle(self, *args, **options):
+        # Workbook 1: ENQUIRY, TRIAL, LEAD SOURCING
+        wb1_path = self.find_latest_workbook(['ENQUIRY', 'TRIAL'], options.get('workbook1'))
+        
+        # Workbook 2: REGISTRATION DETAILS, FEES STRUCTURE, FEES COLLECTION 2026
+        wb2_path = self.find_latest_workbook(['JOINING', 'ACCOUNTS', 'FEES STRUCTURE'], options.get('workbook2'))
+
+        self.stdout.write(f"Workbook 1 (Enquiries/Trials/Lead Sourcing): {wb1_path}")
+        self.stdout.write(f"Workbook 2 (Registration/Fees Structure/Ledger): {wb2_path}")
 
         # ── 1. INGEST FEES STRUCTURE ──────────────────────────────────
         if os.path.exists(wb2_path):
