@@ -743,7 +743,15 @@ class CallLogListView(APIView):
 
         search = request.query_params.get("search", "").strip()
         if search:
-            qs = qs.filter(
+            from leads.models import Lead
+            matched_lead_phones = list(Lead.objects.filter(name__icontains=search).values_list('phone', flat=True)[:100])
+            phone_q = Q()
+            for lp in matched_lead_phones:
+                if lp:
+                    clean_p = lp[-10:] if len(lp) >= 10 else lp
+                    phone_q |= Q(destination__endswith=clean_p) | Q(called_number__endswith=clean_p) | Q(caller_number__endswith=clean_p)
+            
+            search_q = (
                 Q(caller_number__icontains=search)  |
                 Q(called_number__icontains=search)  |
                 Q(agent_number__icontains=search)   |
@@ -751,6 +759,9 @@ class CallLogListView(APIView):
                 Q(extension__icontains=search)      |
                 Q(call_uuid__icontains=search)
             )
+            if phone_q:
+                search_q |= phone_q
+            qs = qs.filter(search_q)
 
         ordering = request.query_params.get("ordering", "-created_at")
         allowed_orderings = {
@@ -767,11 +778,38 @@ class CallLogListView(APIView):
         except (ValueError, TypeError):
             page, page_size = 1, 20
 
-        total  = qs.count()
-        offset = (page - 1) * page_size
-        qs     = qs[offset: offset + page_size]
+        total      = qs.count()
+        offset     = (page - 1) * page_size
+        page_items = list(qs[offset: offset + page_size])
 
-        serializer = VoxbayCallLogSerializer(qs, many=True)
+        # Batch resolve leads for this page to eliminate N+1 queries
+        targets = set()
+        for log in page_items:
+            num = (log.destination or log.called_number) if log.call_type == 'outgoing' else log.caller_number
+            if num:
+                targets.add(num)
+                if len(num) >= 10:
+                    targets.add(num[-10:])
+
+        if targets:
+            from leads.models import Lead
+            lead_q = Q()
+            for t in targets:
+                lead_q |= Q(phone__endswith=t) | Q(phone=t)
+            matched_leads = Lead.objects.filter(lead_q).only('id', 'name', 'phone')
+            lead_map = {}
+            for ld in matched_leads:
+                p = ld.phone or ''
+                lead_map[p] = ld
+                if len(p) >= 10:
+                    lead_map[p[-10:]] = ld
+
+            for log in page_items:
+                num = (log.destination or log.called_number) if log.call_type == 'outgoing' else log.caller_number
+                matched = lead_map.get(num) or (lead_map.get(num[-10:]) if num else None)
+                log._cached_lead = matched
+
+        serializer = VoxbayCallLogSerializer(page_items, many=True)
         return Response({
             "count":     total,
             "page":      page,

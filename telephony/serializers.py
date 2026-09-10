@@ -82,33 +82,29 @@ class VoxbayCallLogSerializer(serializers.ModelSerializer):
             return obj.destination or obj.called_number
         return obj.caller_number
 
-    def get_is_lead(self, obj):
+    def _get_lead(self, obj):
+        if hasattr(obj, '_cached_lead'):
+            return obj._cached_lead
         target = self._get_target_number(obj)
         if not target:
-            return False
-        from leads.models import Lead
-        search_target = target[-10:] if len(target) >= 10 else target
-        from django.db.models import Q
-        return Lead.objects.filter(Q(phone=target) | Q(phone__endswith=search_target)).exists()
-
-    def get_lead_id(self, obj):
-        target = self._get_target_number(obj)
-        if not target:
+            obj._cached_lead = None
             return None
         from leads.models import Lead
         search_target = target[-10:] if len(target) >= 10 else target
         from django.db.models import Q
         lead = Lead.objects.filter(Q(phone=target) | Q(phone__endswith=search_target)).first()
+        obj._cached_lead = lead
+        return lead
+
+    def get_is_lead(self, obj):
+        return self._get_lead(obj) is not None
+
+    def get_lead_id(self, obj):
+        lead = self._get_lead(obj)
         return lead.id if lead else None
 
     def get_lead_name(self, obj):
-        target = self._get_target_number(obj)
-        if not target:
-            return None
-        from leads.models import Lead
-        search_target = target[-10:] if len(target) >= 10 else target
-        from django.db.models import Q
-        lead = Lead.objects.filter(Q(phone=target) | Q(phone__endswith=search_target)).first()
+        lead = self._get_lead(obj)
         return lead.name if lead else None
 
     def get_duration_display(self, obj):

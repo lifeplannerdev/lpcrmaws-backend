@@ -65,6 +65,19 @@ def _format_seconds(total_sec):
     return f"{s}s"
 
 
+def _extract_recording_url(notes):
+    if not notes:
+        return None
+    import re
+    m = re.search(r'(?:Recording:\s*|\[Audio Recording:\s*|\bAudio:\s*)(https?://[^\s\]]+)', notes, re.IGNORECASE)
+    if m:
+        return m.group(1)
+    m2 = re.search(r'(https?://[^\s\]]+(?:voiceapi\.voxbay\.com|callcenter|callrecordings|\.wav|\.mp3)[^\s\]]*)', notes, re.IGNORECASE)
+    if m2:
+        return m2.group(1)
+    return None
+
+
 class StaffAnalysisAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -454,6 +467,7 @@ class StaffAnalysisLeadsAPIView(generics.ListAPIView):
                     'follow_up_date': latest_fup.follow_up_date.isoformat() if latest_fup.follow_up_date else None,
                     'status': latest_fup.status,
                     'notes': latest_fup.notes,
+                    'recording_url': _extract_recording_url(latest_fup.notes),
                     'is_overdue': latest_fup.is_overdue,
                 }
                 
@@ -480,6 +494,7 @@ class StaffAnalysisLeadsAPIView(generics.ListAPIView):
                         'follow_up_date': f.follow_up_date.isoformat() if f.follow_up_date else None,
                         'status': f.status,
                         'notes': f.notes,
+                        'recording_url': _extract_recording_url(f.notes),
                         'is_overdue': f.is_overdue,
                     } for f in lead.followups.all()
                 ]
@@ -545,6 +560,7 @@ class StaffAnalysisFollowUpsAPIView(generics.ListAPIView):
                 'priority': f.priority,
                 'followup_type': f.followup_type,
                 'notes': f.notes,
+                'recording_url': _extract_recording_url(f.notes),
                 'is_overdue': is_overdue,
                 'assigned_to_name': f.assigned_to.get_full_name() if f.assigned_to else '',
                 'lead': {
