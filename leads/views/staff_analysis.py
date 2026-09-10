@@ -28,6 +28,11 @@ def _get_date_range(request):
     elif preset == 'this_month':
         start = today.replace(day=1)
         return start, today
+    elif preset == 'previous_month':
+        first_of_this_month = today.replace(day=1)
+        last_of_prev = first_of_this_month - timedelta(days=1)
+        first_of_prev = last_of_prev.replace(day=1)
+        return first_of_prev, last_of_prev
     elif preset in ('custom', 'range', 'custom_range', 'single_date', 'custom_date'):
         start = request.query_params.get('start_date') or request.query_params.get('single_date')
         end = request.query_params.get('end_date') or start
@@ -171,7 +176,25 @@ class StaffAnalysisAPIView(APIView):
             b2b_count = emp_leads_qs.filter(status='B2B').count()
             closed_count = emp_leads_qs.filter(status='CLOSED').count()
             converted_count = emp_leads_qs.filter(status__in=['CONVERTED', 'REGISTERED']).count()
-            
+
+            # Converted lead details for report
+            converted_leads_qs = emp_leads_qs.filter(status__in=['CONVERTED', 'REGISTERED']).order_by('-created_at')
+            converted_leads_detail = [
+                {
+                    'id': cl.id,
+                    'name': cl.name,
+                    'phone': cl.phone,
+                    'email': cl.email,
+                    'program': cl.program,
+                    'location': cl.location,
+                    'status': cl.status,
+                    'created_at': cl.created_at.strftime('%Y-%m-%d') if cl.created_at else None,
+                    'source': cl.source,
+                    'assigned_to_name': cl.assigned_to.get_full_name() if cl.assigned_to else '',
+                }
+                for cl in converted_leads_qs[:50]
+            ]
+
             # Legacy statuses breakdown
             contacted_lead_count = emp_leads_qs.filter(status='CONTACTED').count()
             qualified_lead_count = emp_leads_qs.filter(status='QUALIFIED').count()
@@ -191,6 +214,23 @@ class StaffAnalysisAPIView(APIView):
             overdue_fups = emp_followups.filter(status='pending', follow_up_date__lt=today).count()
             rescheduled_fups = emp_followups.filter(status='rescheduled').count()
             not_interested_fups = emp_followups.filter(status='not_interested').count()
+
+            # Followups created in period (vs done in period)
+            if start_date and end_date:
+                followups_created_in_period = FollowUp.objects.filter(
+                    assigned_to=emp,
+                    created_at__date__gte=start_date,
+                    created_at__date__lte=end_date
+                ).count()
+            else:
+                followups_created_in_period = FollowUp.objects.filter(assigned_to=emp).count()
+
+            # Overdue pending (excluding future - i.e. due today or past, status pending)
+            overdue_pending_excl_future = FollowUp.objects.filter(
+                assigned_to=emp,
+                status='pending',
+                follow_up_date__lte=today
+            ).count()
             
             resolution_rate = round((total_resolved_fups / total_fups * 100), 1) if total_fups > 0 else 0.0
             unresolved_count = max(0, total_fups - total_resolved_fups)
@@ -277,6 +317,8 @@ class StaffAnalysisAPIView(APIView):
                     'followups_overdue': overdue_fups,
                     'followups_rescheduled': rescheduled_fups,
                     'followups_not_interested': not_interested_fups,
+                    'followups_created_in_period': followups_created_in_period,
+                    'followups_overdue_pending_total': overdue_pending_excl_future,
                     'resolution_rate': resolution_rate,
                     'unresolved_count': unresolved_count,
                     'followup_deficit': total_resolved_fups - total_fups,
@@ -293,7 +335,8 @@ class StaffAnalysisAPIView(APIView):
                     'performance_score': perf_score,
                     'rank': 1,
                     'is_top_performer': False,
-                }
+                },
+                'converted_leads_detail': converted_leads_detail,
             })
 
         # Sort employees by performance_score descending, then converted_leads, then total_talktime_sec

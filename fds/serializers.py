@@ -1,18 +1,19 @@
 from rest_framework import serializers
 from .models import (
     FdsFeeStructure, FdsBatch, FdsEnquiry, FdsTrial,
-    FdsStudent, FdsWeddingGroup, FdsAttendance, FdsFeesCollection
+    FdsStudent, FdsWeddingGroup, FdsAttendance, FdsFeesCollection,
+    FdsStudentFeeAccount, FdsLeadSourcing
 )
 
 
 # ── Minimal nested serializers ──────────────────────────────────
 
 class FdsFeeStructureMinSerializer(serializers.ModelSerializer):
-    category_display = serializers.CharField(source='get_category_display', read_only=True)
+    category_display = serializers.CharField(source='category_name', read_only=True)
 
     class Meta:
         model = FdsFeeStructure
-        fields = ['id', 'category', 'category_display', 'amount']
+        fields = ['id', 'category', 'category_name', 'category_display', 'amount', 'amount_text']
 
 
 class FdsBatchMinSerializer(serializers.ModelSerializer):
@@ -25,10 +26,10 @@ class FdsBatchMinSerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'class_category', 'class_category_display', 'time_display', 'enrolled_count']
 
 
-# ── Fee Structure ────────────────────────────────────────────────
+# ── Fee Structure (Sheet 5 Mirror) ───────────────────────────────
 
 class FdsFeeStructureSerializer(serializers.ModelSerializer):
-    category_display = serializers.CharField(source='get_category_display', read_only=True)
+    category_display = serializers.CharField(source='category_name', read_only=True)
 
     class Meta:
         model = FdsFeeStructure
@@ -55,12 +56,12 @@ class FdsBatchSerializer(serializers.ModelSerializer):
         return None
 
 
-# ── Enquiry ──────────────────────────────────────────────────────
+# ── Enquiry (Sheet 1 Mirror) ─────────────────────────────────────
 
 class FdsEnquirySerializer(serializers.ModelSerializer):
-    status_display = serializers.CharField(source='get_status_display', read_only=True)
-    source_display = serializers.CharField(source='get_source_display', read_only=True)
-    class_interest_display = serializers.CharField(source='get_class_interest_display', read_only=True)
+    status_display = serializers.CharField(source='status', read_only=True)
+    source_display = serializers.CharField(source='source', read_only=True)
+    class_interest_display = serializers.CharField(source='class_interest', read_only=True)
     created_by_name = serializers.SerializerMethodField()
     has_trial = serializers.SerializerMethodField()
     has_student = serializers.SerializerMethodField()
@@ -68,7 +69,7 @@ class FdsEnquirySerializer(serializers.ModelSerializer):
     class Meta:
         model = FdsEnquiry
         fields = '__all__'
-        read_only_fields = ['enquiry_id', 'created_at', 'updated_at']
+        read_only_fields = ['created_at', 'updated_at']
 
     def get_created_by_name(self, obj):
         if obj.created_by:
@@ -82,11 +83,11 @@ class FdsEnquirySerializer(serializers.ModelSerializer):
         return hasattr(obj, 'converted_student') and obj.converted_student is not None
 
 
-# ── Trial ────────────────────────────────────────────────────────
+# ── Trial (Sheet 2 Mirror) ───────────────────────────────────────
 
 class FdsTrialSerializer(serializers.ModelSerializer):
-    status_display = serializers.CharField(source='get_status_display', read_only=True)
-    class_category_display = serializers.CharField(source='get_class_category_display', read_only=True)
+    status_display = serializers.CharField(source='status', read_only=True)
+    class_category_display = serializers.CharField(source='class_category', read_only=True)
     enquiry_name = serializers.SerializerMethodField()
     conducted_by_name = serializers.SerializerMethodField()
     has_student = serializers.SerializerMethodField()
@@ -94,7 +95,7 @@ class FdsTrialSerializer(serializers.ModelSerializer):
     class Meta:
         model = FdsTrial
         fields = '__all__'
-        read_only_fields = ['trial_id', 'created_at', 'updated_at']
+        read_only_fields = ['created_at', 'updated_at']
 
     def get_enquiry_name(self, obj):
         return obj.enquiry.name if obj.enquiry else None
@@ -108,12 +109,12 @@ class FdsTrialSerializer(serializers.ModelSerializer):
         return hasattr(obj, 'converted_student') and obj.converted_student is not None
 
 
-# ── Student ──────────────────────────────────────────────────────
+# ── Student (Sheet 4 Mirror) ─────────────────────────────────────
 
 class FdsStudentSerializer(serializers.ModelSerializer):
     student_type_display = serializers.CharField(source='get_student_type_display', read_only=True)
     gender_display = serializers.CharField(source='get_gender_display', read_only=True)
-    age = serializers.IntegerField(read_only=True)
+    age = serializers.SerializerMethodField()
     class_category = serializers.CharField(read_only=True)
     batch_detail = FdsBatchMinSerializer(source='batch', read_only=True)
     fee_structure_detail = FdsFeeStructureMinSerializer(source='fee_structure', read_only=True)
@@ -125,7 +126,10 @@ class FdsStudentSerializer(serializers.ModelSerializer):
     class Meta:
         model = FdsStudent
         fields = '__all__'
-        read_only_fields = ['student_id', 'created_at', 'updated_at']
+        read_only_fields = ['created_at', 'updated_at']
+
+    def get_age(self, obj):
+        return str(obj.age) if obj.age is not None else (obj.age_gender or '')
 
     def get_created_by_name(self, obj):
         if obj.created_by:
@@ -188,17 +192,14 @@ class FdsAttendanceSerializer(serializers.ModelSerializer):
 
 
 class FdsAttendanceBulkSerializer(serializers.Serializer):
-    """For bulk-marking attendance for an entire batch on a date."""
     batch_id = serializers.IntegerField()
     date = serializers.DateField()
     records = serializers.ListField(
-        child=serializers.DictField()  # [{student_id, status, late_arrival, notes}]
+        child=serializers.DictField()
     )
 
 
-# ── Fees Collection ───────────────────────────────────────────────
-
-from .models import FdsStudentFeeAccount
+# ── Fees Collection & Accounts (Sheet 6 Mirror) ───────────────────
 
 class FdsStudentFeeAccountSerializer(serializers.ModelSerializer):
     status_display = serializers.CharField(source='get_status_display', read_only=True)
@@ -211,9 +212,10 @@ class FdsStudentFeeAccountSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ['created_at', 'updated_at', 'total_paid', 'total_due', 'balance_due']
 
+
 class FdsFeesCollectionSerializer(serializers.ModelSerializer):
-    status_display = serializers.CharField(source='get_status_display', read_only=True)
-    mode_of_pay_display = serializers.CharField(source='get_mode_of_pay_display', read_only=True)
+    status_display = serializers.CharField(source='status', read_only=True)
+    mode_of_pay_display = serializers.CharField(source='mode_of_pay', read_only=True)
     fees_type_detail = FdsFeeStructureMinSerializer(source='fees_type', read_only=True)
     student_name = serializers.SerializerMethodField()
     student_id_code = serializers.SerializerMethodField()
@@ -224,13 +226,13 @@ class FdsFeesCollectionSerializer(serializers.ModelSerializer):
     class Meta:
         model = FdsFeesCollection
         fields = '__all__'
-        read_only_fields = ['payment_id', 'created_at', 'balance']
+        read_only_fields = ['created_at', 'balance']
 
     def get_student_name(self, obj):
-        return obj.student.name if obj.student else None
+        return obj.student.name if obj.student else (obj.student_name_text or None)
 
     def get_student_id_code(self, obj):
-        return obj.student.student_id if obj.student else None
+        return obj.student.student_id if obj.student else (obj.student_id_code or None)
 
     def get_wedding_group_name(self, obj):
         return obj.wedding_group.event_name if obj.wedding_group else None
@@ -241,7 +243,20 @@ class FdsFeesCollectionSerializer(serializers.ModelSerializer):
         return None
 
     def get_fee_month_display(self, obj):
+        if obj.month_name:
+            return f"{obj.month_name} {obj.fee_year or ''}".strip()
         if obj.fee_month and obj.fee_year:
             import calendar
             return f"{calendar.month_name[obj.fee_month]} {obj.fee_year}"
         return None
+
+
+# ── Lead Sourcing (Sheet 3 Mirror) ────────────────────────────────
+
+class FdsLeadSourcingSerializer(serializers.ModelSerializer):
+    category_display = serializers.CharField(source='get_category_display', read_only=True)
+
+    class Meta:
+        model = FdsLeadSourcing
+        fields = '__all__'
+        read_only_fields = ['created_at', 'updated_at']
