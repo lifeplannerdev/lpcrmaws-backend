@@ -212,11 +212,11 @@ class StaffAnalysisAPIView(APIView):
             total_fups = emp_followups.count()
             contacted_fups = emp_followups.filter(status='contacted').count()
             completed_fups = emp_followups.filter(status='completed').count()
-            total_resolved_fups = contacted_fups + completed_fups
-            pending_fups = emp_followups.filter(status='pending').count()
-            overdue_fups = emp_followups.filter(status='pending', follow_up_date__lt=today).count()
             rescheduled_fups = emp_followups.filter(status='rescheduled').count()
             not_interested_fups = emp_followups.filter(status='not_interested').count()
+            total_resolved_fups = contacted_fups + completed_fups + rescheduled_fups + not_interested_fups
+            pending_fups = emp_followups.filter(status='pending').count()
+            overdue_fups = emp_followups.filter(status='pending', follow_up_date__lt=today).count()
 
             # Followups created in period (vs done in period)
             if start_date and end_date:
