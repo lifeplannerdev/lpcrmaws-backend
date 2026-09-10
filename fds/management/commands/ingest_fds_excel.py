@@ -77,27 +77,106 @@ class Command(BaseCommand):
         wb1_path = self.find_latest_workbook(['ENQUIRY', 'TRIAL'], options.get('workbook1'))
         
         # Workbook 2: REGISTRATION DETAILS, FEES STRUCTURE, FEES COLLECTION 2026
-=-0=                    
-                    FdsStudent.objects.update_or_create(
-                        student_id=stu_id,
-                        defaults={
-                            'name': name,
-                            'joining_date': joining_date,
-                            'age_gender': age_gender,
-                            'parent_name': parent_name,
-                            'contact_no': contact_no,
-                            'emergency_contact_no': emergency_contact,
-                            'batch_time_text': batch_time,
-                            'medical_condition': medical,
-                            'pickup_person_1_no': pickup_no,
-                            'can_leave_alone': can_leave,
-                            'fee_paid_date': fee_paid_date,
-                            'admission_fee_paid_date': fee_paid_date,
-                            'is_active': True,
-                        }
-                    )
-                    reg_count += 1
-                self.stdout.write(self.style.SUCCESS(f"  [Sheet 4] Imported {reg_count} Students / Registration Details."))
+        wb2_path = self.find_latest_workbook(['JOINING', 'ACCOUNTS', 'FEES STRUCTURE'], options.get('workbook2'))
+
+        self.stdout.write(f"Workbook 1 (Enquiries/Trials/Lead Sourcing): {wb1_path}")
+        self.stdout.write(f"Workbook 2 (Registration/Fees Structure/Ledger): {wb2_path}")
+
+        loaded_workbooks = []
+        for p in [wb1_path, wb2_path]:
+            if p and os.path.exists(p):
+                try:
+                    wb = openpyxl.load_workbook(p, data_only=False)
+                    loaded_workbooks.append(wb)
+                    self.stdout.write(self.style.SUCCESS(f"Loaded workbook: {p} (sheets: {', '.join(wb.sheetnames)})"))
+                except Exception as e:
+                    self.stdout.write(self.style.WARNING(f"Could not load {p}: {e}"))
+
+        def get_ws(target_name):
+            t_low = target_name.strip().lower()
+            for wb in loaded_workbooks:
+                for sname in wb.sheetnames:
+                    if sname.strip().lower() == t_low or t_low in sname.strip().lower():
+                        return wb[sname]
+            return None
+
+        # ── 1. INGEST FEES STRUCTURE ──────────────────────────────────
+        ws_fs = get_ws('FEES STRUCTURE')
+        if ws_fs:
+            ws = ws_fs
+            fs_count = 0
+            for r in range(2, ws.max_row + 1):
+                cat = clean_str(ws.cell(r, 1).value)
+                if not cat:
+                    continue
+                details = clean_str(ws.cell(r, 2).value)
+                amt_val = ws.cell(r, 3).value
+                amt_text = clean_str(amt_val)
+                notes = clean_str(ws.cell(r, 4).value)
+                
+                amount = 0.0
+                try:
+                    clean_num = re.sub(r'[^\d.]', '', amt_text.split('\n')[0].replace(',', ''))
+                    amount = float(clean_num) if clean_num else 0.0
+                except Exception:
+                    amount = 0.0
+                    
+                FdsFeeStructure.objects.update_or_create(
+                    category=cat,
+                    defaults={
+                        'category_name': cat,
+                        'details': details,
+                        'amount': amount,
+                        'amount_text': amt_text,
+                        'notes': notes,
+                        'is_active': True
+                    }
+                )
+                fs_count += 1
+            self.stdout.write(self.style.SUCCESS(f"  [Sheet 5] Imported {fs_count} Fee Structures."))
+
+        # ── 2. INGEST REGISTRATION DETAILS ─────────────────────────
+        ws_reg = get_ws('REGISTRATION DETAILS')
+        if ws_reg:
+            ws = ws_reg
+            reg_count = 0
+            for r in range(2, ws.max_row + 1):
+                stu_id = clean_str(ws.cell(r, 1).value)
+                name = clean_str(ws.cell(r, 2).value)
+                if not stu_id or not name:
+                    continue
+                
+                joining_date = parse_date(ws.cell(r, 3).value) or date.today()
+                age_gender = clean_str(ws.cell(r, 4).value)
+                parent_name = clean_str(ws.cell(r, 5).value)
+                contact_no = clean_str(ws.cell(r, 6).value)
+                emergency_contact = clean_str(ws.cell(r, 7).value)
+                batch_time = clean_str(ws.cell(r, 8).value)
+                medical = clean_str(ws.cell(r, 9).value) or 'NO'
+                pickup_no = clean_str(ws.cell(r, 10).value)
+                can_leave = clean_str(ws.cell(r, 11).value) or 'NO'
+                fee_paid_date = parse_date(ws.cell(r, 12).value)
+                
+                FdsStudent.objects.update_or_create(
+                    student_id=stu_id,
+                    defaults={
+                        'name': name,
+                        'joining_date': joining_date,
+                        'age_gender': age_gender,
+                        'parent_name': parent_name,
+                        'contact_no': contact_no,
+                        'emergency_contact_no': emergency_contact,
+                        'batch_time_text': batch_time,
+                        'medical_condition': medical,
+                        'pickup_person_1_no': pickup_no,
+                        'can_leave_alone': can_leave,
+                        'fee_paid_date': fee_paid_date,
+                        'admission_fee_paid_date': fee_paid_date,
+                        'is_active': True,
+                    }
+                )
+                reg_count += 1
+            self.stdout.write(self.style.SUCCESS(f"  [Sheet 4] Imported {reg_count} Students / Registration Details."))
 
         # ── 3. INGEST FEES COLLECTION 2026 (Monthly Ledger) ────────
         ws_col = get_ws('FEES COLLECTION 2026')
