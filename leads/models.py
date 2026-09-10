@@ -393,8 +393,9 @@ class FollowUp(models.Model):
 
     @property
     def is_overdue(self):
-        return (
+        return bool(
             self.status == 'pending' and
+            self.follow_up_date and
             self.follow_up_date < timezone.now().date()
         )
 

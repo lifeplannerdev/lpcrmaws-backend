@@ -434,11 +434,12 @@ class StaffAnalysisLeadsAPIView(generics.ListAPIView):
             Prefetch('followups', queryset=FollowUp.objects.order_by('-follow_up_date', '-created_at'))
         )
 
-        if employee_id:
+        if employee_id and str(employee_id).isdigit():
+            emp_id = int(employee_id)
             lead_qs = lead_qs.filter(
-                Q(assigned_to_id=employee_id) |
-                Q(sub_assigned_to_id=employee_id) |
-                Q(followups__assigned_to_id=employee_id)
+                Q(assigned_to_id=emp_id) |
+                Q(sub_assigned_to_id=emp_id) |
+                Q(followups__assigned_to_id=emp_id)
             )
 
         if start_date and end_date:
@@ -488,24 +489,23 @@ class StaffAnalysisLeadsAPIView(generics.ListAPIView):
             elif lead.source == 'VOXBAY CALL':
                 ctype = 'outgoing'
                 
+            all_fups = list(lead.followups.all())
             is_fresh = False
             if start_date and end_date:
-                is_fresh = (lead.created_at.date() >= start_date and lead.created_at.date() <= end_date)
+                is_fresh = bool(lead.created_at and start_date <= lead.created_at.date() <= end_date)
             else:
-                is_fresh = (lead.followups.count() <= 1)
+                is_fresh = (len(all_fups) <= 1)
                 
             lead_tag = 'FRESH' if is_fresh else 'FOLLOWUP'
             lead_tag_display = 'Fresh Lead' if is_fresh else 'Follow-up Lead'
 
+            period_fup = None
             if start_date and end_date:
-                period_fup = None
-                for f in lead.followups.all():
+                for f in all_fups:
                     if f.follow_up_date and start_date <= f.follow_up_date <= end_date:
                         period_fup = f
                         break
-                    latest_fup = period_fup or lead.followups.first()
-            else:
-                latest_fup = lead.followups.first()
+            latest_fup = period_fup or (all_fups[0] if all_fups else None)
 
             latest_fup_data = None
             if latest_fup:
@@ -515,8 +515,14 @@ class StaffAnalysisLeadsAPIView(generics.ListAPIView):
                     'status': latest_fup.status,
                     'notes': latest_fup.notes,
                     'recording_url': _extract_recording_url(latest_fup.notes),
-                    'is_overdue': latest_fup.is_overdue,
+                    'is_overdue': bool(latest_fup.is_overdue),
                 }
+
+            assigned_name = ''
+            if lead.assigned_to:
+                assigned_name = lead.assigned_to.get_full_name() or lead.assigned_to.username
+            elif lead.sub_assigned_to:
+                assigned_name = lead.sub_assigned_to.get_full_name() or lead.sub_assigned_to.username
                 
             return {
                 'id': lead.id,
@@ -534,7 +540,7 @@ class StaffAnalysisLeadsAPIView(generics.ListAPIView):
                 'lead_tag': lead_tag,
                 'lead_tag_display': lead_tag_display,
                 'latest_followup': latest_fup_data,
-                'assigned_to_name': lead.assigned_to.get_full_name() if lead.assigned_to else (lead.sub_assigned_to.get_full_name() if lead.sub_assigned_to else ''),
+                'assigned_to_name': assigned_name,
                 'followups': [
                     {
                         'id': f.id,
@@ -542,8 +548,8 @@ class StaffAnalysisLeadsAPIView(generics.ListAPIView):
                         'status': f.status,
                         'notes': f.notes,
                         'recording_url': _extract_recording_url(f.notes),
-                        'is_overdue': f.is_overdue,
-                    } for f in lead.followups.all()
+                        'is_overdue': bool(f.is_overdue),
+                    } for f in all_fups
                 ]
             }
 
@@ -578,8 +584,8 @@ class StaffAnalysisFollowUpsAPIView(generics.ListAPIView):
 
         fu_qs = FollowUp.objects.select_related('lead', 'assigned_to')
 
-        if employee_id:
-            fu_qs = fu_qs.filter(assigned_to_id=employee_id)
+        if employee_id and str(employee_id).isdigit():
+            fu_qs = fu_qs.filter(assigned_to_id=int(employee_id))
 
         if start_date and end_date:
             fu_qs = fu_qs.filter(follow_up_date__gte=start_date, follow_up_date__lte=end_date)
@@ -596,20 +602,26 @@ class StaffAnalysisFollowUpsAPIView(generics.ListAPIView):
         today = timezone.now().date()
 
         def _serialize_fu(f):
-            is_overdue = (f.status == 'pending' and f.follow_up_date and f.follow_up_date < today)
+            is_overdue = bool(f.status == 'pending' and f.follow_up_date and f.follow_up_date < today)
+            follow_up_time_str = None
+            if f.follow_up_time:
+                follow_up_time_str = f.follow_up_time.isoformat() if hasattr(f.follow_up_time, 'isoformat') else str(f.follow_up_time)
+            assigned_name = ''
+            if f.assigned_to:
+                assigned_name = f.assigned_to.get_full_name() or f.assigned_to.username
             return {
                 'id': f.id,
                 'name': f.name or (f.lead.name if f.lead else ''),
                 'phone': f.phone_number or (f.lead.phone if f.lead else ''),
-                'follow_up_date': f.follow_up_date.isoformat() if f.follow_up_date else None,
-                'follow_up_time': f.follow_up_time.isoformat() if f.follow_up_time else None,
+                'follow_up_date': f.follow_up_date.isoformat() if hasattr(f.follow_up_date, 'isoformat') else (str(f.follow_up_date) if f.follow_up_date else None),
+                'follow_up_time': follow_up_time_str,
                 'status': f.status,
                 'priority': f.priority,
                 'followup_type': f.followup_type,
                 'notes': f.notes,
                 'recording_url': _extract_recording_url(f.notes),
                 'is_overdue': is_overdue,
-                'assigned_to_name': f.assigned_to.get_full_name() if f.assigned_to else '',
+                'assigned_to_name': assigned_name,
                 'lead': {
                     'id': f.lead.id,
                     'name': f.lead.name,
