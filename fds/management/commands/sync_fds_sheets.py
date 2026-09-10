@@ -60,26 +60,38 @@ class Command(BaseCommand):
         # Run local ingestion
         call_command('ingest_fds_excel')
 
+    def open_sheet(self, gc, identifier):
+        identifier = str(identifier).strip()
+        if identifier.startswith('http://') or identifier.startswith('https://'):
+            return gc.open_by_url(identifier)
+        # If it looks like a sheet key (alphanumeric, no spaces, length > 25)
+        if len(identifier) > 25 and ' ' not in identifier:
+            try:
+                return gc.open_by_key(identifier)
+            except Exception:
+                pass
+        return gc.open(identifier)
+
     def sync_from_google_drive(self, gc):
         # Sheet 1: Registration, Fees Structure, Fees Collection
-        sheet1_title = "FDS KTM-2026-JOINING DETAILS & ACCOUNTS -FEES STRUCTURE _ FEES COLLECTIONS -REGULAR BATCH"
+        sheet1_id = getattr(settings, 'FDS_SHEET1_ID_OR_TITLE', "FDS KTM-2026-JOINING DETAILS & ACCOUNTS -FEES STRUCTURE _ FEES COLLECTIONS -REGULAR BATCH")
         try:
-            sh1 = gc.open(sheet1_title)
+            sh1 = self.open_sheet(gc, sheet1_id)
             self.sync_registration_sheet(sh1)
             self.sync_fee_structure_sheet(sh1)
             self.sync_fees_collection_sheet(sh1)
         except Exception as e:
-            self.stderr.write(f"Error reading {sheet1_title}: {e}")
+            self.stderr.write(f"Error reading {sheet1_id}: {e}")
 
         # Sheet 2: Enquiry, Trial, Lead Sourcing
-        sheet2_title = "FDS KTM-ENQUIRY_ TRIAL-2026"
+        sheet2_id = getattr(settings, 'FDS_SHEET2_ID_OR_TITLE', "FDS KTM-ENQUIRY_ TRIAL-2026")
         try:
-            sh2 = gc.open(sheet2_title)
+            sh2 = self.open_sheet(gc, sheet2_id)
             self.sync_enquiry_sheet(sh2)
             self.sync_trial_sheet(sh2)
             self.sync_lead_sourcing_sheet(sh2)
         except Exception as e:
-            self.stderr.write(f"Error reading {sheet2_title}: {e}")
+            self.stderr.write(f"Error reading {sheet2_id}: {e}")
 
     def sync_fee_structure_sheet(self, sh):
         ws = sh.worksheet("FEES STRUCTURE")
