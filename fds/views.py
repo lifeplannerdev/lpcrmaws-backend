@@ -6,11 +6,14 @@ from datetime import datetime, date, time
 from django.db.models import Q, Sum, Count, Max
 from django.http import HttpResponse
 from django.core.management import call_command
+import os
+import tempfile
 from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django_filters.rest_framework import DjangoFilterBackend
 
 from accounts.models import User
@@ -1346,17 +1349,54 @@ class FdsTrainerListView(APIView):
 
 
 class FdsMasterSyncView(APIView):
-    """Triggers 1-way ingestion: Google Sheets / Excel ➔ CRM Master Mirror."""
+    """Triggers 1-way ingestion: Google Sheets / Excel ➔ CRM Master Mirror.
+    Accepts uploaded workbook files directly from browser, or falls back to server files / Google API.
+    """
     permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def post(self, request):
         if not fds_write(request.user):
             return Response({"error": "FDS write permission required."}, status=403)
         try:
-            call_command('sync_fds_sheets')
+            temp_files = []
+            cmd_kwargs = {}
+
+            wb1_file = request.FILES.get('workbook1') or request.FILES.get('file1') or request.FILES.get('file')
+            wb2_file = request.FILES.get('workbook2') or request.FILES.get('file2')
+
+            if wb1_file:
+                t1 = tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx')
+                for chunk in wb1_file.chunks():
+                    t1.write(chunk)
+                t1.close()
+                temp_files.append(t1.name)
+                cmd_kwargs['workbook1'] = t1.name
+
+            if wb2_file:
+                t2 = tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx')
+                for chunk in wb2_file.chunks():
+                    t2.write(chunk)
+                t2.close()
+                temp_files.append(t2.name)
+                cmd_kwargs['workbook2'] = t2.name
+
+            try:
+                if cmd_kwargs:
+                    call_command('ingest_fds_excel', **cmd_kwargs)
+                else:
+                    call_command('sync_fds_sheets')
+            finally:
+                for tf in temp_files:
+                    if os.path.exists(tf):
+                        try:
+                            os.remove(tf)
+                        except Exception:
+                            pass
+
             return Response({
                 "status": "success",
-                "message": "All 6 Google Sheets / Excel workbooks ingested and mirrored into CRM successfully!",
+                "message": "Master Google Sheets / Excel workbooks ingested and mirrored into CRM successfully!",
                 "stats": {
                     "fee_structures": FdsFeeStructure.objects.count(),
                     "students": FdsStudent.objects.count(),
