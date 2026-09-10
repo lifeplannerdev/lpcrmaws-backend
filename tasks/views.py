@@ -153,7 +153,7 @@ class EmployeeListAPIView(generics.ListAPIView):
         user = self.request.user
         include_inactive = self.request.query_params.get('include_inactive') == 'true'
         exclude_self = self.request.query_params.get('exclude_self') == 'true'
-        for_tasks = self.request.query_params.get('for_tasks') == 'true'
+        team = self.request.query_params.get('team')
         
         if for_tasks and not (user.db_roles.filter(name__in=TOP_MANAGEMENT).exists() or has_dynamic_permission(user, 'tasks:edit_any')):
             qs = User.objects.filter(db_roles__name__in=TASK_ASSIGNEES).exclude(id=user.id)
@@ -164,6 +164,9 @@ class EmployeeListAPIView(generics.ListAPIView):
             
         if not include_inactive:
             qs = qs.filter(is_active=True)
+
+        if team and team.lower() != 'all':
+            qs = qs.filter(team__iexact=team)
             
         return qs.order_by('first_name', 'last_name', 'username')
 

@@ -247,13 +247,18 @@ class AvailableUsersForAssignmentView(APIView):
         # Include LEAD_ACCESS_ROLES plus any explicitly assigned roles like FLAG COORDINATOR
         ASSIGNABLE_ROLES = list(set(LEAD_ACCESS_ROLES + ['FLAG COORDINATOR']))
         
-        users = User.objects.filter(
+        team_filter = request.query_params.get('team', 'Sales')
+        qs = User.objects.filter(
             db_roles__name__in=ASSIGNABLE_ROLES,
             is_active=True,
-        ).annotate(
+        )
+        if team_filter and team_filter.lower() != 'all':
+            qs = qs.filter(team__iexact=team_filter)
+
+        users = qs.annotate(
             role=models.F('db_roles__name')
         ).values(
-            'id', 'username', 'email', 'role', 'first_name', 'last_name'
+            'id', 'username', 'email', 'role', 'first_name', 'last_name', 'team'
         ).order_by('role', 'first_name', 'last_name')
 
         return Response(list(users), status=status.HTTP_200_OK)

@@ -102,7 +102,10 @@ class StaffAnalysisAPIView(APIView):
         source_filter = request.query_params.get('source', '')
         call_type_filter = request.query_params.get('call_type', '')
 
+        team_filter = request.query_params.get('team', 'Sales')
         employees_qs = User.objects.filter(is_active=True).prefetch_related('db_roles').order_by('first_name', 'username')
+        if team_filter and team_filter.lower() != 'all':
+            employees_qs = employees_qs.filter(team__iexact=team_filter)
 
         # Base queryset with filters
         lead_base = Lead.objects.all()
@@ -287,6 +290,7 @@ class StaffAnalysisAPIView(APIView):
                     'roles': list(emp.db_roles.values_list('name', flat=True)),
                     'voxbay_extension': emp_ext,
                     'voxbay_number': emp_num,
+                    'team': emp.team,
                 },
                 'summary': {
                     'total_leads': total_leads,
