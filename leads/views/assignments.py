@@ -1,6 +1,6 @@
 import pandas as pd
 import math
-from datetime import date
+from datetime import date, timedelta, datetime
 from django.utils import timezone
 from django.db import models, transaction
 from django.db.models import Count, Q as DQ
@@ -106,12 +106,12 @@ class BulkLeadAssignView(APIView):
         lead_ids       = request.data.get('lead_ids', [])
         assigned_to_id = request.data.get('assigned_to_id')
         notes          = request.data.get('notes', '')
-
-        if not lead_ids or not isinstance(lead_ids, list):
-            return Response(
-                {'error': 'lead_ids must be a non-empty list'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        filters_applied = request.data.get('filters', {})
+        strategy       = request.data.get('followup_strategy', 'keep')
+        fu_type        = request.data.get('followup_type', 'call')
+        fu_priority    = request.data.get('followup_priority', 'medium')
+        fu_date        = request.data.get('followup_date')
+        stagger_days   = int(request.data.get('stagger_days', 10))
 
         if not assigned_to_id:
             return Response(
@@ -119,12 +119,70 @@ class BulkLeadAssignView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        user          = request.user
+        user = request.user
+        base_qs = Lead.objects.all()
+        if not (user.db_roles.filter(name__in=FULL_ACCESS_ROLES + ['SENIOR ADM', 'SENIOR_ADM', 'ADM_MANAGER']).exists() or 
+                has_dynamic_permission(user, 'leads:read_any') or 
+                has_dynamic_permission(user, 'leads:read_tenant')):
+            base_qs = base_qs.filter(
+                models.Q(assigned_to=user) | models.Q(sub_assigned_to=user)
+            )
+
+        if lead_ids == 'all_matching' or (isinstance(lead_ids, list) and len(lead_ids) == 0 and filters_applied):
+            target_qs = base_qs
+            emp_status = filters_applied.get('employee_status')
+            if emp_status == 'active':
+                target_qs = target_qs.filter(assigned_to__isnull=False, assigned_to__is_active=True)
+            elif emp_status == 'inactive':
+                target_qs = target_qs.filter(assigned_to__isnull=False, assigned_to__is_active=False)
+            elif emp_status == 'unassigned':
+                target_qs = target_qs.filter(assigned_to__isnull=True)
+            elif emp_status == 'inactive_or_unassigned':
+                target_qs = target_qs.filter(models.Q(assigned_to__is_active=False) | models.Q(assigned_to__isnull=True))
+
+            if filters_applied.get('active_pipeline_only') or filters_applied.get('exclude_closed_converted'):
+                target_qs = target_qs.exclude(status__in=['CLOSED', 'CONVERTED', 'REGISTERED', 'LOST', 'closed', 'converted', 'registered', 'lost'])
+
+            if filters_applied.get('assigned_to') and filters_applied.get('assigned_to') != 'all':
+                target_qs = target_qs.filter(assigned_to_id=filters_applied['assigned_to'])
+
+            if filters_applied.get('status') and filters_applied.get('status') != 'all':
+                target_qs = target_qs.filter(status__iexact=filters_applied['status'])
+
+            if filters_applied.get('priority') and filters_applied.get('priority') != 'all':
+                target_qs = target_qs.filter(priority__iexact=filters_applied['priority'])
+
+            if filters_applied.get('source') and filters_applied.get('source') != 'all':
+                target_qs = target_qs.filter(source=filters_applied['source'])
+
+            if filters_applied.get('company'):
+                target_qs = target_qs.filter(company__iexact=filters_applied['company'])
+
+            if filters_applied.get('created_at__gte'):
+                target_qs = target_qs.filter(created_at__date__gte=filters_applied['created_at__gte'])
+
+            if filters_applied.get('created_at__lte'):
+                target_qs = target_qs.filter(created_at__date__lte=filters_applied['created_at__lte'])
+
+            lead_ids = list(target_qs.values_list('id', flat=True))
+        elif not lead_ids or not isinstance(lead_ids, list):
+            return Response(
+                {'error': 'lead_ids must be a non-empty list or all_matching'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         success_count = 0
         failed_leads  = []
         assigned_summary = {}
 
-        for lead_id in lead_ids:
+        try:
+            assignee = User.objects.get(id=assigned_to_id)
+        except User.DoesNotExist:
+            return Response({'error': 'Assignee user not found.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        today = timezone.localtime(timezone.now()).date()
+
+        for idx, lead_id in enumerate(lead_ids):
             try:
                 serializer = LeadAssignSerializer(
                     data={
@@ -137,8 +195,7 @@ class BulkLeadAssignView(APIView):
 
                 if serializer.is_valid():
                     lead            = serializer.validated_data['lead']
-                    assignee        = serializer.validated_data['assignee']
-                    assignment_type = serializer.validated_data['assignment_type']
+                    assignment_type = serializer.validated_data.get('assignment_type', 'PRIMARY')
 
                     current_notes = notes
                     if assignment_type == 'PRIMARY' and lead.assigned_to:
@@ -148,28 +205,75 @@ class BulkLeadAssignView(APIView):
                         old_name = lead.sub_assigned_to.get_full_name() or lead.sub_assigned_to.username
                         current_notes = f"{current_notes} [Transferred from {old_name}]".strip()
 
-                    if assignment_type == 'PRIMARY':
-                        lead.assigned_to       = assignee
-                        lead.assigned_by       = user
-                        lead.assigned_date     = timezone.now()
-                        lead.sub_assigned_to   = None
-                        lead.sub_assigned_by   = None
-                        lead.sub_assigned_date = None
-                    elif assignment_type == 'SUB':
-                        lead.sub_assigned_to   = assignee
-                        lead.sub_assigned_by   = user
-                        lead.sub_assigned_date = timezone.now()
-
+                    # Always make the new assignee PRIMARY when transferred from command centre
+                    lead.assigned_to       = assignee
+                    lead.assigned_by       = user
+                    lead.assigned_date     = timezone.now()
+                    lead.sub_assigned_to   = None
+                    lead.sub_assigned_by   = None
+                    lead.sub_assigned_date = None
                     lead.save()
 
                     LeadAssignment.objects.create(
                         lead=lead,
                         assigned_to=assignee,
                         assigned_by=user,
-                        assignment_type=assignment_type,
+                        assignment_type='PRIMARY',
                         notes=current_notes,
                     )
                     success_count += 1
+
+                    # ── Follow-up scheduling strategy
+                    if strategy == 'keep':
+                        FollowUp.objects.filter(lead=lead, status='pending').update(assigned_to=assignee)
+                    elif strategy == 'none':
+                        FollowUp.objects.filter(lead=lead, status='pending').update(
+                            status='not_interested',
+                            notes='Resolved upon transfer (no follow-up)'
+                        )
+                    elif strategy == 'overdue':
+                        FollowUp.objects.filter(lead=lead, status='pending').update(status='not_interested')
+                        yesterday = today - timedelta(days=1)
+                        FollowUp.objects.create(
+                            lead=lead,
+                            phone_number=lead.phone or '',
+                            name=lead.name,
+                            follow_up_date=yesterday,
+                            followup_type=fu_type,
+                            priority=fu_priority,
+                            status='pending',
+                            assigned_to=assignee,
+                            notes='Priority queue transfer follow-up'
+                        )
+                    elif strategy == 'specific_date':
+                        FollowUp.objects.filter(lead=lead, status='pending').update(status='not_interested')
+                        target_d = datetime.strptime(fu_date, '%Y-%m-%d').date() if fu_date else today
+                        FollowUp.objects.create(
+                            lead=lead,
+                            phone_number=lead.phone or '',
+                            name=lead.name,
+                            follow_up_date=target_d,
+                            followup_type=fu_type,
+                            priority=fu_priority,
+                            status='pending',
+                            assigned_to=assignee,
+                            notes='Scheduled transfer follow-up'
+                        )
+                    elif strategy == 'stagger':
+                        FollowUp.objects.filter(lead=lead, status='pending').update(status='not_interested')
+                        offset = 1 + (idx % max(1, stagger_days))
+                        target_d = today + timedelta(days=offset)
+                        FollowUp.objects.create(
+                            lead=lead,
+                            phone_number=lead.phone or '',
+                            name=lead.name,
+                            follow_up_date=target_d,
+                            followup_type=fu_type,
+                            priority=fu_priority,
+                            status='pending',
+                            assigned_to=assignee,
+                            notes=f'Staggered transfer follow-up (day +{offset})'
+                        )
 
                     if assignee == user:
                         continue
@@ -179,7 +283,7 @@ class BulkLeadAssignView(APIView):
                         assigned_summary[uid] = {
                             'user':  assignee,
                             'leads': [],
-                            'type':  assignment_type,
+                            'type':  'PRIMARY',
                         }
                     assigned_summary[uid]['leads'].append({
                         'lead_id':   lead.id,
@@ -193,7 +297,7 @@ class BulkLeadAssignView(APIView):
             except Exception as e:
                 failed_leads.append({'lead_id': lead_id, 'error': str(e)})
 
-        # 🔔 One grouped Pusher notification per assignee (self-assignments already excluded above)
+        # 🔔 One grouped Pusher notification per assignee
         for uid, summary in assigned_summary.items():
             count = len(summary['leads'])
             trigger_pusher(
@@ -219,6 +323,100 @@ class BulkLeadAssignView(APIView):
             'failed_count':  len(failed_leads),
             'failed_leads':  failed_leads,
         }, status=status.HTTP_200_OK)
+
+
+class BulkLeadCloseView(APIView):
+    permission_classes = [CanAssignLeads]
+
+    def post(self, request):
+        user              = request.user
+        lead_ids          = request.data.get('lead_ids')
+        reason            = request.data.get('reason', 'Closed via Lead Command Centre')
+        remarks           = request.data.get('remarks', '')
+        resolve_followups = request.data.get('resolve_followups', True)
+        filters_applied   = request.data.get('filters', {})
+
+        base_qs = Lead.objects.all()
+        if not (user.db_roles.filter(name__in=FULL_ACCESS_ROLES + ['SENIOR ADM', 'SENIOR_ADM', 'ADM_MANAGER']).exists() or 
+                has_dynamic_permission(user, 'leads:read_any') or 
+                has_dynamic_permission(user, 'leads:read_tenant')):
+            base_qs = base_qs.filter(
+                models.Q(assigned_to=user) | models.Q(sub_assigned_to=user)
+            )
+
+        if lead_ids == 'all_matching' or (isinstance(lead_ids, list) and len(lead_ids) == 0 and filters_applied):
+            target_qs = base_qs
+            emp_status = filters_applied.get('employee_status')
+            if emp_status == 'active':
+                target_qs = target_qs.filter(assigned_to__isnull=False, assigned_to__is_active=True)
+            elif emp_status == 'inactive':
+                target_qs = target_qs.filter(assigned_to__isnull=False, assigned_to__is_active=False)
+            elif emp_status == 'unassigned':
+                target_qs = target_qs.filter(assigned_to__isnull=True)
+            elif emp_status == 'inactive_or_unassigned':
+                target_qs = target_qs.filter(models.Q(assigned_to__is_active=False) | models.Q(assigned_to__isnull=True))
+
+            if filters_applied.get('active_pipeline_only') or filters_applied.get('exclude_closed_converted'):
+                target_qs = target_qs.exclude(status__in=['CLOSED', 'CONVERTED', 'REGISTERED', 'LOST', 'closed', 'converted', 'registered', 'lost'])
+
+            if filters_applied.get('assigned_to') and filters_applied.get('assigned_to') != 'all':
+                target_qs = target_qs.filter(assigned_to_id=filters_applied['assigned_to'])
+
+            if filters_applied.get('status') and filters_applied.get('status') != 'all':
+                target_qs = target_qs.filter(status__iexact=filters_applied['status'])
+
+            if filters_applied.get('priority') and filters_applied.get('priority') != 'all':
+                target_qs = target_qs.filter(priority__iexact=filters_applied['priority'])
+
+            if filters_applied.get('source') and filters_applied.get('source') != 'all':
+                target_qs = target_qs.filter(source=filters_applied['source'])
+
+            if filters_applied.get('company'):
+                target_qs = target_qs.filter(company__iexact=filters_applied['company'])
+
+            if filters_applied.get('created_at__gte'):
+                target_qs = target_qs.filter(created_at__date__gte=filters_applied['created_at__gte'])
+
+            if filters_applied.get('created_at__lte'):
+                target_qs = target_qs.filter(created_at__date__lte=filters_applied['created_at__lte'])
+
+        elif isinstance(lead_ids, list) and len(lead_ids) > 0:
+            target_qs = base_qs.filter(id__in=lead_ids)
+        else:
+            return Response({'error': 'No leads specified to close.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Exclude leads that are already closed
+        leads_to_close = target_qs.exclude(status__in=['CLOSED', 'closed'])
+        count = leads_to_close.count()
+
+        if count == 0:
+            return Response({'message': 'No open leads to close matching the selection.', 'closed_count': 0}, status=status.HTTP_200_OK)
+
+        lead_ids_list = list(leads_to_close.values_list('id', flat=True))
+
+        with transaction.atomic():
+            Lead.objects.filter(id__in=lead_ids_list).update(status='CLOSED')
+
+            if resolve_followups:
+                FollowUp.objects.filter(lead_id__in=lead_ids_list, status='pending').update(
+                    status='not_interested',
+                    notes=f"Closed via Command Centre: {reason}. {remarks}".strip()
+                )
+
+            ActivityLog.objects.create(
+                user=user,
+                action='LEAD_BULK_CLOSED',
+                entity_type='Lead',
+                entity_name=f"{count} Leads",
+                description=f"{count} leads were bulk-closed by {user.get_full_name() or user.username}. Reason: {reason}",
+                metadata={'lead_count': count, 'reason': reason, 'remarks': remarks}
+            )
+
+        return Response({
+            'message': f"Successfully closed {count} lead{'s' if count > 1 else ''}.",
+            'closed_count': count,
+        }, status=status.HTTP_200_OK)
+
 
 class LeadAssignmentHistoryView(generics.ListAPIView):
     pagination_class   = None

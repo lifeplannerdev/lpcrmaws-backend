@@ -122,6 +122,30 @@ class LeadListView(generics.ListAPIView):
                 )
             ).distinct()
 
+        # Employee Status filter (Active staff / Inactive staff / Unassigned)
+        emp_status = self.request.query_params.get('employee_status')
+        if emp_status == 'active':
+            perm_qs = perm_qs.filter(assigned_to__isnull=False, assigned_to__is_active=True)
+        elif emp_status == 'inactive':
+            perm_qs = perm_qs.filter(assigned_to__isnull=False, assigned_to__is_active=False)
+        elif emp_status == 'unassigned':
+            perm_qs = perm_qs.filter(assigned_to__isnull=True)
+        elif emp_status == 'inactive_or_unassigned':
+            perm_qs = perm_qs.filter(models.Q(assigned_to__is_active=False) | models.Q(assigned_to__isnull=True))
+
+        # Active pipeline only (exclude closed, converted, registered, lost)
+        if self.request.query_params.get('active_pipeline_only') == 'true' or self.request.query_params.get('exclude_closed_converted') == 'true':
+            perm_qs = perm_qs.exclude(status__in=['CLOSED', 'CONVERTED', 'REGISTERED', 'LOST', 'closed', 'converted', 'registered', 'lost'])
+
+        # Overdue filter
+        if self.request.query_params.get('overdue') == 'true':
+            today = timezone.localtime(timezone.now()).date()
+            perm_qs = perm_qs.filter(followups__follow_up_date__lt=today, followups__status='pending')
+
+        # Has pending follow-up filter
+        if self.request.query_params.get('has_pending_followup') == 'true':
+            perm_qs = perm_qs.filter(followups__status='pending')
+
         return perm_qs.distinct()
 
     def list(self, request, *args, **kwargs):
@@ -898,4 +922,40 @@ class LeadDocumentListCreateView(APIView):
             serializer.save(lead=lead, uploaded_by=request.user)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class LeadCommandCentreStatsView(APIView):
+    permission_classes = [CanAccessLeads]
+
+    def get(self, request):
+        user = request.user
+        base_qs = Lead.objects.all()
+
+        if not (user.db_roles.filter(name__in=FULL_ACCESS_ROLES + ['SENIOR ADM', 'SENIOR_ADM', 'ADM_MANAGER']).exists() or 
+                has_dynamic_permission(user, 'leads:read_any') or 
+                has_dynamic_permission(user, 'leads:read_tenant')):
+            base_qs = base_qs.filter(
+                models.Q(assigned_to=user) | models.Q(sub_assigned_to=user)
+            )
+
+        company_param = request.query_params.get('company')
+        if company_param:
+            base_qs = base_qs.filter(company__iexact=company_param)
+
+        CLOSED_CONVERTED_STATUSES = ['CLOSED', 'CONVERTED', 'REGISTERED', 'LOST', 'closed', 'converted', 'registered', 'lost']
+
+        stats = base_qs.aggregate(
+            total=Count('id'),
+            active_staff_leads=Count('id', filter=DQ(assigned_to__isnull=False, assigned_to__is_active=True)),
+            inactive_staff_leads=Count('id', filter=DQ(assigned_to__isnull=False, assigned_to__is_active=False)),
+            unassigned_leads=Count('id', filter=DQ(assigned_to__isnull=True)),
+            active_pipeline_leads=Count(
+                'id',
+                filter=DQ(assigned_to__isnull=False, assigned_to__is_active=True) & ~DQ(status__in=CLOSED_CONVERTED_STATUSES)
+            ),
+            closed_leads=Count('id', filter=DQ(status__in=['CLOSED', 'closed'])),
+            converted_leads=Count('id', filter=DQ(status__in=['CONVERTED', 'converted', 'REGISTERED', 'registered'])),
+        )
+
+        return Response(stats, status=status.HTTP_200_OK)
 

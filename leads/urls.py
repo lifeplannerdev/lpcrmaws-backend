@@ -29,6 +29,8 @@ from .views import (
     StaffAnalysisAPIView,
     StaffAnalysisLeadsAPIView,
     StaffAnalysisFollowUpsAPIView,
+    LeadCommandCentreStatsView,
+    BulkLeadCloseView,
 )
 from .analytics import UserPerformanceAnalyticsAPIView
 from .webhooks import meta_webhook, voxbay_webhook, meta_process_webhook
@@ -36,6 +38,7 @@ from .webhooks import meta_webhook, voxbay_webhook, meta_process_webhook
 urlpatterns = [
     # ── Leads ────────────────────────────────────────────────
     path('leads/', LeadListView.as_view(), name='lead-list'),
+    path('leads/command-centre-stats/', LeadCommandCentreStatsView.as_view(), name='command-centre-stats'),
     path('leads/export/', ExportLeadsExcelView.as_view(), name='lead-export'),
     path('leads/export/excel/', ExportLeadsExcelView.as_view(), name='lead-export-excel'),
     path('leads/create/', LeadCreateView.as_view(), name='lead-create'),
@@ -45,6 +48,7 @@ urlpatterns = [
     path('leads/bulk-upload/confirm/', BulkUploadConfirmView.as_view(), name='lead-bulk-upload-confirm'),
     path('leads/bulk-paste/', BulkPasteLeadsView.as_view(), name='lead-bulk-paste'),
     path('leads/bulk-assign/', BulkLeadAssignView.as_view(), name='bulk-lead-assign'),
+    path('leads/bulk-close/', BulkLeadCloseView.as_view(), name='bulk-lead-close'),
     path('leads/unassign/', UnassignLeadView.as_view(), name='lead-unassign'),
     path('leads/my-team/', MyTeamLeadsView.as_view(), name='my-team-leads'),
     path('leads/available-users/', AvailableUsersForAssignmentView.as_view(), name='available-users'),
