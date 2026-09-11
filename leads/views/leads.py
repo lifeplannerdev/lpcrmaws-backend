@@ -65,7 +65,6 @@ class LeadListView(generics.ListAPIView):
     ]
     filterset_fields = {
         'priority':          ['exact'],
-        'status':            ['exact', 'iexact'],
         'source':            ['exact'],
         'processing_status': ['exact'],
         'assigned_to':       ['exact', 'isnull'],
@@ -134,9 +133,43 @@ class LeadListView(generics.ListAPIView):
         elif emp_status == 'inactive_or_unassigned':
             perm_qs = perm_qs.filter(models.Q(assigned_to__is_active=False) | models.Q(assigned_to__isnull=True))
 
-        # Active pipeline only (exclude closed, converted, registered, lost)
+        # Status filter (handles both modern and legacy statuses like NOT_INTERESTED / CNR with spacing/underscore tolerance)
+        status_param = self.request.query_params.get('status') or self.request.query_params.get('status__iexact')
+        if status_param and status_param != 'all':
+            s_clean = status_param.strip().upper().replace(' ', '_')
+            if s_clean in ['NOT_INTERESTED', 'NOTINTERESTED']:
+                perm_qs = perm_qs.filter(
+                    models.Q(status__iexact='NOT_INTERESTED') |
+                    models.Q(status__iexact='not interested') |
+                    models.Q(status__iexact='not_interested') |
+                    models.Q(status__iexact='NOT INTERESTED')
+                )
+            elif s_clean in ['CNR', 'COULD_NOT_REACH', 'COULDNOTREACH']:
+                perm_qs = perm_qs.filter(
+                    models.Q(status__iexact='CNR') |
+                    models.Q(status__iexact='could not reach') |
+                    models.Q(status__iexact='could_not_reach') |
+                    models.Q(status__iexact='COULD NOT REACH')
+                )
+            elif s_clean in ['REGISTERED']:
+                perm_qs = perm_qs.filter(
+                    models.Q(status__iexact='REGISTERED') |
+                    models.Q(status__iexact='registered')
+                )
+            else:
+                perm_qs = perm_qs.filter(
+                    models.Q(status__iexact=status_param) |
+                    models.Q(status__iexact=s_clean)
+                )
+
+        # Active pipeline only (strictly exclude closed, converted, registered, lost, and legacy statuses like not_interested, cnr)
         if self.request.query_params.get('active_pipeline_only') == 'true' or self.request.query_params.get('exclude_closed_converted') == 'true':
-            perm_qs = perm_qs.exclude(status__in=['CLOSED', 'CONVERTED', 'REGISTERED', 'LOST', 'closed', 'converted', 'registered', 'lost'])
+            perm_qs = perm_qs.exclude(
+                status__in=[
+                    'CLOSED', 'CONVERTED', 'REGISTERED', 'LOST', 'NOT_INTERESTED', 'CNR',
+                    'closed', 'converted', 'registered', 'lost', 'not_interested', 'not interested', 'cnr', 'could not reach'
+                ]
+            )
 
         # Overdue filter
         if self.request.query_params.get('overdue') == 'true':
@@ -944,7 +977,10 @@ class LeadCommandCentreStatsView(APIView):
         if company_param:
             base_qs = base_qs.filter(company__iexact=company_param)
 
-        CLOSED_CONVERTED_STATUSES = ['CLOSED', 'CONVERTED', 'REGISTERED', 'LOST', 'closed', 'converted', 'registered', 'lost']
+        CLOSED_CONVERTED_STATUSES = [
+            'CLOSED', 'CONVERTED', 'REGISTERED', 'LOST', 'NOT_INTERESTED', 'CNR',
+            'closed', 'converted', 'registered', 'lost', 'not_interested', 'not interested', 'cnr', 'could not reach'
+        ]
 
         stats = base_qs.aggregate(
             total=Count('id'),

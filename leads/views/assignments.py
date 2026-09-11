@@ -142,13 +142,37 @@ class BulkLeadAssignView(APIView):
                 target_qs = target_qs.filter(models.Q(assigned_to__is_active=False) | models.Q(assigned_to__isnull=True))
 
             if filters_applied.get('active_pipeline_only') or filters_applied.get('exclude_closed_converted'):
-                target_qs = target_qs.exclude(status__in=['CLOSED', 'CONVERTED', 'REGISTERED', 'LOST', 'closed', 'converted', 'registered', 'lost'])
+                target_qs = target_qs.exclude(
+                    status__in=[
+                        'CLOSED', 'CONVERTED', 'REGISTERED', 'LOST', 'NOT_INTERESTED', 'CNR',
+                        'closed', 'converted', 'registered', 'lost', 'not_interested', 'not interested', 'cnr', 'could not reach'
+                    ]
+                )
 
             if filters_applied.get('assigned_to') and filters_applied.get('assigned_to') != 'all':
                 target_qs = target_qs.filter(assigned_to_id=filters_applied['assigned_to'])
 
             if filters_applied.get('status') and filters_applied.get('status') != 'all':
-                target_qs = target_qs.filter(status__iexact=filters_applied['status'])
+                st = filters_applied['status']
+                st_clean = st.strip().upper().replace(' ', '_')
+                if st_clean in ['NOT_INTERESTED', 'NOTINTERESTED']:
+                    target_qs = target_qs.filter(
+                        models.Q(status__iexact='NOT_INTERESTED') |
+                        models.Q(status__iexact='not interested') |
+                        models.Q(status__iexact='not_interested') |
+                        models.Q(status__iexact='NOT INTERESTED')
+                    )
+                elif st_clean in ['CNR', 'COULD_NOT_REACH', 'COULDNOTREACH']:
+                    target_qs = target_qs.filter(
+                        models.Q(status__iexact='CNR') |
+                        models.Q(status__iexact='could not reach') |
+                        models.Q(status__iexact='could_not_reach') |
+                        models.Q(status__iexact='COULD NOT REACH')
+                    )
+                else:
+                    target_qs = target_qs.filter(
+                        models.Q(status__iexact=st) | models.Q(status__iexact=st_clean)
+                    )
 
             if filters_applied.get('priority') and filters_applied.get('priority') != 'all':
                 target_qs = target_qs.filter(priority__iexact=filters_applied['priority'])
@@ -359,13 +383,37 @@ class BulkLeadCloseView(APIView):
                 target_qs = target_qs.filter(models.Q(assigned_to__is_active=False) | models.Q(assigned_to__isnull=True))
 
             if filters_applied.get('active_pipeline_only') or filters_applied.get('exclude_closed_converted'):
-                target_qs = target_qs.exclude(status__in=['CLOSED', 'CONVERTED', 'REGISTERED', 'LOST', 'closed', 'converted', 'registered', 'lost'])
+                target_qs = target_qs.exclude(
+                    status__in=[
+                        'CLOSED', 'CONVERTED', 'REGISTERED', 'LOST', 'NOT_INTERESTED', 'CNR',
+                        'closed', 'converted', 'registered', 'lost', 'not_interested', 'not interested', 'cnr', 'could not reach'
+                    ]
+                )
 
             if filters_applied.get('assigned_to') and filters_applied.get('assigned_to') != 'all':
                 target_qs = target_qs.filter(assigned_to_id=filters_applied['assigned_to'])
 
             if filters_applied.get('status') and filters_applied.get('status') != 'all':
-                target_qs = target_qs.filter(status__iexact=filters_applied['status'])
+                st = filters_applied['status']
+                st_clean = st.strip().upper().replace(' ', '_')
+                if st_clean in ['NOT_INTERESTED', 'NOTINTERESTED']:
+                    target_qs = target_qs.filter(
+                        models.Q(status__iexact='NOT_INTERESTED') |
+                        models.Q(status__iexact='not interested') |
+                        models.Q(status__iexact='not_interested') |
+                        models.Q(status__iexact='NOT INTERESTED')
+                    )
+                elif st_clean in ['CNR', 'COULD_NOT_REACH', 'COULDNOTREACH']:
+                    target_qs = target_qs.filter(
+                        models.Q(status__iexact='CNR') |
+                        models.Q(status__iexact='could not reach') |
+                        models.Q(status__iexact='could_not_reach') |
+                        models.Q(status__iexact='COULD NOT REACH')
+                    )
+                else:
+                    target_qs = target_qs.filter(
+                        models.Q(status__iexact=st) | models.Q(status__iexact=st_clean)
+                    )
 
             if filters_applied.get('priority') and filters_applied.get('priority') != 'all':
                 target_qs = target_qs.filter(priority__iexact=filters_applied['priority'])
