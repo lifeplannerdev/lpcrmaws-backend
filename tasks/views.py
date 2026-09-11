@@ -151,6 +151,7 @@ class EmployeeListAPIView(generics.ListAPIView):
 
     def get_queryset(self):
         user = self.request.user
+        for_tasks = self.request.query_params.get('for_tasks') == 'true'
         include_inactive = self.request.query_params.get('include_inactive') == 'true'
         exclude_self = self.request.query_params.get('exclude_self') == 'true'
         team = self.request.query_params.get('team')
