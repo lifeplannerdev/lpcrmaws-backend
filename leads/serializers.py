@@ -174,7 +174,10 @@ class LeadAssignSerializer(serializers.Serializer):
         except User.DoesNotExist:
             raise serializers.ValidationError({'assigned_to_id': 'User not found.'})
 
-        if user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists():
+        if (user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists() or
+            has_dynamic_permission(user, 'staff_analysis:admin') or
+            has_dynamic_permission(user, 'leads:read_any') or
+            has_dynamic_permission(user, 'leads:read_tenant')):
             if not assignee.db_roles.filter(name__in=MANAGER_ROLES + EXECUTIVE_ROLES).exists():
                 raise serializers.ValidationError({
                     'assigned_to_id': 'Can only assign to managers or executives.'

@@ -123,7 +123,8 @@ class BulkLeadAssignView(APIView):
         base_qs = Lead.objects.all()
         if not (user.db_roles.filter(name__in=FULL_ACCESS_ROLES + ['SENIOR ADM', 'SENIOR_ADM', 'ADM_MANAGER']).exists() or 
                 has_dynamic_permission(user, 'leads:read_any') or 
-                has_dynamic_permission(user, 'leads:read_tenant')):
+                has_dynamic_permission(user, 'leads:read_tenant') or
+                has_dynamic_permission(user, 'staff_analysis:admin')):
             base_qs = base_qs.filter(
                 models.Q(assigned_to=user) | models.Q(sub_assigned_to=user)
             )
@@ -339,7 +340,8 @@ class BulkLeadCloseView(APIView):
         base_qs = Lead.objects.all()
         if not (user.db_roles.filter(name__in=FULL_ACCESS_ROLES + ['SENIOR ADM', 'SENIOR_ADM', 'ADM_MANAGER']).exists() or 
                 has_dynamic_permission(user, 'leads:read_any') or 
-                has_dynamic_permission(user, 'leads:read_tenant')):
+                has_dynamic_permission(user, 'leads:read_tenant') or
+                has_dynamic_permission(user, 'staff_analysis:admin')):
             base_qs = base_qs.filter(
                 models.Q(assigned_to=user) | models.Q(sub_assigned_to=user)
             )

@@ -44,7 +44,8 @@ class CanAccessLeads(BasePermission):
             request.user.is_authenticated and
             (has_dynamic_permission(request.user, 'leads:read_any') or
              has_dynamic_permission(request.user, 'leads:read_tenant') or
-             has_dynamic_permission(request.user, 'leads:read_own'))
+             has_dynamic_permission(request.user, 'leads:read_own') or
+             has_dynamic_permission(request.user, 'staff_analysis:admin'))
         )
 
 
@@ -55,7 +56,8 @@ class CanAssignLeads(BasePermission):
             user.is_authenticated and
             (has_dynamic_permission(user, 'leads:read_tenant') or 
              has_dynamic_permission(user, 'leads:read_any') or
-             has_dynamic_permission(user, 'leads:edit_tenant'))
+             has_dynamic_permission(user, 'leads:edit_tenant') or
+             has_dynamic_permission(user, 'staff_analysis:admin'))
         )
 
 
