@@ -590,6 +590,26 @@ class VoxbayWebhookView(APIView):
                     Q(phone=agent_clean) |
                     Q(phone__endswith=agent_10)
                 ).first()
+
+                # Fallback resolution via VoxbayAgent directory
+                if not agent_user:
+                    from telephony.models import VoxbayAgent
+                    v_agent = VoxbayAgent.objects.filter(is_active=True).filter(
+                        Q(extension=str(agent_ext)) |
+                        Q(phone_number=str(agent_ext)) |
+                        Q(phone_number=agent_clean) |
+                        Q(phone_number__endswith=agent_10)
+                    ).first()
+                    if v_agent:
+                        v_clean = re.sub(r'\D', '', str(v_agent.phone_number))
+                        v_10 = v_clean[-10:] if len(v_clean) >= 10 else v_clean
+                        agent_user = User.objects.filter(is_active=True).filter(
+                            Q(phone=v_agent.phone_number) |
+                            Q(phone=v_clean) |
+                            Q(phone__endswith=v_10) |
+                            Q(first_name__iexact=v_agent.name) |
+                            Q(username__iexact=v_agent.name)
+                        ).first()
             
             lead_num = (
                 defaults.get("caller_number") or
@@ -647,9 +667,15 @@ class VoxbayWebhookView(APIView):
                         event="telephony.incoming_call",
                         data=payload
                     )
+                    if is_answered:
+                        trigger_pusher.delay(
+                            channel=f"private-user-{agent_user.id}",
+                            event="telephony.call_connected",
+                            data=payload
+                        )
 
             # Process CDR / Call Disconnect
-            if callevent_lower not in ["call start", "start", "connect", "ringing", "disconnect"]:
+            if callevent_lower not in ["call start", "start", "connect", "ringing"] or is_disconnect:
                 try:
                     process_voxbay_call_log(obj)
                     # Re-fetch lead in case process_voxbay_call_log created or modified it
@@ -1034,6 +1060,27 @@ class ClickToCallView(APIView):
                 {"error": str(e)},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
+
+class LiveCallDismissView(APIView):
+    """
+    POST /api/voxbay/dismiss-call/
+    Dismisses/closes a live call on all active sessions & devices for the current user.
+    Body: { "call_uuid": "..." }
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        call_uuid = request.data.get("call_uuid")
+        if not call_uuid:
+            return Response({"error": "call_uuid is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        from utils.pusher import trigger_pusher
+        trigger_pusher.delay(
+            channel=f"private-user-{request.user.id}",
+            event="telephony.call_dismissed",
+            data={"call_uuid": str(call_uuid)}
+        )
+        return Response({"success": True, "call_uuid": call_uuid})
 
 # ─── Call Agent Stats ─────────────────────────────────────────────────────────
 

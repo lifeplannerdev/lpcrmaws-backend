@@ -222,6 +222,56 @@ class LeadCreateView(generics.CreateAPIView):
     permission_classes = [CanAccessLeads]
 
     def create(self, request, *args, **kwargs):
+        phone = request.data.get('phone')
+        if phone:
+            import re
+            clean_phone = re.sub(r'\D', '', str(phone))
+            search_phone = clean_phone[-10:] if len(clean_phone) >= 10 else clean_phone
+            existing_lead = Lead.objects.filter(
+                models.Q(phone=str(phone)) |
+                models.Q(phone=clean_phone) |
+                models.Q(phone__endswith=search_phone)
+            ).first()
+
+            if existing_lead and (
+                existing_lead.source == 'VOXBAY CALL' or 
+                (existing_lead.name and existing_lead.name.startswith('Voxbay ')) or
+                request.data.get('source') == 'VOXBAY CALL'
+            ):
+                update_fields = []
+                for field in ['name', 'status', 'priority', 'source', 'program', 'interested_country', 'interested_course', 'location', 'remarks']:
+                    if field in request.data and request.data[field] is not None:
+                        val = request.data[field]
+                        if field == 'remarks' and existing_lead.remarks:
+                            if str(val) not in existing_lead.remarks:
+                                val = f"{existing_lead.remarks}\n\n{val}"
+                        setattr(existing_lead, field, val)
+                        update_fields.append(field)
+
+                if not existing_lead.assigned_to and request.user and request.user.is_authenticated:
+                    existing_lead.assigned_to = request.user
+                    update_fields.append('assigned_to')
+
+                if update_fields:
+                    existing_lead.save(update_fields=list(set(update_fields)))
+
+                ActivityLog.objects.create(
+                    user=request.user,
+                    action='LEAD_UPDATED',
+                    entity_type='Lead',
+                    entity_id=existing_lead.id,
+                    entity_name=existing_lead.name,
+                    description=f'Lead "{existing_lead.name}" was updated from Live Call by {request.user.get_full_name() or request.user.username}',
+                    metadata={'phone': existing_lead.phone, 'source': existing_lead.source}
+                )
+
+                return Response({
+                    'message': 'Lead updated successfully',
+                    'lead_id': existing_lead.id,
+                    'id': existing_lead.id,
+                    'lead': LeadDetailSerializer(existing_lead).data
+                }, status=status.HTTP_200_OK)
+
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         lead = serializer.save(created_by=request.user, company=request.user.company)

@@ -13,9 +13,12 @@ from .views import (
     VoxbaySettingsView,
     VoxbayReportExportView,
     VoxbayAIReportView,
+    LiveCallDismissView,
 )
 
 urlpatterns = [
+    # Live Call multi-device dismiss
+    path("voxbay/dismiss-call/",                LiveCallDismissView.as_view()),
     # Webhook
     path("voxbay/webhook/",                     VoxbayWebhookView.as_view()),
     path("voxbay/call-logs/",                   CallLogListView.as_view()),
