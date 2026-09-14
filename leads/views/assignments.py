@@ -15,6 +15,7 @@ from rest_framework.permissions import IsAuthenticated
 
 from accounts.models import User, ActivityLog
 from accounts.filters import CompanyFilterBackend
+from accounts.permissions import has_dynamic_permission
 from utils.pusher import pusher_client, trigger_pusher
 from utils import notify_lead_assigned
 from leads.email_utils import send_conversion_email
@@ -103,15 +104,15 @@ class BulkLeadAssignView(APIView):
     permission_classes = [CanAssignLeads]
 
     def post(self, request):
-        lead_ids       = request.data.get('lead_ids', [])
-        assigned_to_id = request.data.get('assigned_to_id')
-        notes          = request.data.get('notes', '')
+        lead_ids        = request.data.get('lead_ids', [])
+        assigned_to_id  = request.data.get('assigned_to_id')
+        notes           = request.data.get('notes', '')
         filters_applied = request.data.get('filters', {})
-        strategy       = request.data.get('followup_strategy', 'keep')
-        fu_type        = request.data.get('followup_type', 'call')
-        fu_priority    = request.data.get('followup_priority', 'medium')
-        fu_date        = request.data.get('followup_date')
-        stagger_days   = int(request.data.get('stagger_days', 10))
+        strategy        = request.data.get('followup_strategy', 'keep')
+        fu_type         = request.data.get('followup_type', 'call')
+        fu_priority     = request.data.get('followup_priority', 'medium')
+        fu_date         = request.data.get('followup_date')
+        stagger_days    = int(request.data.get('stagger_days', 10))
 
         if not assigned_to_id:
             return Response(
@@ -119,12 +120,33 @@ class BulkLeadAssignView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        try:
+            assignee = User.objects.get(id=assigned_to_id)
+        except (User.DoesNotExist, TypeError, ValueError):
+            return Response({'error': 'Assignee user not found.'}, status=status.HTTP_400_BAD_REQUEST)
+
         user = request.user
+
+        # ── Permissions Check
+        is_full_access = (
+            user.db_roles.filter(name__in=FULL_ACCESS_ROLES + ['SENIOR ADM', 'SENIOR_ADM', 'ADM_MANAGER']).exists() or 
+            has_dynamic_permission(user, 'leads:read_any') or 
+            has_dynamic_permission(user, 'leads:read_tenant') or
+            has_dynamic_permission(user, 'staff_analysis:admin')
+        )
+        is_adm_manager = user.db_roles.filter(name='ADM_MANAGER').exists()
+        is_manager = user.db_roles.filter(name__in=MANAGER_ROLES).exists()
+
+        req_assignment_type = request.data.get('assignment_type')
+        if is_full_access:
+            assignment_type = req_assignment_type if req_assignment_type in ['PRIMARY', 'SUB'] else 'PRIMARY'
+        elif is_adm_manager or is_manager:
+            assignment_type = 'SUB'
+        else:
+            assignment_type = 'PRIMARY'
+
         base_qs = Lead.objects.all()
-        if not (user.db_roles.filter(name__in=FULL_ACCESS_ROLES + ['SENIOR ADM', 'SENIOR_ADM', 'ADM_MANAGER']).exists() or 
-                has_dynamic_permission(user, 'leads:read_any') or 
-                has_dynamic_permission(user, 'leads:read_tenant') or
-                has_dynamic_permission(user, 'staff_analysis:admin')):
+        if not is_full_access:
             base_qs = base_qs.filter(
                 models.Q(assigned_to=user) | models.Q(sub_assigned_to=user)
             )
@@ -189,39 +211,60 @@ class BulkLeadAssignView(APIView):
             if filters_applied.get('created_at__lte'):
                 target_qs = target_qs.filter(created_at__date__lte=filters_applied['created_at__lte'])
 
-            lead_ids = list(target_qs.values_list('id', flat=True))
-        elif not lead_ids or not isinstance(lead_ids, list):
+            all_lead_ids = list(target_qs.values_list('id', flat=True))
+        elif isinstance(lead_ids, list) and len(lead_ids) > 0:
+            all_lead_ids = list(base_qs.filter(id__in=lead_ids).values_list('id', flat=True))
+        else:
             return Response(
                 {'error': 'lead_ids must be a non-empty list or all_matching'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        success_count = 0
-        failed_leads  = []
-        assigned_summary = {}
+        total_leads = len(all_lead_ids)
+        if total_leads == 0:
+            return Response({
+                'message':       'No leads matched for transfer',
+                'success_count': 0,
+                'failed_count':  0,
+                'failed_leads':  [],
+            }, status=status.HTTP_200_OK)
 
-        try:
-            assignee = User.objects.get(id=assigned_to_id)
-        except User.DoesNotExist:
-            return Response({'error': 'Assignee user not found.'}, status=status.HTTP_400_BAD_REQUEST)
+        now = timezone.now()
+        today = timezone.localtime(now).date()
+        BATCH_SIZE = 1000
+        sample_leads_for_pusher = []
 
-        today = timezone.localtime(timezone.now()).date()
+        with transaction.atomic():
+            for batch_start in range(0, total_leads, BATCH_SIZE):
+                batch_ids = all_lead_ids[batch_start:batch_start + BATCH_SIZE]
 
-        for idx, lead_id in enumerate(lead_ids):
-            try:
-                serializer = LeadAssignSerializer(
-                    data={
-                        'lead_id':        lead_id,
-                        'assigned_to_id': assigned_to_id,
-                        'notes':          notes,
-                    },
-                    context={'request': request},
+                # Fetch necessary metadata for assignment notes and follow-ups
+                batch_leads = list(
+                    Lead.objects.filter(id__in=batch_ids)
+                    .select_related('assigned_to')
+                    .only('id', 'name', 'phone', 'priority', 'assigned_to__first_name', 'assigned_to__last_name', 'assigned_to__username')
                 )
 
-                if serializer.is_valid():
-                    lead            = serializer.validated_data['lead']
-                    assignment_type = serializer.validated_data.get('assignment_type', 'PRIMARY')
+                # 1. Bulk update Lead ownership
+                if assignment_type == 'SUB':
+                    Lead.objects.filter(id__in=batch_ids).update(
+                        sub_assigned_to=assignee,
+                        sub_assigned_by=user,
+                        sub_assigned_date=now,
+                    )
+                else:
+                    Lead.objects.filter(id__in=batch_ids).update(
+                        assigned_to=assignee,
+                        assigned_by=user,
+                        assigned_date=now,
+                        sub_assigned_to=None,
+                        sub_assigned_by=None,
+                        sub_assigned_date=None,
+                    )
 
+                # 2. Bulk create LeadAssignment audit entries
+                assignments_to_create = []
+                for lead in batch_leads:
                     current_notes = notes
                     if assignment_type == 'PRIMARY' and lead.assigned_to:
                         old_name = lead.assigned_to.get_full_name() or lead.assigned_to.username
@@ -230,39 +273,39 @@ class BulkLeadAssignView(APIView):
                         old_name = lead.sub_assigned_to.get_full_name() or lead.sub_assigned_to.username
                         current_notes = f"{current_notes} [Transferred from {old_name}]".strip()
 
-                    # Always make the new assignee PRIMARY when transferred from command centre
-                    lead.assigned_to       = assignee
-                    lead.assigned_by       = user
-                    lead.assigned_date     = timezone.now()
-                    lead.sub_assigned_to   = None
-                    lead.sub_assigned_by   = None
-                    lead.sub_assigned_date = None
-                    lead.save()
-
-                    LeadAssignment.objects.create(
-                        lead=lead,
+                    assignments_to_create.append(LeadAssignment(
+                        lead_id=lead.id,
                         assigned_to=assignee,
                         assigned_by=user,
-                        assignment_type='PRIMARY',
+                        assignment_type=assignment_type,
                         notes=current_notes,
-                    )
-                    success_count += 1
+                    ))
 
-                    # ── Follow-up scheduling strategy
-                    if strategy == 'keep':
-                        FollowUp.objects.filter(lead=lead, status='pending').update(assigned_to=assignee)
-                    elif strategy == 'none':
-                        FollowUp.objects.filter(lead=lead, status='pending').update(
-                            status='not_interested',
-                            notes='Resolved upon transfer (no follow-up)'
-                        )
-                    elif strategy == 'overdue':
-                        FollowUp.objects.filter(lead=lead, status='pending').update(status='not_interested')
-                        yesterday = today - timedelta(days=1)
-                        FollowUp.objects.create(
-                            lead=lead,
+                    if len(sample_leads_for_pusher) < 20:
+                        sample_leads_for_pusher.append({
+                            'lead_id':   lead.id,
+                            'lead_name': lead.name,
+                            'priority':  lead.priority,
+                        })
+
+                LeadAssignment.objects.bulk_create(assignments_to_create, batch_size=BATCH_SIZE)
+
+                # 3. Follow-up scheduling strategy
+                if strategy == 'keep':
+                    FollowUp.objects.filter(lead_id__in=batch_ids, status='pending').update(assigned_to=assignee)
+                elif strategy == 'none':
+                    FollowUp.objects.filter(lead_id__in=batch_ids, status='pending').update(
+                        status='not_interested',
+                        notes='Resolved upon transfer (no follow-up)'
+                    )
+                elif strategy == 'overdue':
+                    FollowUp.objects.filter(lead_id__in=batch_ids, status='pending').update(status='not_interested')
+                    yesterday = today - timedelta(days=1)
+                    fu_to_create = [
+                        FollowUp(
+                            lead_id=lead.id,
                             phone_number=lead.phone or '',
-                            name=lead.name,
+                            name=lead.name or '',
                             follow_up_date=yesterday,
                             followup_type=fu_type,
                             priority=fu_priority,
@@ -270,13 +313,17 @@ class BulkLeadAssignView(APIView):
                             assigned_to=assignee,
                             notes='Priority queue transfer follow-up'
                         )
-                    elif strategy == 'specific_date':
-                        FollowUp.objects.filter(lead=lead, status='pending').update(status='not_interested')
-                        target_d = datetime.strptime(fu_date, '%Y-%m-%d').date() if fu_date else today
-                        FollowUp.objects.create(
-                            lead=lead,
+                        for lead in batch_leads
+                    ]
+                    FollowUp.objects.bulk_create(fu_to_create, batch_size=BATCH_SIZE)
+                elif strategy == 'specific_date':
+                    FollowUp.objects.filter(lead_id__in=batch_ids, status='pending').update(status='not_interested')
+                    target_d = datetime.strptime(fu_date, '%Y-%m-%d').date() if fu_date else today
+                    fu_to_create = [
+                        FollowUp(
+                            lead_id=lead.id,
                             phone_number=lead.phone or '',
-                            name=lead.name,
+                            name=lead.name or '',
                             follow_up_date=target_d,
                             followup_type=fu_type,
                             priority=fu_priority,
@@ -284,69 +331,73 @@ class BulkLeadAssignView(APIView):
                             assigned_to=assignee,
                             notes='Scheduled transfer follow-up'
                         )
-                    elif strategy == 'stagger':
-                        FollowUp.objects.filter(lead=lead, status='pending').update(status='not_interested')
-                        offset = 1 + (idx % max(1, stagger_days))
+                        for lead in batch_leads
+                    ]
+                    FollowUp.objects.bulk_create(fu_to_create, batch_size=BATCH_SIZE)
+                elif strategy == 'stagger':
+                    FollowUp.objects.filter(lead_id__in=batch_ids, status='pending').update(status='not_interested')
+                    max_stagger = max(1, stagger_days)
+                    fu_to_create = []
+                    for idx_in_batch, lead in enumerate(batch_leads):
+                        global_idx = batch_start + idx_in_batch
+                        offset = 1 + (global_idx % max_stagger)
                         target_d = today + timedelta(days=offset)
-                        FollowUp.objects.create(
-                            lead=lead,
+                        fu_to_create.append(FollowUp(
+                            lead_id=lead.id,
                             phone_number=lead.phone or '',
-                            name=lead.name,
+                            name=lead.name or '',
                             follow_up_date=target_d,
                             followup_type=fu_type,
                             priority=fu_priority,
                             status='pending',
                             assigned_to=assignee,
                             notes=f'Staggered transfer follow-up (day +{offset})'
-                        )
+                        ))
+                    FollowUp.objects.bulk_create(fu_to_create, batch_size=BATCH_SIZE)
 
-                    if assignee == user:
-                        continue
+            # Activity Log
+            try:
+                ActivityLog.objects.create(
+                    user=user,
+                    action='LEAD_BULK_ASSIGNED',
+                    entity_type='Lead',
+                    entity_name=f"{total_leads} Leads",
+                    details={
+                        'assigned_to': assignee.get_full_name() or assignee.username,
+                        'strategy':    strategy,
+                        'count':       total_leads,
+                    }
+                )
+            except Exception:
+                pass
 
-                    uid = assignee.id
-                    if uid not in assigned_summary:
-                        assigned_summary[uid] = {
-                            'user':  assignee,
-                            'leads': [],
-                            'type':  'PRIMARY',
-                        }
-                    assigned_summary[uid]['leads'].append({
-                        'lead_id':   lead.id,
-                        'lead_name': lead.name,
-                        'priority':  lead.priority,
-                    })
-
-                else:
-                    failed_leads.append({'lead_id': lead_id, 'errors': serializer.errors})
-
-            except Exception as e:
-                failed_leads.append({'lead_id': lead_id, 'error': str(e)})
-
-        # 🔔 One grouped Pusher notification per assignee
-        for uid, summary in assigned_summary.items():
-            count = len(summary['leads'])
-            trigger_pusher(
-                channel=f'private-user-{uid}',
-                event='lead.assigned',
-                data={
-                    'bulk':             True,
-                    'count':            count,
-                    'leads':            summary['leads'],
-                    'assignment_type':  summary['type'],
-                    'assigned_by_id':   user.id,
-                    'assigned_by_name': user.get_full_name() or user.username,
-                    'message': (
-                        f"{count} lead{'s' if count > 1 else ''} assigned to you "
-                        f"by {user.get_full_name() or user.username}"
-                    ),
-                }
-            )
+        # 🔔 Grouped Pusher notification with capped payload
+        if assignee != user:
+            try:
+                trigger_pusher(
+                    channel=f'private-user-{assignee.id}',
+                    event='lead.assigned',
+                    data={
+                        'bulk':             True,
+                        'count':            total_leads,
+                        'leads':            sample_leads_for_pusher,
+                        'assignment_type':  assignment_type,
+                        'assigned_by_id':   user.id,
+                        'assigned_by_name': user.get_full_name() or user.username,
+                        'message': (
+                            f"{total_leads} lead{'s' if total_leads > 1 else ''} assigned to you "
+                            f"by {user.get_full_name() or user.username}"
+                        ),
+                    }
+                )
+            except Exception:
+                pass
 
         return Response({
-            'message':       f'Successfully assigned {success_count} leads',
-            'success_count': success_count,
-            'failed_count':  len(failed_leads),
-            'failed_leads':  failed_leads,
+            'message':       f'Successfully assigned {total_leads} leads',
+            'success_count': total_leads,
+            'failed_count':  0,
+            'failed_leads':  [],
         }, status=status.HTTP_200_OK)
 
 
