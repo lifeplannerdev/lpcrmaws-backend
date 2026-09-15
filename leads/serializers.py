@@ -241,6 +241,8 @@ class LeadListSerializer(serializers.ModelSerializer):
     agenda_type     = serializers.SerializerMethodField()
     processing_student = serializers.CharField(read_only=True)
     assignment_source = serializers.SerializerMethodField()
+    next_follow_up_date = serializers.DateField(read_only=True, allow_null=True)
+    last_follow_up_date = serializers.DateField(read_only=True, allow_null=True)
 
     class Meta:
         model  = Lead
@@ -253,7 +255,8 @@ class LeadListSerializer(serializers.ModelSerializer):
             'assigned_to', 'assigned_by', 'assigned_date',
             'sub_assigned_to', 'sub_assigned_by', 'sub_assigned_date',
             'current_handler', 'created_at', 'updated_at',
-            'agenda_type', 'company', 'assignment_source', 'voxbay_status'
+            'agenda_type', 'company', 'assignment_source', 'voxbay_status',
+            'next_follow_up_date', 'last_follow_up_date',
         ]
 
     def get_assignment_source(self, obj):

@@ -180,7 +180,26 @@ class LeadListView(generics.ListAPIView):
         if self.request.query_params.get('has_pending_followup') == 'true':
             perm_qs = perm_qs.filter(followups__status='pending')
 
-        return perm_qs.distinct()
+        # Follow-up date filter (specific date)
+        followup_date = self.request.query_params.get('followup_date')
+        if followup_date:
+            perm_qs = perm_qs.filter(followups__follow_up_date=followup_date, followups__status='pending')
+
+        from django.db.models import Subquery, OuterRef
+        next_fu_sub = FollowUp.objects.filter(
+            lead=OuterRef('pk'),
+            status='pending',
+        ).order_by('follow_up_date', 'follow_up_time').values('follow_up_date')[:1]
+
+        last_fu_sub = FollowUp.objects.filter(
+            lead=OuterRef('pk'),
+            status__in=['contacted', 'completed'],
+        ).order_by('-follow_up_date', '-follow_up_time').values('follow_up_date')[:1]
+
+        return perm_qs.distinct().annotate(
+            next_follow_up_date=Subquery(next_fu_sub),
+            last_follow_up_date=Subquery(last_fu_sub),
+        )
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())

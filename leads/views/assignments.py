@@ -3,7 +3,7 @@ import math
 from datetime import date, timedelta, datetime
 from django.utils import timezone
 from django.db import models, transaction
-from django.db.models import Count, Q as DQ
+from django.db.models import Count, Max, Q as DQ
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, filters, status
 from rest_framework.pagination import PageNumberPagination
@@ -21,7 +21,7 @@ from utils import notify_lead_assigned
 from leads.email_utils import send_conversion_email
 from leads.models import (
     Lead, ProcessingUpdate, RemarkHistory, 
-    LeadAssignment, FollowUp, LeadConversionDetail, WebhookLog
+    LeadAssignment, FollowUp, FollowUpHistory, LeadConversionDetail, WebhookLog
 )
 from leads.permissions import (
     CanAccessLeads, CanAssignLeads, CanViewAllLeads,
@@ -626,4 +626,219 @@ class UnassignLeadView(APIView):
             'message': 'Lead unassigned successfully',
             'lead':    LeadDetailSerializer(lead).data,
         }, status=status.HTTP_200_OK)
+
+
+class EmployeeFollowUpSummaryView(APIView):
+    """
+    Returns the latest/furthest scheduled follow-up date and workload summary
+    for a specific employee or all employees.
+    """
+    permission_classes = [CanAccessLeads]
+
+    def get(self, request):
+        employee_id = request.query_params.get('employee_id')
+        from_date_str = request.query_params.get('from_date')
+
+        target_name = "All Counsellors"
+        base_fup_qs = FollowUp.objects.filter(status='pending')
+
+        if employee_id and employee_id != 'all':
+            try:
+                target_user = User.objects.get(id=employee_id)
+                target_name = target_user.get_full_name() or target_user.username
+                base_fup_qs = base_fup_qs.filter(
+                    DQ(assigned_to_id=employee_id) | DQ(lead__assigned_to_id=employee_id)
+                )
+            except (User.DoesNotExist, ValueError):
+                return Response({'error': 'Employee not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        summary = base_fup_qs.aggregate(
+            max_date=Max('follow_up_date'),
+            total_pending=Count('id')
+        )
+
+        max_date = summary.get('max_date')
+        today = timezone.localtime(timezone.now()).date()
+
+        if max_date:
+            suggested_next_date = max_date + timedelta(days=1)
+            # If furthest date is in the past (overdue), suggest tomorrow
+            if suggested_next_date <= today:
+                suggested_next_date = today + timedelta(days=1)
+        else:
+            suggested_next_date = today + timedelta(days=1)
+
+        count_on_from_date = 0
+        if from_date_str:
+            try:
+                from_date_obj = datetime.strptime(from_date_str, '%Y-%m-%d').date()
+                count_on_from_date = base_fup_qs.filter(follow_up_date=from_date_obj).count()
+            except ValueError:
+                pass
+
+        return Response({
+            'employee_id': employee_id or 'all',
+            'employee_name': target_name,
+            'latest_followup_date': max_date.strftime('%Y-%m-%d') if max_date else None,
+            'suggested_next_date': suggested_next_date.strftime('%Y-%m-%d'),
+            'total_pending_followups': summary.get('total_pending') or 0,
+            'count_on_from_date': count_on_from_date,
+            'from_date': from_date_str,
+        }, status=status.HTTP_200_OK)
+
+
+class BulkRescheduleFollowUpsView(APIView):
+    """
+    Bulk reschedules all leads with pending follow-ups from any day (from_date)
+    to a target day (to_date), or for a list of lead_ids.
+    Zero follow-ups remain pending on from_date.
+    """
+    permission_classes = [CanAssignLeads]
+
+    def post(self, request):
+        user = request.user
+        from_date_str = request.data.get('from_date')
+        to_date_str = request.data.get('to_date')
+        employee_id = request.data.get('employee_id')
+        lead_ids = request.data.get('lead_ids', [])
+        stagger_days = int(request.data.get('stagger_days', 1) or 1)
+        notes = request.data.get('notes', '')
+
+        if not to_date_str:
+            return Response({'error': 'Target date (to_date) is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            to_date = datetime.strptime(to_date_str, '%Y-%m-%d').date()
+        except ValueError:
+            return Response({'error': 'Invalid target date format. Use YYYY-MM-DD.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        from_date = None
+        if from_date_str:
+            try:
+                from_date = datetime.strptime(from_date_str, '%Y-%m-%d').date()
+            except ValueError:
+                return Response({'error': 'Invalid source date format. Use YYYY-MM-DD.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Check permissions
+        is_full_access = (
+            user.db_roles.filter(name__in=FULL_ACCESS_ROLES + ['SENIOR ADM', 'SENIOR_ADM', 'ADM_MANAGER']).exists() or 
+            has_dynamic_permission(user, 'leads:read_any') or 
+            has_dynamic_permission(user, 'leads:read_tenant') or
+            has_dynamic_permission(user, 'staff_analysis:admin')
+        )
+
+        # Query pending follow-ups to reschedule
+        fup_qs = FollowUp.objects.filter(status='pending')
+
+        if not is_full_access:
+            fup_qs = fup_qs.filter(DQ(assigned_to=user) | DQ(lead__assigned_to=user))
+
+        # Mode A: Specific Lead IDs provided
+        if isinstance(lead_ids, list) and len(lead_ids) > 0 and lead_ids != 'all_matching':
+            fup_qs = fup_qs.filter(lead_id__in=lead_ids)
+            if from_date:
+                fup_qs = fup_qs.filter(follow_up_date=from_date)
+
+        # Mode B: Reschedule by Source Date & Employee
+        elif from_date:
+            fup_qs = fup_qs.filter(follow_up_date=from_date)
+            if employee_id and employee_id != 'all':
+                fup_qs = fup_qs.filter(
+                    DQ(assigned_to_id=employee_id) | DQ(lead__assigned_to_id=employee_id)
+                )
+        else:
+            return Response({'error': 'Either from_date or a list of lead_ids must be provided.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        followups_to_update = list(fup_qs.select_related('lead', 'assigned_to'))
+        count = len(followups_to_update)
+
+        # In case specific lead_ids were selected, but some didn't have a pending followup
+        created_count = 0
+        if isinstance(lead_ids, list) and len(lead_ids) > 0 and lead_ids != 'all_matching':
+            covered_lead_ids = set(f.lead_id for f in followups_to_update if f.lead_id)
+            missing_lead_ids = [lid for lid in lead_ids if lid not in covered_lead_ids]
+            if missing_lead_ids:
+                missing_leads = Lead.objects.filter(id__in=missing_lead_ids).select_related('assigned_to')
+                new_fups = []
+                for idx, ld in enumerate(missing_leads):
+                    shift = (idx % stagger_days) if stagger_days > 1 else 0
+                    scheduled_date = to_date + timedelta(days=shift)
+                    assignee = ld.assigned_to or user
+                    new_fup = FollowUp(
+                        lead=ld,
+                        phone_number=ld.phone or '',
+                        name=ld.name or 'Lead',
+                        follow_up_date=scheduled_date,
+                        followup_type='call',
+                        priority=ld.priority.lower() if ld.priority else 'medium',
+                        status='pending',
+                        assigned_to=assignee,
+                        notes=f"Follow-up scheduled via Command Centre to {scheduled_date}. {notes}".strip()
+                    )
+                    new_fups.append(new_fup)
+                if new_fups:
+                    FollowUp.objects.bulk_create(new_fups)
+                    created_count = len(new_fups)
+
+        if count == 0 and created_count == 0:
+            return Response({
+                'message': 'No pending follow-ups found to reschedule matching the criteria.',
+                'rescheduled_count': 0
+            }, status=status.HTTP_200_OK)
+
+        now_str = timezone.localtime(timezone.now()).strftime('%d-%b-%Y %I:%M %p')
+        operator_name = user.get_full_name() or user.username
+
+        with transaction.atomic():
+            history_entries = []
+            for idx, fup in enumerate(followups_to_update):
+                old_date_str = fup.follow_up_date.strftime('%d-%b-%Y') if fup.follow_up_date else 'Unknown'
+                shift = (idx % stagger_days) if stagger_days > 1 else 0
+                new_date = to_date + timedelta(days=shift)
+                
+                fup.follow_up_date = new_date
+                audit_note = f"[Rescheduled from {old_date_str} to {new_date.strftime('%d-%b-%Y')} by {operator_name} on {now_str}]"
+                if notes:
+                    audit_note += f" Reason: {notes}"
+                
+                fup.notes = f"{fup.notes}\n{audit_note}".strip() if fup.notes else audit_note
+                fup.save(update_fields=['follow_up_date', 'notes', 'updated_at'])
+
+                history_entries.append(FollowUpHistory(
+                    followup=fup,
+                    old_status='pending',
+                    new_status='pending',
+                    changed_by=user,
+                    notes=f"Rescheduled date from {old_date_str} to {new_date.strftime('%d-%b-%Y')}"
+                ))
+
+            if history_entries:
+                FollowUpHistory.objects.bulk_create(history_entries)
+
+            total_affected = count + created_count
+            ActivityLog.objects.create(
+                user=user,
+                action='FOLLOWUPS_BULK_RESCHEDULED',
+                entity_type='FollowUp',
+                entity_name=f"{total_affected} Follow-ups",
+                description=f"{total_affected} follow-ups were rescheduled to {to_date_str} by {operator_name}.",
+                metadata={
+                    'rescheduled_count': count,
+                    'created_count': created_count,
+                    'from_date': from_date_str,
+                    'to_date': to_date_str,
+                    'employee_id': employee_id,
+                    'notes': notes
+                }
+            )
+
+        return Response({
+            'message': f"Successfully rescheduled {count + created_count} follow-up{'s' if (count + created_count) != 1 else ''} to {to_date.strftime('%d-%b-%Y')}.",
+            'rescheduled_count': count,
+            'created_count': created_count,
+            'total_affected': count + created_count,
+            'from_date': from_date_str,
+            'to_date': to_date_str,
+        }, status=status.HTTP_200_OK)
+
 

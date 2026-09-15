@@ -31,6 +31,8 @@ from .views import (
     StaffAnalysisFollowUpsAPIView,
     LeadCommandCentreStatsView,
     BulkLeadCloseView,
+    EmployeeFollowUpSummaryView,
+    BulkRescheduleFollowUpsView,
 )
 from .analytics import UserPerformanceAnalyticsAPIView
 from .webhooks import meta_webhook, voxbay_webhook, meta_process_webhook
@@ -39,6 +41,8 @@ urlpatterns = [
     # ── Leads ────────────────────────────────────────────────
     path('leads/', LeadListView.as_view(), name='lead-list'),
     path('leads/command-centre-stats/', LeadCommandCentreStatsView.as_view(), name='command-centre-stats'),
+    path('leads/employee-followup-summary/', EmployeeFollowUpSummaryView.as_view(), name='employee-followup-summary'),
+    path('leads/bulk-reschedule-followups/', BulkRescheduleFollowUpsView.as_view(), name='bulk-reschedule-followups'),
     path('leads/export/', ExportLeadsExcelView.as_view(), name='lead-export'),
     path('leads/export/excel/', ExportLeadsExcelView.as_view(), name='lead-export-excel'),
     path('leads/create/', LeadCreateView.as_view(), name='lead-create'),
