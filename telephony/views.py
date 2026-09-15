@@ -1328,7 +1328,11 @@ class VoxbaySettingsView(APIView):
         if not has_dynamic_permission(request.user, 'voxbay:admin'):
             return Response({"error": "Admin access required"}, status=403)
             
+        team_filter = request.query_params.get('team')
         users = User.objects.filter(is_active=True).order_by('first_name', 'last_name', 'username')
+        if team_filter and team_filter.lower() != 'all':
+            users = users.filter(Q(team__iexact=team_filter) | Q(team__icontains=team_filter))
+
         data = []
         for u in users:
             # Warm up permissions cache
@@ -1339,6 +1343,7 @@ class VoxbaySettingsView(APIView):
             data.append({
                 "id": u.id,
                 "name": u.get_full_name() or u.username,
+                "team": u.team or "",
                 "roles": ", ".join(u.db_roles.values_list('name', flat=True)),
                 "voxbay_number": u.voxbay_number or "",
                 "voxbay_extension": u.voxbay_extension or "",
@@ -1387,303 +1392,379 @@ class VoxbayReportExportView(APIView):
         if not start_date or not end_date:
             return Response({"error": "start_date and end_date are required"}, status=400)
             
-        qs = VoxbayCallLog.objects.all()
-        
         try:
             sd = datetime.strptime(start_date, "%Y-%m-%d").date()
             ed = datetime.strptime(end_date, "%Y-%m-%d").date()
+        except Exception:
+            return Response({"error": "Invalid date format, use YYYY-MM-DD"}, status=400)
+
+        try:
+            qs = VoxbayCallLog.objects.all()
             qs = qs.filter(
                 Q(call_start__date__gte=sd, call_start__date__lte=ed) | 
                 Q(call_start__isnull=True, created_at__date__gte=sd, created_at__date__lte=ed)
             )
-        except Exception:
-            return Response({"error": "Invalid date format, use YYYY-MM-DD"}, status=400)
             
-        if agent_id and agent_id != 'all':
+            if agent_id and agent_id != 'all':
+                from accounts.models import User
+                try:
+                    agent = User.objects.get(id=agent_id)
+                    agent_numbers = []
+                    if getattr(agent, 'voxbay_number', None):
+                        agent_numbers.append(str(agent.voxbay_number).strip())
+                    if getattr(agent, 'voxbay_extension', None):
+                        agent_numbers.append(str(agent.voxbay_extension).strip())
+                    
+                    if agent_numbers:
+                        qs = qs.filter(
+                            Q(agent_number__in=agent_numbers) |
+                            Q(extension__in=agent_numbers)
+                        )
+                    else:
+                        qs = qs.none()
+                except User.DoesNotExist:
+                    pass
+                    
+            call_type = request.query_params.get("call_type")
+            if call_type and call_type != 'all':
+                qs = qs.filter(call_type__iexact=call_type)
+            
+            from leads.models import Lead
             from accounts.models import User
-            try:
-                agent = User.objects.get(id=agent_id)
-                agent_numbers = []
-                if getattr(agent, 'voxbay_number', None):
-                    agent_numbers.append(agent.voxbay_number)
-                if getattr(agent, 'voxbay_extension', None):
-                    agent_numbers.append(agent.voxbay_extension)
-                
-                qs = qs.filter(
-                    Q(agent_number__in=agent_numbers) |
-                    Q(extension__in=agent_numbers)
+            import openpyxl
+            from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+            from collections import defaultdict
+            import re
+            
+            # Build agent cache for quick lookups
+            agent_by_ext = {}
+            agent_by_num = {}
+            for u in User.objects.filter(is_active=True):
+                if u.voxbay_extension:
+                    agent_by_ext[str(u.voxbay_extension).strip()] = u
+                if u.voxbay_number:
+                    agent_by_num[str(u.voxbay_number).strip()] = u
+            
+            def get_agent_details(log):
+                ext = str(log.extension or "").strip()
+                num = str(log.agent_number or "").strip()
+                agent = agent_by_ext.get(ext) or agent_by_num.get(num)
+                if agent:
+                    name = f"{agent.first_name} {agent.last_name}".strip()
+                    return name or agent.username
+                return "Unassigned"
+
+            def clean_number(phone):
+                if not phone:
+                    return ""
+                digits = re.sub(r'\D', '', str(phone))
+                if len(digits) >= 10:
+                    return digits[-10:]
+                return digits
+
+            def format_dur(seconds):
+                if not seconds: return "00:00:00"
+                try:
+                    s = int(seconds)
+                    return f"{s//3600:02d}:{(s%3600)//60:02d}:{s%60:02d}"
+                except Exception:
+                    return "00:00:00"
+
+            def fmt_date(dt):
+                if dt and hasattr(dt, 'strftime'):
+                    return dt.strftime("%Y-%m-%d")
+                return ""
+
+            def fmt_time(dt):
+                if dt and hasattr(dt, 'strftime'):
+                    return dt.strftime("%H:%M")
+                return ""
+
+            def is_later(t_after, t_before):
+                if not t_after or not t_before:
+                    return False
+                try:
+                    if hasattr(t_after, 'tzinfo') and t_after.tzinfo is not None:
+                        t_after = t_after.replace(tzinfo=None)
+                    if hasattr(t_before, 'tzinfo') and t_before.tzinfo is not None:
+                        t_before = t_before.replace(tzinfo=None)
+                    return t_after > t_before
+                except Exception:
+                    return False
+
+            incoming_logs = list(qs.filter(call_type="incoming").order_by('-call_start', '-created_at'))
+            outgoing_logs = list(qs.filter(call_type="outgoing").order_by('-call_start', '-created_at'))
+            
+            # Pre-fetch outgoing calls for callback tracking to avoid N queries
+            outgoing_by_dest = {}
+            for log in outgoing_logs:
+                dest = clean_number(log.destination)
+                if dest:
+                    call_t = log.call_start or log.created_at
+                    if call_t:
+                        outgoing_by_dest.setdefault(dest, []).append(call_t)
+
+            # OPTIMIZATION: Bulk pre-fetch all matching Leads in ONE query
+            search_phones = set()
+            for log in incoming_logs:
+                p = clean_number(log.caller_number)
+                if p:
+                    search_phones.add(p)
+                    search_phones.add(f"91{p}")
+                    search_phones.add(f"+91{p}")
+                    search_phones.add(f"0{p}")
+            for log in outgoing_logs:
+                p = clean_number(log.destination)
+                if p:
+                    search_phones.add(p)
+                    search_phones.add(f"91{p}")
+                    search_phones.add(f"+91{p}")
+                    search_phones.add(f"0{p}")
+
+            lead_map = {}
+            if search_phones:
+                matched_leads = Lead.objects.filter(
+                    phone__in=search_phones
+                ).values(
+                    'id', 'name', 'phone', 'status', 'remarks', 'program', 'source', 'created_at'
                 )
-            except User.DoesNotExist:
-                pass
+                for l in matched_leads:
+                    raw_p = l['phone']
+                    clean_p = clean_number(raw_p)
+                    if clean_p and clean_p not in lead_map:
+                        lead_map[clean_p] = l
+                    if raw_p and raw_p not in lead_map:
+                        lead_map[raw_p] = l
+
+            agent_data = defaultdict(lambda: {
+                'incoming_matched': [],
+                'incoming_unmatched': [],
+                'outgoing_matched': [],
+                'outgoing_unmatched': [],
+                'missed_calls': []
+            })
+
+            # Process Incoming
+            for log in incoming_logs:
+                dur = format_dur(log.duration)
+                conv_dur = format_dur(log.conversation_duration)
+                phone = clean_number(log.caller_number)
+                agent_name = get_agent_details(log)
                 
-        call_type = request.query_params.get("call_type")
-        if call_type and call_type != 'all':
-            qs = qs.filter(call_type__iexact=call_type)
-        
-        from leads.models import Lead
-        from accounts.models import User
-        import openpyxl
-        from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
-        from collections import defaultdict
-        import re
-        
-        # Build agent cache for quick lookups
-        agent_by_ext = {u.voxbay_extension: u for u in User.objects.exclude(voxbay_extension__isnull=True).exclude(voxbay_extension='')}
-        agent_by_num = {u.voxbay_number: u for u in User.objects.exclude(voxbay_number__isnull=True).exclude(voxbay_number='')}
-        
-        def get_agent_details(log):
-            agent = agent_by_ext.get(log.extension) or agent_by_num.get(log.agent_number)
-            if agent:
-                name = f"{agent.first_name} {agent.last_name}".strip()
-                return name or agent.username
-            return "Unassigned"
-
-        incoming_qs = qs.filter(call_type="incoming").order_by('-call_start')
-        outgoing_qs = qs.filter(call_type="outgoing").order_by('-call_start')
-        
-        # Pre-fetch outgoing calls for callback tracking to avoid N queries
-        outgoing_by_dest = {}
-        for log in outgoing_qs:
-            # strip 91 from destination for consistent matching
-            dest = log.destination or ""
-            if dest.startswith('91') and len(dest) > 10:
-                dest = dest[2:]
-            if dest:
-                outgoing_by_dest.setdefault(dest, []).append(log.call_start)
-
-        agent_data = defaultdict(lambda: {
-            'incoming_matched': [],
-            'incoming_unmatched': [],
-            'outgoing_matched': [],
-            'outgoing_unmatched': [],
-            'missed_calls': []
-        })
-
-        def format_dur(seconds):
-            if not seconds: return "00:00:00"
-            return f"{seconds//3600:02d}:{(seconds%3600)//60:02d}:{seconds%60:02d}"
-            
-        def clean_number(phone):
-            if phone and phone.startswith('91') and len(phone) > 10:
-                return phone[2:]
-            return phone or ""
-
-        # Process Incoming
-        for log in incoming_qs:
-            dur = format_dur(log.duration)
-            conv_dur = format_dur(log.conversation_duration)
-            phone = clean_number(log.caller_number)
-            
-            agent_name = get_agent_details(log)
-            
-            call_d = log.call_start or log.created_at
-            row = {
-                "Sl No.": 0,
-                "Source Number": log.caller_number or "",
-                "DID Number": log.called_number or "",
-                "Call Date": call_d.strftime("%Y-%m-%d") if call_d else "",
-                "Call Time": call_d.strftime("%H:%M") if call_d else "",
-                "Connected Time": log.call_end.strftime("%H:%M") if log.call_end and log.conversation_duration else "—",
-                "Call Status": log.call_status or "",
-                "User Status": log.call_status or "",
-                "Extension": log.extension or "",
-                "First Tried Agent": agent_name,
-                "Total Duration": dur,
-                "Answered Duration": conv_dur,
-                "Recording Link": log.recording_url or "",
-            }
-            
-            lead = Lead.objects.filter(phone__endswith=phone).first() if phone else None
-            
-            if lead:
-                row.update({
-                    "Lead Name": lead.name or "",
-                    "Lead Status": lead.status or "",
-                    "Remarks": lead.remarks or "—",
-                    "Program": lead.program or "—",
-                    "Source": lead.source or "—",
-                    "Lead Created Date": lead.created_at.strftime("%Y-%m-%d") if lead.created_at else "",
-                    "Lead Created Time": lead.created_at.strftime("%H:%M") if lead.created_at else "",
-                })
-                agent_data[agent_name]['incoming_matched'].append(row)
-            else:
-                agent_data[agent_name]['incoming_unmatched'].append(row)
-                
-            # Missed Call Tracking
-            if log.call_status in ['MISSED', 'NOANSWER', 'CANCEL', 'BUSY'] or not log.conversation_duration:
-                callbacks = [t for t in outgoing_by_dest.get(phone, []) if log.call_start and t and t > log.call_start]
-                cb_count = len(callbacks)
-                
-                agent_data[agent_name]['missed_calls'].append({
+                call_d = log.call_start or log.created_at
+                row = {
                     "Sl No.": 0,
-                    "Call Date": row["Call Date"],
-                    "Call Time": row["Call Time"],
                     "Source Number": log.caller_number or "",
                     "DID Number": log.called_number or "",
-                    "Connected Duration": conv_dur,
-                    "Callback Count": cb_count,
-                    "Missed Status": "Completed" if cb_count > 0 else "Pending",
-                    "Missed Count": 1, 
-                    "_phone": phone 
-                })
+                    "Call Date": fmt_date(call_d),
+                    "Call Time": fmt_time(call_d),
+                    "Connected Time": fmt_time(log.call_end) if log.call_end and log.conversation_duration else "—",
+                    "Call Status": log.call_status or "",
+                    "User Status": log.call_status or "",
+                    "Extension": log.extension or "",
+                    "First Tried Agent": agent_name,
+                    "Total Duration": dur,
+                    "Answered Duration": conv_dur,
+                    "Recording Link": log.recording_url or "",
+                }
+                
+                lead = lead_map.get(phone) if phone else None
+                
+                if lead:
+                    lead_created = lead.get('created_at')
+                    row.update({
+                        "Lead Name": lead.get('name') or "",
+                        "Lead Status": lead.get('status') or "",
+                        "Remarks": lead.get('remarks') or "—",
+                        "Program": lead.get('program') or "—",
+                        "Source": lead.get('source') or "—",
+                        "Lead Created Date": fmt_date(lead_created),
+                        "Lead Created Time": fmt_time(lead_created),
+                    })
+                    agent_data[agent_name]['incoming_matched'].append(row)
+                else:
+                    agent_data[agent_name]['incoming_unmatched'].append(row)
+                    
+                # Missed Call Tracking
+                if log.call_status in ['MISSED', 'NOANSWER', 'CANCEL', 'BUSY'] or not log.conversation_duration:
+                    callbacks = [t for t in outgoing_by_dest.get(phone, []) if is_later(t, call_d)]
+                    cb_count = len(callbacks)
+                    
+                    agent_data[agent_name]['missed_calls'].append({
+                        "Sl No.": 0,
+                        "Call Date": row["Call Date"],
+                        "Call Time": row["Call Time"],
+                        "Source Number": log.caller_number or "",
+                        "DID Number": log.called_number or "",
+                        "Connected Duration": conv_dur,
+                        "Callback Count": cb_count,
+                        "Missed Status": "Completed" if cb_count > 0 else "Pending",
+                        "Missed Count": 1, 
+                        "_phone": phone 
+                    })
 
-        # Process Outgoing
-        for log in outgoing_qs:
-            dur = format_dur(log.duration)
-            conv_dur = format_dur(log.conversation_duration)
-            phone = clean_number(log.destination)
-            agent_name = get_agent_details(log)
-            
-            call_d = log.call_start or log.created_at
-            row = {
-                "Sl No.": 0,
-                "Destination Number": log.destination or "",
-                "Source Number": log.caller_number or log.extension or "",
-                "Call Date": call_d.strftime("%Y-%m-%d") if call_d else "",
-                "Call Time": call_d.strftime("%H:%M") if call_d else "",
-                "Connected Time": log.call_end.strftime("%H:%M") if log.call_end and log.conversation_duration else "—",
-                "Call Status": log.call_status or "",
-                "User Status": log.call_status or "",
-                "Extension": log.extension or "",
-                "First Tried Agent": agent_name,
-                "Total Duration": dur,
-                "Answered Duration": conv_dur,
-                "Recording Link": log.recording_url or "",
-            }
-            
-            lead = Lead.objects.filter(phone__endswith=phone).first() if phone else None
-            if lead:
-                row.update({
-                    "Lead Name": lead.name or "",
-                    "Lead Status": lead.status or "",
-                    "Remarks": lead.remarks or "—",
-                    "Program": lead.program or "—",
-                    "Source": lead.source or "—",
-                    "Lead Created Date": lead.created_at.strftime("%Y-%m-%d") if lead.created_at else "",
-                    "Lead Created Time": lead.created_at.strftime("%H:%M") if lead.created_at else "",
-                })
-                agent_data[agent_name]['outgoing_matched'].append(row)
+            # Process Outgoing
+            for log in outgoing_logs:
+                dur = format_dur(log.duration)
+                conv_dur = format_dur(log.conversation_duration)
+                phone = clean_number(log.destination)
+                agent_name = get_agent_details(log)
+                
+                call_d = log.call_start or log.created_at
+                row = {
+                    "Sl No.": 0,
+                    "Destination Number": log.destination or "",
+                    "Source Number": log.caller_number or log.extension or "",
+                    "Call Date": fmt_date(call_d),
+                    "Call Time": fmt_time(call_d),
+                    "Connected Time": fmt_time(log.call_end) if log.call_end and log.conversation_duration else "—",
+                    "Call Status": log.call_status or "",
+                    "User Status": log.call_status or "",
+                    "Extension": log.extension or "",
+                    "First Tried Agent": agent_name,
+                    "Total Duration": dur,
+                    "Answered Duration": conv_dur,
+                    "Recording Link": log.recording_url or "",
+                }
+                
+                lead = lead_map.get(phone) if phone else None
+                if lead:
+                    lead_created = lead.get('created_at')
+                    row.update({
+                        "Lead Name": lead.get('name') or "",
+                        "Lead Status": lead.get('status') or "",
+                        "Remarks": lead.get('remarks') or "—",
+                        "Program": lead.get('program') or "—",
+                        "Source": lead.get('source') or "—",
+                        "Lead Created Date": fmt_date(lead_created),
+                        "Lead Created Time": fmt_time(lead_created),
+                    })
+                    agent_data[agent_name]['outgoing_matched'].append(row)
+                else:
+                    agent_data[agent_name]['outgoing_unmatched'].append(row)
+
+            # Process Missed Counts and Set Sl No. per agent
+            for data in agent_data.values():
+                missed_counts = {}
+                for mc in reversed(data['missed_calls']):
+                    p = mc['_phone']
+                    missed_counts[p] = missed_counts.get(p, 0) + 1
+                    mc['Missed Count'] = missed_counts[p]
+                for mc in data['missed_calls']:
+                    del mc['_phone']
+                    
+                for data_list in [data['incoming_matched'], data['incoming_unmatched'], data['outgoing_matched'], data['outgoing_unmatched'], data['missed_calls']]:
+                    for i, r in enumerate(data_list, 1):
+                        r["Sl No."] = i
+
+            output = io.BytesIO()
+            workbook = openpyxl.Workbook()
+            if 'Sheet' in workbook.sheetnames:
+                workbook.remove(workbook['Sheet'])
+                
+            if not agent_data:
+                sheet = workbook.create_sheet('No Data')
+                sheet.cell(row=1, column=1, value="No calls found for the selected period.")
             else:
-                agent_data[agent_name]['outgoing_unmatched'].append(row)
-
-        # Process Missed Counts and Set Sl No. per agent
-        for data in agent_data.values():
-            missed_counts = {}
-            for mc in reversed(data['missed_calls']):
-                p = mc['_phone']
-                missed_counts[p] = missed_counts.get(p, 0) + 1
-                mc['Missed Count'] = missed_counts[p]
-            for mc in data['missed_calls']:
-                del mc['_phone']
+                header_font = Font(bold=True, color="FFFFFF")
+                data_font = Font()
+                center_align = Alignment(horizontal="center", vertical="center")
+                left_align = Alignment(horizontal="left", vertical="center")
                 
-            for data_list in [data['incoming_matched'], data['incoming_unmatched'], data['outgoing_matched'], data['outgoing_unmatched'], data['missed_calls']]:
-                for i, r in enumerate(data_list, 1):
-                    r["Sl No."] = i
+                border = Border(
+                    left=Side(border_style="thin", color="CCCCCC"),
+                    right=Side(border_style="thin", color="CCCCCC"),
+                    top=Side(border_style="thin", color="CCCCCC"),
+                    bottom=Side(border_style="thin", color="CCCCCC")
+                )
 
-        output = io.BytesIO()
-        workbook = openpyxl.Workbook()
-        if 'Sheet' in workbook.sheetnames:
-            workbook.remove(workbook['Sheet'])
-            
-        if not agent_data:
-            sheet = workbook.create_sheet('No Data')
-            sheet.cell(row=1, column=1, value="No calls found for the selected period.")
-        else:
-            header_font = Font(bold=True, color="FFFFFF")
-            data_font = Font()
-            center_align = Alignment(horizontal="center", vertical="center")
-            left_align = Alignment(horizontal="left", vertical="center")
-            
-            border = Border(
-                left=Side(border_style="thin", color="CCCCCC"),
-                right=Side(border_style="thin", color="CCCCCC"),
-                top=Side(border_style="thin", color="CCCCCC"),
-                bottom=Side(border_style="thin", color="CCCCCC")
-            )
-
-            colors = {
-                'matched': "C4DFB8", # light green
-                'unmatched': "FAD7C8", # peach
-                'missed': "D0DFEC", # light blue
-                'col_header': "22547E", # dark blue
-            }
-            
-            for agent_name, data in agent_data.items():
-                safe_sheet_name = re.sub(r'[\\*?:/\[\]]', '', agent_name)[:31] or "Agent"
-                sheet = workbook.create_sheet(safe_sheet_name)
+                colors = {
+                    'matched': "C4DFB8", # light green
+                    'unmatched': "FAD7C8", # peach
+                    'missed': "D0DFEC", # light blue
+                    'col_header': "22547E", # dark blue
+                }
                 
-                current_row = [1]
-                
-                def write_table(title, table_data, bg_color):
-                    if not table_data:
-                        return
-                        
-                    cr = current_row[0]
-                    # Title row
-                    sheet.merge_cells(start_row=cr, start_column=1, end_row=cr, end_column=len(table_data[0]))
-                    cell = sheet.cell(row=cr, column=1, value=f"{title} ({len(table_data)})")
-                    cell.fill = PatternFill(start_color=bg_color, end_color=bg_color, fill_type="solid")
-                    cell.font = Font(bold=True, color="22547E")
-                    cell.alignment = left_align
-                    cr += 1
+                for agent_name, data in agent_data.items():
+                    safe_sheet_name = re.sub(r'[\\*?:/\[\]]', '', agent_name)[:31] or "Agent"
+                    sheet = workbook.create_sheet(safe_sheet_name)
                     
-                    # Column Headers
-                    headers = list(table_data[0].keys())
-                    for col_idx, header in enumerate(headers, 1):
-                        cell = sheet.cell(row=cr, column=col_idx, value=header)
-                        cell.fill = PatternFill(start_color=colors['col_header'], end_color=colors['col_header'], fill_type="solid")
-                        cell.font = header_font
-                        cell.alignment = center_align
-                        cell.border = border
-                    cr += 1
+                    current_row = [1]
                     
-                    # Data Rows
-                    for row_data in table_data:
-                        for col_idx, key in enumerate(headers, 1):
-                            val = row_data[key]
-                            cell = sheet.cell(row=cr, column=col_idx, value=val)
-                            cell.alignment = center_align
-                            cell.border = border
-                            cell.font = data_font
+                    def write_table(title, table_data, bg_color):
+                        if not table_data:
+                            return
                             
-                            if key in ["Call Status", "User Status"]:
-                                if val in ["ANSWERED", "ANSWER"]:
-                                    cell.font = Font(color="008000")
-                                else:
-                                    cell.font = Font(color="FF0000")
-                            if key == "Missed Status":
-                                if val == "Completed":
-                                    cell.font = Font(color="008000")
-                                else:
-                                    cell.font = Font(color="FF0000")
+                        cr = current_row[0]
+                        # Title row
+                        sheet.merge_cells(start_row=cr, start_column=1, end_row=cr, end_column=len(table_data[0]))
+                        cell = sheet.cell(row=cr, column=1, value=f"{title} ({len(table_data)})")
+                        cell.fill = PatternFill(start_color=bg_color, end_color=bg_color, fill_type="solid")
+                        cell.font = Font(bold=True, color="22547E")
+                        cell.alignment = left_align
                         cr += 1
                         
-                    cr += 2 # spacing
-                    current_row[0] = cr
+                        # Column Headers
+                        headers = list(table_data[0].keys())
+                        for col_idx, header in enumerate(headers, 1):
+                            cell = sheet.cell(row=cr, column=col_idx, value=header)
+                            cell.fill = PatternFill(start_color=colors['col_header'], end_color=colors['col_header'], fill_type="solid")
+                            cell.font = header_font
+                            cell.alignment = center_align
+                            cell.border = border
+                        cr += 1
+                        
+                        # Data Rows
+                        for row_data in table_data:
+                            for col_idx, key in enumerate(headers, 1):
+                                val = row_data[key]
+                                cell = sheet.cell(row=cr, column=col_idx, value=val)
+                                cell.alignment = center_align
+                                cell.border = border
+                                cell.font = data_font
+                                
+                                if key in ["Call Status", "User Status"]:
+                                    if val in ["ANSWERED", "ANSWER"]:
+                                        cell.font = Font(color="008000")
+                                    else:
+                                        cell.font = Font(color="FF0000")
+                                if key == "Missed Status":
+                                    if val == "Completed":
+                                        cell.font = Font(color="008000")
+                                    else:
+                                        cell.font = Font(color="FF0000")
+                            cr += 1
+                            
+                        cr += 2 # spacing
+                        current_row[0] = cr
 
-                write_table("Incoming Calls — Matched with Lead", data['incoming_matched'], colors['matched'])
-                write_table("Incoming Calls — No Lead Match", data['incoming_unmatched'], colors['unmatched'])
-                write_table("Outgoing Calls — Matched with Lead", data['outgoing_matched'], colors['matched'])
-                write_table("Outgoing Calls — No Lead Match", data['outgoing_unmatched'], colors['unmatched'])
-                write_table("Missed Calls & Callback Tracking", data['missed_calls'], colors['missed'])
-                
-                # Autofit columns safely
-                from openpyxl.utils import get_column_letter
-                for col_idx, column_cells in enumerate(sheet.columns, 1):
-                    lengths = [len(str(cell.value)) for cell in column_cells if cell.value is not None and str(cell.value) != ""]
-                    if lengths:
-                        sheet.column_dimensions[get_column_letter(col_idx)].width = max(lengths) + 2
+                    write_table("Incoming Calls — Matched with Lead", data['incoming_matched'], colors['matched'])
+                    write_table("Incoming Calls — No Lead Match", data['incoming_unmatched'], colors['unmatched'])
+                    write_table("Outgoing Calls — Matched with Lead", data['outgoing_matched'], colors['matched'])
+                    write_table("Outgoing Calls — No Lead Match", data['outgoing_unmatched'], colors['unmatched'])
+                    write_table("Missed Calls & Callback Tracking", data['missed_calls'], colors['missed'])
+                    
+                    # Autofit columns safely
+                    from openpyxl.utils import get_column_letter
+                    for col_idx, column_cells in enumerate(sheet.columns, 1):
+                        lengths = [len(str(cell.value)) for cell in column_cells if cell.value is not None and str(cell.value) != ""]
+                        if lengths:
+                            sheet.column_dimensions[get_column_letter(col_idx)].width = min(max(lengths) + 2, 50)
 
-        workbook.save(output)
-        output.seek(0)
-        
-        filename = f"Voxbay_Report_{start_date}_to_{end_date}.xlsx"
-        response = HttpResponse(
-            output, 
-            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        )
-        response['Content-Disposition'] = f'attachment; filename={filename}'
-        return response
+            workbook.save(output)
+            output.seek(0)
+            
+            filename = f"Voxbay_Report_{start_date}_to_{end_date}.xlsx"
+            response = HttpResponse(
+                output.getvalue(), 
+                content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            )
+            response['Content-Disposition'] = f'attachment; filename="{filename}"'
+            return response
+            
+        except Exception as e:
+            logger.exception("Voxbay report export error: %s", str(e))
+            return Response({"error": f"Failed to generate report: {str(e)}"}, status=500)
 
 
 # ─── Voxbay AI Report ─────────────────────────────────────────────────────────
