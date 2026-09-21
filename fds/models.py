@@ -82,6 +82,12 @@ class FdsFeeStructure(models.Model):
         ordering = ['category', 'name']
         verbose_name = 'FDS Fee Structure'
 
+    def get_category_display(self):
+        if self.name:
+            return self.name
+        choices = dict(self.FEE_CATEGORY_CHOICES)
+        return choices.get(self.category, self.category.title() if self.category else '')
+
     def __str__(self):
         title = self.name or dict(self.FEE_CATEGORY_CHOICES).get(self.category, self.category)
         return f"{title} — ₹{self.amount}"

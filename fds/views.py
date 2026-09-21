@@ -1284,7 +1284,7 @@ class FdsStudentFeeAccountViewSet(viewsets.ModelViewSet):
                 'class_category': s.class_category,
                 'batch_name': s.batch.name if s.batch else '',
                 'suggested_package_id': s.fee_structure_id,
-                'suggested_package_name': s.fee_structure.get_category_display() if s.fee_structure else '',
+                'suggested_package_name': (s.fee_structure.get_category_display() if hasattr(s.fee_structure, 'get_category_display') else (s.fee_structure.name or s.fee_structure.category)) if s.fee_structure else '',
                 'suggested_amount': str(s.fee_structure.amount) if s.fee_structure else '',
             })
         return Response(data)
