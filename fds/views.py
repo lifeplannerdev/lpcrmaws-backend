@@ -994,6 +994,13 @@ class FdsStudentFeeAccountViewSet(viewsets.ModelViewSet):
             'student', 'student__batch', 'student__batch__trainer', 'active_package'
         ).prefetch_related('installments', 'payments', 'adjustments')
 
+        if fds_admin_all(self.request.user):
+            trainer_id = self.request.query_params.get('trainer')
+            if trainer_id:
+                qs = qs.filter(student__batch__trainer_id=trainer_id)
+        elif fds_admin_own(self.request.user):
+            qs = qs.filter(student__created_by=self.request.user)
+
         student_id = self.request.query_params.get('student_id') or self.request.query_params.get('student')
         class_cat = self.request.query_params.get('class_category')
         status_filter = self.request.query_params.get('status')
@@ -1247,6 +1254,12 @@ class FdsStudentFeeAccountViewSet(viewsets.ModelViewSet):
             return Response(status=403)
 
         qs = FdsStudent.objects.filter(is_active=True, fee_account__isnull=True).select_related('batch', 'fee_structure')
+        if fds_admin_all(request.user):
+            trainer_id = request.query_params.get('trainer')
+            if trainer_id:
+                qs = qs.filter(batch__trainer_id=trainer_id)
+        elif fds_admin_own(request.user):
+            qs = qs.filter(created_by=request.user)
         search = request.query_params.get('search')
         if search:
             qs = qs.filter(Q(name__icontains=search) | Q(student_id__icontains=search) | Q(contact_no__icontains=search))
