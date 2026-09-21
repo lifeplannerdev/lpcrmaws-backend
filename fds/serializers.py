@@ -8,11 +8,19 @@ from .models import (
 # ── Minimal nested serializers ──────────────────────────────────
 
 class FdsFeeStructureMinSerializer(serializers.ModelSerializer):
-    category_display = serializers.CharField(source='get_category_display', read_only=True)
+    category_display = serializers.SerializerMethodField()
+    batch_type_display = serializers.SerializerMethodField()
 
     class Meta:
         model = FdsFeeStructure
-        fields = ['id', 'category', 'category_display', 'amount']
+        fields = ['id', 'name', 'category', 'category_display', 'batch_type', 'batch_type_display', 'admission_fee', 'amount', 'duration_months', 'sessions_per_week']
+
+    def get_category_display(self, obj):
+        choices = dict(FdsFeeStructure.FEE_CATEGORY_CHOICES)
+        return choices.get(obj.category, obj.category.title() if obj.category else '')
+
+    def get_batch_type_display(self, obj):
+        return (obj.batch_type or '').title()
 
 
 class FdsBatchMinSerializer(serializers.ModelSerializer):
@@ -28,11 +36,20 @@ class FdsBatchMinSerializer(serializers.ModelSerializer):
 # ── Fee Structure ────────────────────────────────────────────────
 
 class FdsFeeStructureSerializer(serializers.ModelSerializer):
-    category_display = serializers.CharField(source='get_category_display', read_only=True)
+    category_display = serializers.SerializerMethodField()
+    batch_type_display = serializers.SerializerMethodField()
+    category = serializers.CharField(max_length=50, default='DANCE', required=False)
 
     class Meta:
         model = FdsFeeStructure
         fields = '__all__'
+
+    def get_category_display(self, obj):
+        choices = dict(FdsFeeStructure.FEE_CATEGORY_CHOICES)
+        return choices.get(obj.category, obj.category.title() if obj.category else '')
+
+    def get_batch_type_display(self, obj):
+        return (obj.batch_type or '').title()
 
 
 # ── Batch ────────────────────────────────────────────────────────

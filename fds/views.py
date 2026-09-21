@@ -83,9 +83,16 @@ class FdsFeeStructureViewSet(viewsets.ModelViewSet):
         if not fds_write(self.request.user):
             self.permission_denied(self.request, message="FDS write permission required.")
 
-    def create(self, request, *args, **kwargs):
+    def perform_create(self, serializer):
         self.check_write_permission()
-        return super().create(request, *args, **kwargs)
+        name = serializer.validated_data.get('name')
+        if not name:
+            cat = serializer.validated_data.get('category', 'Fee Package')
+            btype = serializer.validated_data.get('batch_type', '')
+            name = f"{cat.title()} - {btype.title()}" if btype else cat.title()
+            serializer.save(name=name)
+        else:
+            serializer.save()
 
     def update(self, request, *args, **kwargs):
         self.check_write_permission()
@@ -95,7 +102,6 @@ class FdsFeeStructureViewSet(viewsets.ModelViewSet):
         self.check_write_permission()
         return super().destroy(request, *args, **kwargs)
 
-    @action(detail=False, methods=['post'])
     @action(detail=False, methods=['post'])
     def bulk_import_excel(self, request):
         if not fds_write(request.user):

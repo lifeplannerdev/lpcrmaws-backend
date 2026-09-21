@@ -52,6 +52,9 @@ PAYMENT_STATUS_CHOICES = [
 # ────────────────────────────────────────────────────────────────
 class FdsFeeStructure(models.Model):
     FEE_CATEGORY_CHOICES = [
+        ('DANCE', 'Dance'),
+        ('ZUMBA', 'Zumba'),
+        ('YOGA', 'Yoga'),
         ('MONTHLY', 'Monthly Fee'),
         ('PACKAGE_3M', 'Package 3 Months'),
         ('PACKAGE_6M', 'Package 6 Months'),
@@ -63,19 +66,25 @@ class FdsFeeStructure(models.Model):
         ('WEDDING_GROUP', 'Wedding - Family/Group'),
     ]
 
-    category = models.CharField(max_length=20, choices=FEE_CATEGORY_CHOICES, unique=True)
-    details = models.TextField(blank=True)
+    name = models.CharField(max_length=150, blank=True, default='')
+    category = models.CharField(max_length=50, default='DANCE')
+    batch_type = models.CharField(max_length=50, default='WEEKEND', blank=True)
+    admission_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    duration_months = models.PositiveIntegerField(default=1)
+    sessions_per_week = models.PositiveIntegerField(default=2)
+    details = models.TextField(blank=True)
     notes = models.TextField(blank=True, null=True, help_text="Offers, discounts, notes")
     is_active = models.BooleanField(default=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ['category']
+        ordering = ['category', 'name']
         verbose_name = 'FDS Fee Structure'
 
     def __str__(self):
-        return f"{self.get_category_display()} — ₹{self.amount}"
+        title = self.name or dict(self.FEE_CATEGORY_CHOICES).get(self.category, self.category)
+        return f"{title} — ₹{self.amount}"
 
 
 # ────────────────────────────────────────────────────────────────
