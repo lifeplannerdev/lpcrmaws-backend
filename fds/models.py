@@ -1,3 +1,4 @@
+from decimal import Decimal
 from django.db import models
 from django.conf import settings
 from django.utils import timezone
@@ -459,6 +460,16 @@ class FdsStudentFeeAccount(models.Model):
         ('PARTIAL', 'Partial'),
         ('OVERDUE', 'Overdue'),
         ('SETTLED', 'Settled'),
+        ('RESTRUCTURED', 'Restructured'),
+        ('WAIVED', 'Waived'),
+    ]
+
+    PLAN_TYPE_CHOICES = [
+        ('ONE_TIME', 'One Time'),
+        ('INSTALLMENT', 'Installment'),
+        ('MONTHLY', 'Monthly'),
+        ('CUSTOM', 'Custom'),
+        ('PACKAGE', 'Package'),
     ]
 
     student = models.OneToOneField(
@@ -467,10 +478,20 @@ class FdsStudentFeeAccount(models.Model):
     active_package = models.ForeignKey(
         'FdsFeeStructure', on_delete=models.SET_NULL, null=True, blank=True
     )
-    status = models.CharField(max_length=20, choices=ACCOUNT_STATUS_CHOICES, default='ACTIVE')
+    plan_code = models.CharField(max_length=80, blank=True)
+    plan_name = models.CharField(max_length=150, blank=True)
+    plan_type = models.CharField(max_length=20, choices=PLAN_TYPE_CHOICES, default='PACKAGE')
+    status = models.CharField(max_length=20, choices=ACCOUNT_STATUS_CHOICES, default='ACTIVE', db_index=True)
     total_due = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     total_paid = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     balance_due = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    overdue_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    registration_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    due_day = models.PositiveIntegerField(default=10)
+    start_date = models.DateField(null=True, blank=True)
+    next_due_date = models.DateField(null=True, blank=True, db_index=True)
+    last_payment_date = models.DateField(null=True, blank=True)
+    notes = models.TextField(blank=True)
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -483,41 +504,146 @@ class FdsStudentFeeAccount(models.Model):
         return f"{self.student.name} - Account"
 
     def recalculate(self, save=True):
+        # 1. Total paid from collections
         collections = self.student.fds_payments.all()
-        self.total_paid = sum(c.paid_amount for c in collections)
-        
-        billed_dict = {}
-        # Base package fee baseline (e.g. registration package or enrolled course)
-        if self.active_package and self.active_package.amount:
-            billed_dict['base_package'] = self.active_package.amount
+        self.total_paid = collections.aggregate(t=models.Sum('paid_amount')).get('t') or Decimal('0')
+        latest_payment = collections.order_by('-pay_date').first()
+        self.last_payment_date = latest_payment.pay_date if latest_payment else None
 
-        for c in collections:
-            eff_total = max(c.total_fees or 0, c.paid_amount or 0)
-            if c.fee_month and c.fee_year:
-                key = (c.fee_month, c.fee_year, c.fees_type_id)
-                current_max = billed_dict.get(key, 0)
-                billed_dict[key] = max(current_max, eff_total)
-            elif eff_total > 0:
-                # If payment is for the active package, replace or max the base package fee
-                if self.active_package and c.fees_type_id == self.active_package.id and 'base_package' in billed_dict:
-                    billed_dict['base_package'] = max(billed_dict['base_package'], eff_total)
-                else:
-                    key = f"one_off_{c.id}"
-                    billed_dict[key] = eff_total
-                
-        # Total due must be at least total paid (student cannot have paid more than billed)
-        self.total_due = max(self.total_paid, sum(billed_dict.values()))
-        self.balance_due = max(0, self.total_due - self.total_paid)
-        
+        # Check installments
+        inst_qs = self.installments.all()
+        if inst_qs.exists():
+            today = timezone.localdate()
+            overdue_inst = Decimal('0')
+            for inst in inst_qs:
+                inst.recalculate(save=True)
+                if inst.due_date < today and inst.balance_amount > 0:
+                    inst.status = 'OVERDUE'
+                    inst.save(update_fields=['status'])
+                    overdue_inst += inst.balance_amount
+
+            inst_total = inst_qs.aggregate(
+                sched=models.Sum('scheduled_amount'),
+                bal=models.Sum('balance_amount')
+            )
+            total_scheduled = inst_total['sched'] or Decimal('0')
+            self.total_due = max(self.total_paid, total_scheduled)
+            self.balance_due = max(Decimal('0'), self.total_due - self.total_paid)
+            self.overdue_amount = overdue_inst
+
+            next_inst = self.installments.filter(status__in=['PENDING', 'PARTIAL', 'OVERDUE']).order_by('due_date').first()
+            if next_inst:
+                self.next_due_date = next_inst.due_date
+        else:
+            # 2. Calculate from active package baseline & one-off payments
+            billed_dict = {}
+            if self.active_package and self.active_package.amount:
+                billed_dict['base_package'] = self.active_package.amount
+
+            for c in collections:
+                eff_total = max(c.total_fees or 0, c.paid_amount or 0)
+                if c.fee_month and c.fee_year:
+                    key = (c.fee_month, c.fee_year, c.fees_type_id)
+                    current_max = billed_dict.get(key, 0)
+                    billed_dict[key] = max(current_max, eff_total)
+                elif eff_total > 0:
+                    if self.active_package and c.fees_type_id == self.active_package.id and 'base_package' in billed_dict:
+                        billed_dict['base_package'] = max(billed_dict['base_package'], eff_total)
+                    else:
+                        key = f"one_off_{c.id}"
+                        billed_dict[key] = eff_total
+
+            self.total_due = max(self.total_paid, sum(billed_dict.values()))
+            self.balance_due = max(Decimal('0'), self.total_due - self.total_paid)
+            self.overdue_amount = Decimal('0')
+
+        # 3. Apply adjustments if any
+        adj_total = self.adjustments.aggregate(t=models.Sum('amount_delta')).get('t') or Decimal('0')
+        if adj_total:
+            self.total_due = max(Decimal('0'), self.total_due + adj_total)
+            self.balance_due = max(Decimal('0'), self.total_due - self.total_paid)
+
         if self.balance_due == 0 and self.total_due > 0:
             self.status = 'SETTLED'
+        elif self.overdue_amount > 0:
+            self.status = 'OVERDUE'
         elif self.balance_due > 0 and self.total_paid > 0:
             self.status = 'PARTIAL'
         elif self.balance_due > 0:
             self.status = 'ACTIVE'
-            
+
         if save:
-            self.save(update_fields=['total_paid', 'total_due', 'balance_due', 'status', 'updated_at'])
+            self.save(update_fields=['total_paid', 'total_due', 'balance_due', 'overdue_amount', 'next_due_date', 'status', 'updated_at'])
+
+
+class FdsFeeInstallment(models.Model):
+    STATUS_CHOICES = [
+        ('PENDING', 'Pending'),
+        ('PARTIAL', 'Partial'),
+        ('PAID', 'Paid'),
+        ('OVERDUE', 'Overdue'),
+        ('WAIVED', 'Waived'),
+    ]
+
+    account = models.ForeignKey(FdsStudentFeeAccount, on_delete=models.CASCADE, related_name='installments')
+    sequence_number = models.PositiveIntegerField()
+    label = models.CharField(max_length=120, blank=True)
+    due_date = models.DateField(db_index=True)
+    scheduled_amount = models.DecimalField(max_digits=12, decimal_places=2)
+    paid_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    balance_amount = models.DecimalField(max_digits=12, decimal_places=2)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING', db_index=True)
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['sequence_number']
+        unique_together = ['account', 'sequence_number']
+
+    def __str__(self):
+        return f"{self.account.student.name} #{self.sequence_number}"
+
+    def recalculate(self, save=True):
+        self.balance_amount = max(Decimal('0'), self.scheduled_amount - self.paid_amount)
+        if self.balance_amount <= 0:
+            self.status = 'PAID'
+        elif self.paid_amount > 0:
+            self.status = 'PARTIAL'
+        elif self.due_date < timezone.localdate():
+            self.status = 'OVERDUE'
+        else:
+            self.status = 'PENDING'
+        if save:
+            self.save(update_fields=['balance_amount', 'status', 'updated_at'])
+
+
+class FdsFeeAdjustment(models.Model):
+    ADJUSTMENT_TYPE_CHOICES = [
+        ('DISCOUNT', 'Discount'),
+        ('WAIVER', 'Waiver'),
+        ('REFUND', 'Refund'),
+        ('RESTRUCTURE', 'Restructure'),
+        ('CONCESSION', 'Concession'),
+        ('MANUAL', 'Manual'),
+    ]
+
+    account = models.ForeignKey(FdsStudentFeeAccount, on_delete=models.CASCADE, related_name='adjustments')
+    adjustment_type = models.CharField(max_length=20, choices=ADJUSTMENT_TYPE_CHOICES)
+    amount_delta = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    reason = models.TextField()
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='fds_fee_adjustments_created'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.account.student.name} - {self.adjustment_type}"
+
 
 class FdsFeesCollection(models.Model):
     MONTH_CHOICES = [
@@ -527,6 +653,14 @@ class FdsFeesCollection(models.Model):
     ]
 
     payment_id = models.CharField(max_length=20, unique=True, blank=True)
+    account = models.ForeignKey(
+        FdsStudentFeeAccount, on_delete=models.SET_NULL,
+        related_name='payments', null=True, blank=True
+    )
+    installment = models.ForeignKey(
+        FdsFeeInstallment, on_delete=models.SET_NULL,
+        related_name='payments', null=True, blank=True
+    )
     student = models.ForeignKey(
         FdsStudent, on_delete=models.CASCADE,
         related_name='fds_payments', null=True, blank=True

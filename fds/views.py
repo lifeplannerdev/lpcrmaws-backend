@@ -17,17 +17,25 @@ class FdsPagination(PageNumberPagination):
     page_size_query_param = 'page_size'
     max_page_size = 250
 
+from decimal import Decimal
+from django.db import transaction
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
+
 from accounts.models import User
 from .models import (
     FdsFeeStructure, FdsBatch, FdsEnquiry, FdsTrial,
-    FdsStudent, FdsWeddingGroup, FdsAttendance, FdsFeesCollection
+    FdsStudent, FdsWeddingGroup, FdsAttendance, FdsFeesCollection,
+    FdsStudentFeeAccount, FdsFeeInstallment, FdsFeeAdjustment
 )
 from .serializers import (
     FdsFeeStructureSerializer, FdsBatchSerializer,
     FdsEnquirySerializer, FdsTrialSerializer,
     FdsStudentSerializer, FdsWeddingGroupSerializer,
     FdsAttendanceSerializer, FdsAttendanceBulkSerializer,
-    FdsFeesCollectionSerializer
+    FdsFeesCollectionSerializer, FdsStudentFeeAccountSerializer,
+    FdsStudentFeeAccountCreateSerializer, FdsFeeInstallmentSerializer,
+    FdsFeeAdjustmentSerializer
 )
 
 
@@ -968,65 +976,340 @@ class FdsStudentFeeAccountViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = FdsStudentFeeAccountSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['status', 'active_package']
-    search_fields = ['student__name', 'student__student_id']
-    ordering_fields = ['updated_at', 'balance_due']
+    filterset_fields = ['status', 'active_package', 'plan_type']
+    search_fields = ['student__name', 'student__student_id', 'plan_name', 'plan_code']
+    ordering_fields = ['updated_at', 'balance_due', 'total_due', 'total_paid']
     ordering = ['-updated_at']
+
+    def get_serializer_class(self):
+        if self.action in ['create', 'update', 'partial_update']:
+            return FdsStudentFeeAccountCreateSerializer
+        return FdsStudentFeeAccountSerializer
 
     def get_queryset(self):
         if not fds_fees_access(self.request.user) and not fds_read(self.request.user):
             return FdsStudentFeeAccount.objects.none()
 
-        # Ensure fee account exists for every active student
-        missing = FdsStudent.objects.filter(fee_account__isnull=True)
-        if missing.exists():
-            for st in missing:
-                acc, _ = FdsStudentFeeAccount.objects.get_or_create(
-                    student=st,
-                    defaults={
-                        'active_package': st.fee_structure,
-                        'total_due': st.fee_structure.amount if st.fee_structure else 0,
-                        'balance_due': st.fee_structure.amount if st.fee_structure else 0,
-                    }
-                )
-                acc.recalculate(save=True)
+        qs = FdsStudentFeeAccount.objects.select_related(
+            'student', 'student__batch', 'student__batch__trainer', 'active_package'
+        ).prefetch_related('installments', 'payments', 'adjustments')
 
-        qs = FdsStudentFeeAccount.objects.select_related('student', 'active_package')
-        student_id = self.request.query_params.get('student_id')
+        student_id = self.request.query_params.get('student_id') or self.request.query_params.get('student')
         class_cat = self.request.query_params.get('class_category')
+        status_filter = self.request.query_params.get('status')
+        plan_type = self.request.query_params.get('plan_type')
+        search = self.request.query_params.get('search')
+
         if student_id:
             qs = qs.filter(student_id=student_id)
-        if class_cat:
+        if class_cat and class_cat != 'ALL':
             qs = qs.filter(student__batch__class_category=class_cat)
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+        if plan_type:
+            qs = qs.filter(plan_type=plan_type)
+        if search:
+            qs = qs.filter(
+                Q(student__name__icontains=search) |
+                Q(student__student_id__icontains=search) |
+                Q(plan_name__icontains=search) |
+                Q(plan_code__icontains=search)
+            )
         return qs
+
+    def perform_create(self, serializer):
+        if not fds_write(self.request.user):
+            self.permission_denied(self.request, message="FDS write permission required.")
+        serializer.save()
+
+    def perform_update(self, serializer):
+        if not fds_write(self.request.user):
+            self.permission_denied(self.request, message="FDS write permission required.")
+        serializer.save()
+
+    def destroy(self, request, *args, **kwargs):
+        if not fds_write(request.user):
+            self.permission_denied(request, message="FDS write permission required.")
+        return super().destroy(request, *args, **kwargs)
 
     @action(detail=True, methods=['post'])
     def recalculate(self, request, pk=None):
         account = self.get_object()
-        account.recalculate()
-        return Response({'status': 'recalculated', 'balance_due': account.balance_due})
+        account.recalculate(save=True)
+        return Response({'status': 'recalculated', 'balance_due': account.balance_due, 'total_due': account.total_due, 'total_paid': account.total_paid})
 
-    @action(detail=False, methods=['get'])
+    @action(detail=True, methods=['post'], url_path='payments')
+    def record_payment(self, request, pk=None):
+        if not fds_write(request.user):
+            return Response({"error": "FDS write permission required."}, status=403)
+        account = self.get_object()
+        data = request.data
+
+        amount = Decimal(str(data.get('amount') or data.get('paid_amount') or 0))
+        if amount <= 0:
+            return Response({"error": "Payment amount must be greater than 0."}, status=400)
+
+        installment_id = data.get('installment') or data.get('installment_id')
+        installment = None
+        if installment_id:
+            installment = account.installments.filter(id=installment_id).first()
+
+        fees_type = None
+        fees_type_id = data.get('fees_type') or data.get('fees_type_id')
+        if fees_type_id:
+            fees_type = FdsFeeStructure.objects.filter(id=fees_type_id).first()
+        if not fees_type:
+            fees_type = account.active_package or (account.student.fee_structure if account.student else None) or FdsFeeStructure.objects.filter(is_active=True).first()
+            if not fees_type:
+                fees_type = FdsFeeStructure.objects.first()
+
+        pay_date = data.get('pay_date') or data.get('payment_date')
+        if pay_date:
+            if 'T' in str(pay_date):
+                pay_date = pay_date.split('T')[0]
+        else:
+            pay_date = timezone.localdate()
+
+        mode_of_pay = data.get('mode_of_pay') or data.get('payment_method') or 'CASH'
+        remarks = data.get('remarks') or data.get('notes') or ''
+        pdf_link = data.get('pdf_link') or ''
+        fee_month = data.get('fee_month')
+        fee_year = data.get('fee_year')
+
+        with transaction.atomic():
+            payment = FdsFeesCollection.objects.create(
+                account=account,
+                student=account.student,
+                installment=installment,
+                fees_type=fees_type,
+                pay_date=pay_date,
+                paid_amount=amount,
+                total_fees=amount,
+                mode_of_pay=mode_of_pay,
+                remarks=remarks,
+                pdf_link=pdf_link,
+                fee_month=fee_month,
+                fee_year=fee_year,
+                collected_by=request.user,
+            )
+
+            if installment:
+                installment.paid_amount += amount
+                installment.recalculate(save=True)
+            elif account.installments.exists():
+                rem = amount
+                for inst in account.installments.filter(status__in=['PENDING', 'PARTIAL', 'OVERDUE']).order_by('sequence_number'):
+                    if rem <= 0:
+                        break
+                    needed = inst.scheduled_amount - inst.paid_amount
+                    if needed > 0:
+                        alloc = min(rem, needed)
+                        inst.paid_amount += alloc
+                        rem -= alloc
+                        inst.recalculate(save=True)
+
+            account.recalculate(save=True)
+
+        return Response(FdsFeesCollectionSerializer(payment).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'], url_path='restructure')
+    def restructure(self, request, pk=None):
+        if not fds_write(request.user):
+            return Response({"error": "FDS write permission required."}, status=403)
+        account = self.get_object()
+        data = request.data
+
+        with transaction.atomic():
+            template_id = data.get('template_id') or data.get('package_id')
+            if template_id and template_id != 'custom':
+                pkg = FdsFeeStructure.objects.filter(id=template_id).first()
+                if pkg:
+                    account.active_package = pkg
+                    account.plan_code = pkg.category
+                    account.plan_name = pkg.get_category_display()
+                    account.total_due = pkg.amount
+
+            if data.get('plan_type'):
+                account.plan_type = data['plan_type']
+            if data.get('total_due') is not None and str(data.get('total_due')).strip() != '':
+                account.total_due = Decimal(str(data['total_due']))
+            if data.get('registration_amount') is not None and str(data.get('registration_amount')).strip() != '':
+                account.registration_amount = Decimal(str(data['registration_amount']))
+            if data.get('due_day'):
+                account.due_day = int(data['due_day'])
+            if data.get('next_due_date'):
+                account.next_due_date = data['next_due_date']
+
+            account.status = 'RESTRUCTURED'
+            account.save()
+
+            notes = data.get('notes') or 'Plan restructured'
+            FdsFeeAdjustment.objects.create(
+                account=account,
+                adjustment_type='RESTRUCTURE',
+                amount_delta=Decimal('0'),
+                reason=notes,
+                created_by=request.user,
+            )
+
+            installments_data = data.get('installments')
+            if installments_data:
+                account.installments.all().delete()
+                new_insts = []
+                for idx, item in enumerate(installments_data, start=1):
+                    new_insts.append(FdsFeeInstallment(
+                        account=account,
+                        sequence_number=idx,
+                        label=item.get('label') or f'Installment {idx}',
+                        due_date=item['due_date'],
+                        scheduled_amount=Decimal(str(item['scheduled_amount'])),
+                        paid_amount=Decimal('0'),
+                        balance_amount=Decimal(str(item['scheduled_amount'])),
+                        status='PENDING',
+                        notes=item.get('notes', ''),
+                    ))
+                FdsFeeInstallment.objects.bulk_create(new_insts)
+
+                # Re-allocate all past payments across new installments
+                total_paid = account.payments.aggregate(t=Sum('paid_amount'))['t'] or Decimal('0')
+                remaining = total_paid
+                for inst in account.installments.all().order_by('sequence_number'):
+                    if remaining > 0:
+                        if remaining >= inst.scheduled_amount:
+                            inst.paid_amount = inst.scheduled_amount
+                            inst.balance_amount = Decimal('0')
+                            inst.status = 'PAID'
+                            remaining -= inst.scheduled_amount
+                        else:
+                            inst.paid_amount = remaining
+                            inst.balance_amount = inst.scheduled_amount - remaining
+                            inst.status = 'PARTIAL'
+                            remaining = Decimal('0')
+                        inst.save(update_fields=['paid_amount', 'balance_amount', 'status'])
+
+            account.recalculate(save=True)
+
+        return Response(FdsStudentFeeAccountSerializer(account).data)
+
+    @action(detail=True, methods=['get', 'post'], url_path='installments')
+    def installments(self, request, pk=None):
+        account = self.get_object()
+        if request.method == 'GET':
+            return Response(FdsFeeInstallmentSerializer(account.installments.all().order_by('sequence_number'), many=True).data)
+
+        if not fds_write(request.user):
+            return Response({"error": "FDS write permission required."}, status=403)
+
+        serializer = FdsFeeInstallmentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        inst = serializer.save(account=account)
+        inst.recalculate(save=True)
+        account.recalculate(save=True)
+        return Response(FdsFeeInstallmentSerializer(inst).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['patch', 'delete'], url_path=r'installments/(?P<inst_id>\d+)')
+    def installment_detail(self, request, pk=None, inst_id=None):
+        account = self.get_object()
+        if not fds_write(request.user):
+            return Response({"error": "FDS write permission required."}, status=403)
+
+        inst = get_object_or_404(FdsFeeInstallment, pk=inst_id, account=account)
+        if request.method == 'DELETE':
+            inst.delete()
+            account.recalculate(save=True)
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+        serializer = FdsFeeInstallmentSerializer(inst, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        inst = serializer.save()
+        inst.recalculate(save=True)
+        account.recalculate(save=True)
+        return Response(FdsFeeInstallmentSerializer(inst).data)
+
+    @action(detail=True, methods=['get', 'post'], url_path='adjustments')
+    def adjustments(self, request, pk=None):
+        account = self.get_object()
+        if request.method == 'GET':
+            return Response(FdsFeeAdjustmentSerializer(account.adjustments.all().order_by('-created_at'), many=True).data)
+
+        if not fds_write(request.user):
+            return Response({"error": "FDS write permission required."}, status=403)
+
+        serializer = FdsFeeAdjustmentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        adj = serializer.save(account=account, created_by=request.user)
+        account.recalculate(save=True)
+        return Response(FdsFeeAdjustmentSerializer(adj).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['get'], url_path='pending_students')
+    def pending_students(self, request):
+        if not fds_read(request.user) and not fds_fees_access(request.user):
+            return Response(status=403)
+
+        qs = FdsStudent.objects.filter(is_active=True, fee_account__isnull=True).select_related('batch', 'fee_structure')
+        search = request.query_params.get('search')
+        if search:
+            qs = qs.filter(Q(name__icontains=search) | Q(student_id__icontains=search) | Q(contact_no__icontains=search))
+        class_cat = request.query_params.get('class_category')
+        if class_cat and class_cat != 'ALL':
+            qs = qs.filter(batch__class_category=class_cat)
+
+        data = []
+        for s in qs.order_by('name'):
+            data.append({
+                'id': s.id,
+                'student_id': s.student_id,
+                'name': s.name,
+                'contact_no': s.contact_no,
+                'whatsapp_no': s.whatsapp_no,
+                'class_category': s.class_category,
+                'batch_name': s.batch.name if s.batch else '',
+                'suggested_package_id': s.fee_structure_id,
+                'suggested_package_name': s.fee_structure.get_category_display() if s.fee_structure else '',
+                'suggested_amount': str(s.fee_structure.amount) if s.fee_structure else '',
+            })
+        return Response(data)
+
+    @action(detail=False, methods=['get'], url_path='summary')
     def summary(self, request):
         if not fds_fees_access(request.user) and not fds_read(request.user):
             return Response(status=403)
         qs = self.filter_queryset(self.get_queryset())
-        total_billed = qs.aggregate(t=Sum('total_due'))['t'] or 0
-        total_collected = qs.aggregate(t=Sum('total_paid'))['t'] or 0
-        total_balance = qs.aggregate(t=Sum('balance_due'))['t'] or 0
+        total_billed = qs.aggregate(t=Sum('total_due'))['t'] or Decimal('0')
+        total_collected = qs.aggregate(t=Sum('total_paid'))['t'] or Decimal('0')
+        total_balance = qs.aggregate(t=Sum('balance_due'))['t'] or Decimal('0')
+        total_overdue = qs.aggregate(t=Sum('overdue_amount'))['t'] or Decimal('0')
 
-        if not request.query_params.get('student_id'):
-            wed_qs = FdsWeddingGroup.objects.filter(status__in=['CONFIRMED', 'IN_PROGRESS', 'COMPLETED'])
-            wed_billed = wed_qs.aggregate(t=Sum('fee_amount'))['t'] or 0
-            wed_paid = wed_qs.aggregate(t=Sum('amount_paid'))['t'] or 0
-            total_billed += wed_billed
-            total_collected += wed_paid
-            total_balance += max(0, wed_billed - wed_paid)
+        pending_count = FdsStudent.objects.filter(is_active=True, fee_account__isnull=True).count()
 
         return Response({
-            'total_billed': total_billed,
-            'total_collected': total_collected,
-            'total_balance': max(0, total_balance),
+            'totalDue': float(total_billed),
+            'totalPaid': float(total_collected),
+            'balanceDue': float(total_balance),
+            'overdueAmount': float(total_overdue),
+            'total_billed': float(total_billed),
+            'total_collected': float(total_collected),
+            'total_balance': float(total_balance),
+            'pending_count': pending_count,
+            'active_accounts_count': qs.count(),
+        })
+
+    @action(detail=False, methods=['get', 'patch'], url_path='policies')
+    def policies(self, request):
+        from fees.models import FeePolicy
+        policy, _ = FeePolicy.objects.get_or_create(company='FDS')
+        if request.method == 'PATCH':
+            if not fds_write(request.user):
+                return Response({"error": "FDS write permission required."}, status=403)
+            if 'block_without_fee_account' in request.data:
+                policy.block_without_fee_account = bool(request.data['block_without_fee_account'])
+            if 'pending_if_overdue' in request.data:
+                policy.pending_if_overdue = bool(request.data['pending_if_overdue'])
+            policy.save()
+        return Response({
+            'company': policy.company,
+            'block_without_fee_account': policy.block_without_fee_account,
+            'pending_if_overdue': policy.pending_if_overdue,
         })
 
 class FdsFeesCollectionViewSet(viewsets.ModelViewSet):
@@ -1065,8 +1348,12 @@ class FdsFeesCollectionViewSet(viewsets.ModelViewSet):
 
     def perform_update(self, serializer):
         payment = serializer.save()
-        if payment.student and hasattr(payment.student, 'fee_account'):
-            payment.student.fee_account.recalculate()
+        if payment.installment:
+            payment.installment.recalculate(save=True)
+        if payment.account:
+            payment.account.recalculate(save=True)
+        elif payment.student and hasattr(payment.student, 'fee_account'):
+            payment.student.fee_account.recalculate(save=True)
 
     def update(self, request, *args, **kwargs):
         if not fds_write(self.request.user):
@@ -1076,7 +1363,19 @@ class FdsFeesCollectionViewSet(viewsets.ModelViewSet):
     def destroy(self, request, *args, **kwargs):
         if not fds_write(self.request.user):
             self.permission_denied(self.request, message="FDS write permission required.")
-        return super().destroy(request, *args, **kwargs)
+        instance = self.get_object()
+        account = instance.account
+        student = instance.student
+        installment = instance.installment
+        res = super().destroy(request, *args, **kwargs)
+        if installment:
+            installment.paid_amount = max(Decimal('0'), installment.paid_amount - instance.paid_amount)
+            installment.recalculate(save=True)
+        if account:
+            account.recalculate(save=True)
+        elif student and hasattr(student, 'fee_account'):
+            student.fee_account.recalculate(save=True)
+        return res
 
     @action(detail=False, methods=['get'])
     def summary(self, request):
