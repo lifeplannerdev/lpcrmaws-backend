@@ -10,6 +10,12 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework.pagination import PageNumberPagination
+
+class FdsPagination(PageNumberPagination):
+    page_size = 50
+    page_size_query_param = 'page_size'
+    max_page_size = 250
 
 from accounts.models import User
 from .models import (
@@ -176,20 +182,21 @@ class FdsBatchViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['class_category', 'batch_type', 'status', 'trainer']
     search_fields = ['name']
-    ordering_fields = ['name', 'class_category', 'created_at']
     ordering = ['class_category', 'name', '-id']
+    pagination_class = FdsPagination
+
 
     def get_queryset(self):
         if not fds_read(self.request.user):
             return FdsBatch.objects.none()
         qs = FdsBatch.objects.select_related('trainer').all()
-        if fds_admin_all(self.request.user):
-            trainer_id = self.request.query_params.get('trainer')
-            if trainer_id:
-                qs = qs.filter(trainer_id=trainer_id)
-        elif fds_admin_own(self.request.user):
+        trainer_id = self.request.query_params.get('trainer')
+        if trainer_id:
+            qs = qs.filter(trainer_id=trainer_id)
+        elif getattr(self.request.user, 'role', None) == 'TRAINER':
             qs = qs.filter(trainer=self.request.user)
         return qs
+
 
     def check_write_permission(self):
         if not fds_write(self.request.user):
@@ -221,6 +228,7 @@ class FdsBatchViewSet(viewsets.ModelViewSet):
 class FdsEnquiryViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = FdsEnquirySerializer
+    pagination_class = FdsPagination
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['status', 'class_interest', 'source', 'joined']
     search_fields = ['name', 'phone', 'whatsapp_no', 'enquiry_id', 'location']
@@ -428,6 +436,7 @@ class FdsEnquiryViewSet(viewsets.ModelViewSet):
 class FdsTrialViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = FdsTrialSerializer
+    pagination_class = FdsPagination
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['status', 'class_category', 'converted']
     search_fields = ['name', 'phone', 'trial_id']
@@ -493,6 +502,14 @@ class FdsTrialViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def stats(self, request):
         qs = self.get_queryset()
+        ratings = []
+        for r in qs.exclude(trainer_rating__isnull=True).values_list('trainer_rating', flat=True):
+            try:
+                if r is not None and str(r).strip() != '':
+                    ratings.append(float(r))
+            except (ValueError, TypeError):
+                pass
+        avg_rating = round(sum(ratings) / len(ratings), 1) if ratings else 0
         return Response({
             'total': qs.count(),
             'scheduled': qs.filter(status='SCHEDULED').count(),
@@ -503,9 +520,7 @@ class FdsTrialViewSet(viewsets.ModelViewSet):
             'conversion_rate': round(
                 qs.filter(converted=True).count() / qs.filter(status='COMPLETED').count() * 100, 1
             ) if qs.filter(status='COMPLETED').count() > 0 else 0,
-            'avg_rating': qs.filter(
-                trainer_rating__isnull=False
-            ).aggregate(avg=Sum('trainer_rating') / Count('id'))['avg'] or 0,
+            'avg_rating': avg_rating,
             'by_class': {
                 'dance': qs.filter(class_category='DANCE').count(),
                 'zumba': qs.filter(class_category='ZUMBA').count(),
@@ -961,10 +976,28 @@ class FdsStudentFeeAccountViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         if not fds_fees_access(self.request.user) and not fds_read(self.request.user):
             return FdsStudentFeeAccount.objects.none()
+
+        # Ensure fee account exists for every active student
+        missing = FdsStudent.objects.filter(fee_account__isnull=True)
+        if missing.exists():
+            for st in missing:
+                acc, _ = FdsStudentFeeAccount.objects.get_or_create(
+                    student=st,
+                    defaults={
+                        'active_package': st.fee_structure,
+                        'total_due': st.fee_structure.amount if st.fee_structure else 0,
+                        'balance_due': st.fee_structure.amount if st.fee_structure else 0,
+                    }
+                )
+                acc.recalculate(save=True)
+
         qs = FdsStudentFeeAccount.objects.select_related('student', 'active_package')
         student_id = self.request.query_params.get('student_id')
+        class_cat = self.request.query_params.get('class_category')
         if student_id:
             qs = qs.filter(student_id=student_id)
+        if class_cat:
+            qs = qs.filter(student__batch__class_category=class_cat)
         return qs
 
     @action(detail=True, methods=['post'])
@@ -972,6 +1005,29 @@ class FdsStudentFeeAccountViewSet(viewsets.ModelViewSet):
         account = self.get_object()
         account.recalculate()
         return Response({'status': 'recalculated', 'balance_due': account.balance_due})
+
+    @action(detail=False, methods=['get'])
+    def summary(self, request):
+        if not fds_fees_access(request.user) and not fds_read(request.user):
+            return Response(status=403)
+        qs = self.filter_queryset(self.get_queryset())
+        total_billed = qs.aggregate(t=Sum('total_due'))['t'] or 0
+        total_collected = qs.aggregate(t=Sum('total_paid'))['t'] or 0
+        total_balance = qs.aggregate(t=Sum('balance_due'))['t'] or 0
+
+        if not request.query_params.get('student_id'):
+            wed_qs = FdsWeddingGroup.objects.filter(status__in=['CONFIRMED', 'IN_PROGRESS', 'COMPLETED'])
+            wed_billed = wed_qs.aggregate(t=Sum('fee_amount'))['t'] or 0
+            wed_paid = wed_qs.aggregate(t=Sum('amount_paid'))['t'] or 0
+            total_billed += wed_billed
+            total_collected += wed_paid
+            total_balance += max(0, wed_billed - wed_paid)
+
+        return Response({
+            'total_billed': total_billed,
+            'total_collected': total_collected,
+            'total_balance': max(0, total_balance),
+        })
 
 class FdsFeesCollectionViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
@@ -1008,13 +1064,9 @@ class FdsFeesCollectionViewSet(viewsets.ModelViewSet):
         serializer.save(collected_by=self.request.user)
 
     def perform_update(self, serializer):
-        student = serializer.save()
-        if hasattr(student, 'fee_account'):
-            if student.fee_account.active_package != student.fee_structure:
-                student.fee_account.active_package = student.fee_structure
-                # If package changed, we might want to update total_due? 
-                # For simplicity, we just change the active_package. Recalculate handles past invoices.
-                student.fee_account.save(update_fields=['active_package'])
+        payment = serializer.save()
+        if payment.student and hasattr(payment.student, 'fee_account'):
+            payment.student.fee_account.recalculate()
 
     def update(self, request, *args, **kwargs):
         if not fds_write(self.request.user):
@@ -1031,41 +1083,55 @@ class FdsFeesCollectionViewSet(viewsets.ModelViewSet):
         """Financial summary stats."""
         if not fds_fees_access(request.user) and not fds_read(request.user):
             return Response(status=403)
-        qs = self.get_queryset()
-        # Sum collected directly
+        qs = self.filter_queryset(self.get_queryset())
         total_collected = qs.aggregate(t=Sum('paid_amount'))['t'] or 0
-        
-        # Total Billed needs to be calculated by taking the MAX total_fees per student/month/year/type
-        # to avoid double counting multiple payments for the same month
-        from django.db.models import Max
-        
-        # Group by student, fee_month, fee_year, fees_type
-        # Note: We filter out null student/month to handle them separately if needed, 
-        # but for simple sum, we can group by all
-        billed_qs = qs.values('student', 'fee_month', 'fee_year', 'fees_type').annotate(
-            month_billed=Max('total_fees')
-        ).aggregate(total=Sum('month_billed'))
-        
-        total_billed = billed_qs['total'] or 0
-        
-        # If there are records without student/month (e.g. wedding groups), we just sum them
-        wedding_qs = qs.filter(student__isnull=True).aggregate(t=Sum('total_fees'))['t'] or 0
-        total_billed += wedding_qs
-        
-        total_balance = total_billed - total_collected
-        
+
+        # Query student fee accounts matching any filter (like class_category, student_id)
+        account_qs = FdsStudentFeeAccount.objects.select_related('student')
+        student_id = request.query_params.get('student_id')
+        class_cat = request.query_params.get('class_category')
+        if student_id:
+            account_qs = account_qs.filter(student_id=student_id)
+        if class_cat:
+            account_qs = account_qs.filter(student__batch__class_category=class_cat)
+
+        acc_billed = account_qs.aggregate(t=Sum('total_due'))['t'] or 0
+        acc_balance = account_qs.aggregate(t=Sum('balance_due'))['t'] or 0
+
+        wed_billed = 0
+        wed_balance = 0
+        if not student_id and (not class_cat or class_cat == 'ALL'):
+            wed_qs = FdsWeddingGroup.objects.filter(status__in=['CONFIRMED', 'IN_PROGRESS', 'COMPLETED'])
+            wed_billed = wed_qs.aggregate(t=Sum('fee_amount'))['t'] or 0
+            wed_paid = wed_qs.aggregate(t=Sum('amount_paid'))['t'] or 0
+            wed_balance = max(0, wed_billed - wed_paid)
+
+        total_billed = acc_billed + wed_billed
+        # Ensure total_billed is at least total_collected
+        total_billed = max(total_billed, total_collected)
+
+        total_balance = max(0, acc_balance + wed_balance)
+        if total_balance == 0 and total_billed > total_collected:
+            total_balance = max(0, total_billed - total_collected)
+
+        by_mode = {}
+        for r in qs.order_by().values('mode_of_pay').annotate(t=Sum('paid_amount')):
+            mode = r['mode_of_pay'] or 'OTHER'
+            amt = r['t'] or 0
+            if amt > 0:
+                by_mode[mode] = amt
+
+        by_status = {
+            s[0]: qs.filter(status=s[0]).count()
+            for s in FdsFeesCollection._meta.get_field('status').choices
+        }
+
         return Response({
             'total_collected': total_collected,
             'total_billed': total_billed,
             'total_balance': total_balance,
-            'by_mode': {
-                m[0]: qs.filter(mode_of_pay=m[0]).aggregate(t=Sum('paid_amount'))['t'] or 0
-                for m in FdsFeesCollection._meta.get_field('mode_of_pay').choices
-            },
-            'by_status': {
-                s[0]: qs.filter(status=s[0]).count()
-                for s in FdsFeesCollection._meta.get_field('status').choices
-            },
+            'by_mode': by_mode,
+            'by_status': by_status,
         })
 
     @action(detail=False, methods=['get'])
@@ -1124,10 +1190,10 @@ class FdsDashboardView(APIView):
         enquiries = FdsEnquiry.objects.all()
         trials = FdsTrial.objects.all()
         payments = FdsFeesCollection.objects.all()
-
         if fds_admin_own(request.user) and not fds_admin_all(request.user):
             students = students.filter(Q(created_by=request.user) | Q(batch__trainer=request.user)).distinct()
-            batches = batches.filter(trainer=request.user)
+            if getattr(request.user, 'role', None) == 'TRAINER':
+                batches = batches.filter(trainer=request.user)
             enquiries = enquiries.filter(created_by=request.user)
             trials = trials.filter(Q(created_by=request.user) | Q(conducted_by=request.user)).distinct()
             payments = payments.filter(created_by=request.user)

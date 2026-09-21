@@ -32,6 +32,7 @@ GENDER_CHOICES = [
 MODE_OF_PAY_CHOICES = [
     ('CASH', 'Cash'),
     ('UPI', 'UPI'),
+    ('ONLINE', 'Online'),
     ('BANK_TRANSFER', 'Bank Transfer'),
     ('CARD', 'Card'),
     ('OTHER', 'Other'),
@@ -486,16 +487,26 @@ class FdsStudentFeeAccount(models.Model):
         self.total_paid = sum(c.paid_amount for c in collections)
         
         billed_dict = {}
+        # Base package fee baseline (e.g. registration package or enrolled course)
+        if self.active_package and self.active_package.amount:
+            billed_dict['base_package'] = self.active_package.amount
+
         for c in collections:
+            eff_total = max(c.total_fees or 0, c.paid_amount or 0)
             if c.fee_month and c.fee_year:
                 key = (c.fee_month, c.fee_year, c.fees_type_id)
                 current_max = billed_dict.get(key, 0)
-                billed_dict[key] = max(current_max, c.total_fees)
-            elif c.total_fees > 0:
-                key = f"one_off_{c.id}"
-                billed_dict[key] = c.total_fees
+                billed_dict[key] = max(current_max, eff_total)
+            elif eff_total > 0:
+                # If payment is for the active package, replace or max the base package fee
+                if self.active_package and c.fees_type_id == self.active_package.id and 'base_package' in billed_dict:
+                    billed_dict['base_package'] = max(billed_dict['base_package'], eff_total)
+                else:
+                    key = f"one_off_{c.id}"
+                    billed_dict[key] = eff_total
                 
-        self.total_due = sum(billed_dict.values())
+        # Total due must be at least total paid (student cannot have paid more than billed)
+        self.total_due = max(self.total_paid, sum(billed_dict.values()))
         self.balance_due = max(0, self.total_due - self.total_paid)
         
         if self.balance_due == 0 and self.total_due > 0:
@@ -561,12 +572,16 @@ class FdsFeesCollection(models.Model):
             last = FdsFeesCollection.objects.order_by('-id').first()
             next_num = (last.id + 1) if last else 1
             self.payment_id = f"FDS-PAY-{next_num:04d}"
+
+        # Ensure total_fees is at least paid_amount if total_fees is 0 or less
+        if (not self.total_fees or self.total_fees <= 0) and self.paid_amount > 0:
+            self.total_fees = self.paid_amount
             
         super().save(*args, **kwargs)
 
         # Skip cumulative logic if it's not a regular monthly student fee (e.g., wedding groups)
         if not (self.student and self.fee_month and self.fee_year and self.fees_type):
-            self.balance = self.total_fees - self.paid_amount
+            self.balance = max(0, self.total_fees - self.paid_amount)
             if self.paid_amount >= self.total_fees:
                 self.status = 'PAID'
             elif self.paid_amount > 0 and self.paid_amount < self.total_fees:
@@ -587,9 +602,9 @@ class FdsFeesCollection(models.Model):
         )
         
         cumulative_paid = sum(r.paid_amount for r in related_records)
-        actual_total_fees = self.total_fees # Assuming all related records share the same total_fees
+        actual_total_fees = max(self.total_fees, cumulative_paid)
         
-        month_balance = actual_total_fees - cumulative_paid
+        month_balance = max(0, actual_total_fees - cumulative_paid)
         if cumulative_paid >= actual_total_fees:
             month_status = 'PAID'
         elif cumulative_paid > 0:
