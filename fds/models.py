@@ -520,12 +520,18 @@ class FdsStudentFeeAccount(models.Model):
 
     def recalculate(self, save=True):
         # 1. Total paid from collections
-        collections = self.student.fds_payments.all()
-        self.total_paid = collections.aggregate(t=models.Sum('paid_amount')).get('t') or Decimal('0')
-        latest_payment = collections.order_by('-pay_date').first()
+        if self.payments.exists():
+            payments_qs = self.payments.all()
+        elif self.student:
+            payments_qs = self.student.fds_payments.all()
+        else:
+            payments_qs = FdsFeesCollection.objects.none()
+
+        self.total_paid = payments_qs.aggregate(t=models.Sum('paid_amount')).get('t') or Decimal('0')
+        latest_payment = payments_qs.order_by('-pay_date').first()
         self.last_payment_date = latest_payment.pay_date if latest_payment else None
 
-        # Check installments
+        # 2. Check installments vs non-installment accounts
         inst_qs = self.installments.all()
         if inst_qs.exists():
             today = timezone.localdate()
@@ -542,43 +548,38 @@ class FdsStudentFeeAccount(models.Model):
                 bal=models.Sum('balance_amount')
             )
             total_scheduled = inst_total['sched'] or Decimal('0')
+            installment_balance = inst_total['bal'] or Decimal('0')
             self.total_due = max(self.total_paid, total_scheduled)
-            self.balance_due = max(Decimal('0'), self.total_due - self.total_paid)
+            self.balance_due = max(Decimal('0'), installment_balance)
             self.overdue_amount = overdue_inst
 
             next_inst = self.installments.filter(status__in=['PENDING', 'PARTIAL', 'OVERDUE']).order_by('due_date').first()
             if next_inst:
                 self.next_due_date = next_inst.due_date
         else:
-            # 2. Calculate from active package baseline & one-off payments
-            billed_dict = {}
+            # Non-installment account (PACKAGE, ONE_TIME, MONTHLY, CUSTOM)
             if self.active_package and self.active_package.amount:
-                billed_dict['base_package'] = self.active_package.amount
+                if self.status == 'RESTRUCTURED' and self.total_due:
+                    base_due = self.total_due
+                else:
+                    base_due = self.active_package.amount
+            elif self.total_due:
+                base_due = self.total_due
+            else:
+                base_due = self.total_paid
 
-            for c in collections:
-                eff_total = max(c.total_fees or 0, c.paid_amount or 0)
-                if c.fee_month and c.fee_year:
-                    key = (c.fee_month, c.fee_year, c.fees_type_id)
-                    current_max = billed_dict.get(key, 0)
-                    billed_dict[key] = max(current_max, eff_total)
-                elif eff_total > 0:
-                    if self.active_package and c.fees_type_id == self.active_package.id and 'base_package' in billed_dict:
-                        billed_dict['base_package'] = max(billed_dict['base_package'], eff_total)
-                    else:
-                        key = f"one_off_{c.id}"
-                        billed_dict[key] = eff_total
-
-            self.total_due = max(self.total_paid, sum(billed_dict.values()))
+            self.total_due = max(base_due, self.total_paid)
             self.balance_due = max(Decimal('0'), self.total_due - self.total_paid)
             self.overdue_amount = Decimal('0')
 
         # 3. Apply adjustments if any
         adj_total = self.adjustments.aggregate(t=models.Sum('amount_delta')).get('t') or Decimal('0')
         if adj_total:
-            self.total_due = max(Decimal('0'), self.total_due + adj_total)
+            self.total_due = max(self.total_paid, self.total_due + adj_total)
             self.balance_due = max(Decimal('0'), self.total_due - self.total_paid)
 
-        if self.balance_due == 0 and self.total_due > 0:
+        # 4. Update status
+        if self.balance_due <= 0 and self.total_due > 0:
             self.status = 'SETTLED'
         elif self.overdue_amount > 0:
             self.status = 'OVERDUE'
@@ -588,7 +589,7 @@ class FdsStudentFeeAccount(models.Model):
             self.status = 'ACTIVE'
 
         if save:
-            self.save(update_fields=['total_paid', 'total_due', 'balance_due', 'overdue_amount', 'next_due_date', 'status', 'updated_at'])
+            self.save(update_fields=['total_paid', 'total_due', 'balance_due', 'overdue_amount', 'next_due_date', 'last_payment_date', 'status', 'updated_at'])
 
 
 class FdsFeeInstallment(models.Model):
