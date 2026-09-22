@@ -7,7 +7,9 @@ REPORT_REVIEWERS = [
     "OPS",
     "GENERAL_MANAGER",
     "HR",
-    "CM"
+    "CM",
+    "MANAGING_DIRECTOR",
+    "managing_director",
 ]
 
 class IsReportReviewer(BasePermission):

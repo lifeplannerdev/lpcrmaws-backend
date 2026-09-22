@@ -41,12 +41,19 @@ def _task_queryset_for_user(user, base_qs=None):
     if base_qs is None:
         base_qs = Task.objects.select_related("assigned_to", "assigned_by")
 
-    if (has_dynamic_permission(user, 'tasks:read_all') or 
+    if (
+        user.is_superuser or
+        has_dynamic_permission(user, 'tasks:read_all') or 
         has_dynamic_permission(user, 'tasks:read_tenant') or 
-        user.db_roles.filter(name__in=TOP_MANAGEMENT).exists()):
+        user.db_roles.filter(name__in=TOP_MANAGEMENT).exists()
+    ):
         return base_qs
 
-    if has_dynamic_permission(user, 'tasks:edit_any') or user.db_roles.filter(name__in=OPERATIONS).exists():
+    if (
+        has_dynamic_permission(user, 'tasks:edit_any') or 
+        user.db_roles.filter(name__in=OPERATIONS).exists() or
+        user.db_roles.filter(name__in=TASK_ASSIGNERS).exists()
+    ):
         return base_qs.filter(
             Q(assigned_to=user) | Q(assigned_by=user)
         ).distinct()
@@ -54,7 +61,9 @@ def _task_queryset_for_user(user, base_qs=None):
     if has_dynamic_permission(user, 'tasks:read_own'):
         return base_qs.filter(assigned_to=user)
 
-    return base_qs.none()
+    return base_qs.filter(
+        Q(assigned_to=user) | Q(assigned_by=user)
+    ).distinct()
 
 
 def _apply_status_ordering(qs):
@@ -254,10 +263,14 @@ class TaskDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
     def _check_edit_permission(self, task):
         user = self.request.user
         
-        if has_dynamic_permission(user, 'tasks:edit_any') or user.db_roles.filter(name__in=TOP_MANAGEMENT).exists():
+        if (
+            user.is_superuser
+            or has_dynamic_permission(user, 'tasks:edit_any')
+            or user.db_roles.filter(name__in=TOP_MANAGEMENT).exists()
+        ):
             return
             
-        if user.db_roles.filter(name__in=OPERATIONS).exists() and task.assigned_by == user:
+        if task.assigned_by == user:
             return
             
         raise PermissionDenied(
@@ -316,13 +329,29 @@ class TaskUpdateListCreateAPIView(generics.ListCreateAPIView):
         task = self._get_task()
         user = self.request.user
 
-        if user.db_roles.filter(name__in=TOP_MANAGEMENT).exists():
+        # 1. Superusers, Top management, or users with task read/edit permissions
+        if (
+            user.is_superuser
+            or user.db_roles.filter(name__in=TOP_MANAGEMENT).exists()
+            or has_dynamic_permission(user, 'tasks:read_all')
+            or has_dynamic_permission(user, 'tasks:read_tenant')
+            or has_dynamic_permission(user, 'tasks:edit_any')
+        ):
             return TaskUpdate.objects.filter(task=task).select_related('updated_by').order_by("-created_at")
 
-        if user.db_roles.filter(name__in=OPERATIONS).exists() and task.assigned_by == user:
+        # 2. Assigner or Assignee of the task
+        if task.assigned_by == user or task.assigned_to == user:
             return TaskUpdate.objects.filter(task=task).select_related('updated_by').order_by("-created_at")
 
-        if task.assigned_to == user:
+        # 3. Operations team or task assigners
+        if (
+            user.db_roles.filter(name__in=OPERATIONS).exists()
+            or user.db_roles.filter(name__in=TASK_ASSIGNERS).exists()
+        ):
+            return TaskUpdate.objects.filter(task=task).select_related('updated_by').order_by("-created_at")
+
+        # 4. Check if task is accessible via user task queryset
+        if _task_queryset_for_user(user).filter(id=task.id).exists():
             return TaskUpdate.objects.filter(task=task).select_related('updated_by').order_by("-created_at")
 
         raise PermissionDenied("You do not have access to this task.")
@@ -341,9 +370,13 @@ class TaskUpdateListCreateAPIView(generics.ListCreateAPIView):
         can_post = False
         if task.assigned_to == user or task.assigned_by == user:
             can_post = True
-        elif user.db_roles.filter(name__in=TOP_MANAGEMENT).exists():
-            can_post = True
-        elif has_dynamic_permission(user, 'tasks:edit_any'):
+        elif (
+            user.is_superuser
+            or user.db_roles.filter(name__in=TOP_MANAGEMENT).exists()
+            or has_dynamic_permission(user, 'tasks:edit_any')
+            or user.db_roles.filter(name__in=OPERATIONS).exists()
+            or user.db_roles.filter(name__in=TASK_ASSIGNERS).exists()
+        ):
             can_post = True
             
         if not can_post:
@@ -384,7 +417,11 @@ class TasksAssignedByMeAPIView(generics.ListAPIView):
 
     def get_queryset(self):
         user = self.request.user
-        if not user.db_roles.filter(name__in=TASK_ASSIGNERS).exists():
+        if not (
+            user.is_superuser
+            or user.db_roles.filter(name__in=TASK_ASSIGNERS).exists()
+            or has_dynamic_permission(user, 'tasks:edit_any')
+        ):
             return Task.objects.none()
         qs = Task.objects.filter(assigned_by=user).select_related('assigned_to', 'assigned_by')
         qs = CompanyFilterBackend().filter_queryset(self.request, qs, self)

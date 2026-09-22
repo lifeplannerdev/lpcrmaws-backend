@@ -4,10 +4,16 @@ from rest_framework.permissions import BasePermission
 TOP_MANAGEMENT = [
     "ADMIN",
     "CEO",
+    "BUSINESS_HEAD",
+    "MANAGING_DIRECTOR",
+    "managing_director",
+    "Managing Director",
+    "MD",
 ]
 
 OPERATIONS = [
     "OPS",
+    "OPERATION",
     "GENERAL_MANAGER",
     "CM",
     "BDM",
@@ -55,10 +61,10 @@ class IsAssigneeOrTaskAssigner(BasePermission):
         if not request.user.is_authenticated:
             return False
 
-        if obj.assigned_to == request.user:
+        if obj.assigned_to == request.user or obj.assigned_by == request.user:
             return True
 
-        if has_dynamic_permission(request.user, 'tasks:edit_any'):
+        if request.user.is_superuser or has_dynamic_permission(request.user, 'tasks:edit_any'):
             return True
 
         return False
