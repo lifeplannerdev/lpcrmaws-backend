@@ -336,9 +336,15 @@ class EmployeeListAPI(APIView):
         # Apply multi-tenant company filter manually since it's not a ListAPIView
         requested_company = request.query_params.get('company')
         if requested_company:
-            if requested_company != request.user.company and not has_dynamic_permission(request.user, 'staff:access_flag'):
-                raise PermissionDenied(f"You do not have permission to access {requested_company} data.")
-            employees = qs.filter(company=requested_company)
+            if requested_company.lower() == 'all':
+                if has_dynamic_permission(request.user, 'staff:access_flag'):
+                    employees = qs
+                else:
+                    employees = qs.filter(company=request.user.company)
+            else:
+                if requested_company != request.user.company and not has_dynamic_permission(request.user, 'staff:access_flag'):
+                    raise PermissionDenied(f"You do not have permission to access {requested_company} data.")
+                employees = qs.filter(company=requested_company)
         else:
             employees = qs.filter(company=request.user.company)
 
