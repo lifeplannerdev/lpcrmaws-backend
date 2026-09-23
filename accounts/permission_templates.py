@@ -11,7 +11,7 @@ ROLE_PERMISSIONS = {
         'credentials:view', 'credentials:manage', 'credentials:share',
         'fds:admin', 'fds:view', 'fds_fees:view',
         'flag:admin', 'flag:view', 'flag:trainer', 'flag:fees',
-        'staff_analysis:admin',
+        'staff_analysis:admin', 'license:admin',
     ],
     'CEO': [
         'dashboard:read', 'leads:read_tenant', 'staff:read_tenant', 'tasks:read_all', 

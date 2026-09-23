@@ -14,12 +14,14 @@ from .views import (
     CandidateDetailAPI,
     AssetListCreateAPI,
     AssetDetailAPI,
+    DocumentDetailViewSet,
 )
 
 router = DefaultRouter()
 router.register(r'locations', LocationViewSet, basename='location')
 router.register(r'asset-categories', AssetCategoryViewSet, basename='asset-category')
 router.register(r'hr-branches', BranchViewSet, basename='hr-branch')
+router.register(r'documents', DocumentDetailViewSet, basename='document')
 
 urlpatterns = [
     path("", include(router.urls)),

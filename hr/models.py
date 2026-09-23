@@ -235,3 +235,30 @@ class Asset(models.Model):
         if self.secondary_sim and self.secondary_sim.assigned_to != self.assigned_to:
             self.secondary_sim.assigned_to = self.assigned_to
             self.secondary_sim.save()
+
+class DocumentDetail(models.Model):
+    COMPANY_CHOICES = [
+        ('LP', 'LP'),
+        ('FLAG', 'FLAG'),
+        ('FDS', 'FILMAATIC'),
+    ]
+
+    title = models.CharField(max_length=255, verbose_name="Document Title")
+    document_type = models.CharField(max_length=100, verbose_name="Document Type", help_text="e.g. License, Contract, Certification")
+    description = models.TextField(blank=True, null=True)
+    
+    issue_date = models.DateField(blank=True, null=True, verbose_name="Issue Date")
+    expiry_date = models.DateField(verbose_name="Expiry Date")
+    
+    company = models.CharField(max_length=10, choices=COMPANY_CHOICES, default='LP', db_index=True)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Document Detail'
+        verbose_name_plural = 'Document Details'
+        ordering = ['expiry_date']
+
+    def __str__(self):
+        return f"{self.title} ({self.company}) - Expires {self.expiry_date}"

@@ -5,8 +5,11 @@ from django.contrib.auth import get_user_model
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from django.db.models import Count, Q
-from accounts.permissions import has_dynamic_permission
-from .models import Penalty, AttendanceDocument, Candidate, Asset, Location, AssetCategory
+from accounts.permissions import has_dynamic_permission, HasPermission
+from accounts.mixins import CompanyFilterMixin
+from django.utils import timezone
+from datetime import timedelta
+from .models import Penalty, AttendanceDocument, Candidate, Asset, Location, AssetCategory, DocumentDetail
 from .serializers import (
     PenaltySerializer, 
     AttendanceDocumentSerializer, 
@@ -15,7 +18,8 @@ from .serializers import (
     AssetSerializer,
     LocationSerializer,
     AssetCategorySerializer,
-    BranchSerializer
+    BranchSerializer,
+    DocumentDetailSerializer
 )
 from .permissions import (
     HasPenaltyPermission,
@@ -465,4 +469,22 @@ class AssetDetailAPI(APIView):
 
         asset.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+class DocumentDetailViewSet(CompanyFilterMixin, viewsets.ModelViewSet):
+    queryset = DocumentDetail.objects.all()
+    serializer_class = DocumentDetailSerializer
+    permission_classes = [HasPermission('license:admin')]
+    filter_backends = [] # Add CompanyFilterBackend if needed, but mixin should handle it for ViewSet
+
+    @action(detail=False, methods=['get'])
+    def expiring(self, request):
+        today = timezone.now().date()
+        thirty_days_from_now = today + timedelta(days=30)
+        
+        # Get documents that are already expired or expiring within 30 days
+        qs = self.get_queryset().filter(expiry_date__lte=thirty_days_from_now).order_by('expiry_date')
+        
+        serializer = self.get_serializer(qs, many=True)
+        return Response(serializer.data)
+
 

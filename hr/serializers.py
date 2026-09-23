@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Penalty, AttendanceDocument, Candidate, Asset, Location, AssetCategory, Branch
+from .models import Penalty, AttendanceDocument, Candidate, Asset, Location, AssetCategory, Branch, DocumentDetail
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
@@ -236,3 +236,8 @@ class CandidateSerializer(serializers.ModelSerializer):
                 return request.build_absolute_uri(obj.resume.url)
             return obj.resume.url
         return None
+
+class DocumentDetailSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DocumentDetail
+        fields = '__all__'
