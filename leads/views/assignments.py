@@ -24,6 +24,7 @@ from leads.models import (
     LeadAssignment, FollowUp, FollowUpHistory, LeadConversionDetail, WebhookLog
 )
 from leads.permissions import (
+    is_full_access, is_full_access_or_manager,
     CanAccessLeads, CanAssignLeads, CanViewAllLeads,
     CanModifyAllLeads, FULL_ACCESS_ROLES, MANAGER_ROLES,
     EXECUTIVE_ROLES, CanManageConversion,
@@ -63,6 +64,13 @@ class LeadAssignView(APIView):
         assignee        = serializer.validated_data['assignee']
         assignment_type = serializer.validated_data['assignment_type']
         notes           = serializer.validated_data.get('notes', '')
+
+        # Multi-tenant scope check
+        if not has_dynamic_permission(request.user, 'staff:access_flag'):
+            if lead.company != request.user.company:
+                raise PermissionDenied(f"You do not have permission to assign leads for {lead.company}.")
+            if assignee.company != request.user.company:
+                raise PermissionDenied(f"You do not have permission to assign leads to staff in {assignee.company}.")
 
         if assignment_type == 'PRIMARY':
             lead.assigned_to       = assignee
@@ -128,12 +136,7 @@ class BulkLeadAssignView(APIView):
         user = request.user
 
         # ── Permissions Check
-        is_full_access = (
-            user.db_roles.filter(name__in=FULL_ACCESS_ROLES + ['SENIOR ADM', 'SENIOR_ADM', 'ADM_MANAGER']).exists() or 
-            has_dynamic_permission(user, 'leads:read_any') or 
-            has_dynamic_permission(user, 'leads:read_tenant') or
-            has_dynamic_permission(user, 'staff_analysis:admin')
-        )
+        is_full_access = is_full_access_or_manager(user)
         is_adm_manager = user.db_roles.filter(name='ADM_MANAGER').exists()
         is_manager = user.db_roles.filter(name__in=MANAGER_ROLES).exists()
 
@@ -145,7 +148,13 @@ class BulkLeadAssignView(APIView):
         else:
             assignment_type = 'PRIMARY'
 
+        # Multi-tenant scoping
+        if not has_dynamic_permission(user, 'staff:access_flag') and assignee.company != user.company:
+            return Response({'error': f"Cannot assign leads to staff in {assignee.company}."}, status=status.HTTP_403_FORBIDDEN)
+
         base_qs = Lead.objects.all()
+        if not has_dynamic_permission(user, 'staff:access_flag'):
+            base_qs = base_qs.filter(company=user.company)
         if not is_full_access:
             base_qs = base_qs.filter(
                 models.Q(assigned_to=user) | models.Q(sub_assigned_to=user)
@@ -413,10 +422,10 @@ class BulkLeadCloseView(APIView):
         filters_applied   = request.data.get('filters', {})
 
         base_qs = Lead.objects.all()
-        if not (user.db_roles.filter(name__in=FULL_ACCESS_ROLES + ['SENIOR ADM', 'SENIOR_ADM', 'ADM_MANAGER']).exists() or 
-                has_dynamic_permission(user, 'leads:read_any') or 
-                has_dynamic_permission(user, 'leads:read_tenant') or
-                has_dynamic_permission(user, 'staff_analysis:admin')):
+        if not has_dynamic_permission(user, 'staff:access_flag'):
+            base_qs = base_qs.filter(company=user.company)
+
+        if not is_full_access_or_manager(user):
             base_qs = base_qs.filter(
                 models.Q(assigned_to=user) | models.Q(sub_assigned_to=user)
             )
@@ -529,7 +538,10 @@ class LeadAssignmentHistoryView(generics.ListAPIView):
         lead    = get_object_or_404(Lead, id=lead_id)
         user    = self.request.user
 
-        if user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists():
+        if not has_dynamic_permission(user, 'staff:access_flag') and lead.company != user.company:
+            return LeadAssignment.objects.none()
+
+        if is_full_access(user):
             return LeadAssignment.objects.filter(lead=lead).select_related('assigned_to', 'assigned_by').order_by('-timestamp')
 
         if lead.assigned_to != user and lead.sub_assigned_to != user:
@@ -551,6 +563,15 @@ class AvailableUsersForAssignmentView(APIView):
             db_roles__name__in=ASSIGNABLE_ROLES,
             is_active=True,
         )
+
+        requested_company = request.query_params.get('company')
+        if requested_company:
+            if requested_company != request.user.company and not has_dynamic_permission(request.user, 'staff:access_flag'):
+                raise PermissionDenied(f"You do not have permission to access {requested_company} staff.")
+            qs = qs.filter(company=requested_company)
+        else:
+            qs = qs.filter(company=request.user.company)
+
         if team_filter and team_filter.lower() != 'all':
             qs = qs.filter(team__iexact=team_filter)
 
@@ -585,13 +606,19 @@ class UnassignLeadView(APIView):
 
         user = request.user
 
+        if not has_dynamic_permission(user, 'staff:access_flag') and lead.company != user.company:
+            return Response(
+                {'error': f"You do not have permission to unassign leads for {lead.company}."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         if user.db_roles.filter(name='ADM_EXEC').exists():
             return Response(
                 {'error': 'Admission Executives cannot unassign leads'},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        if user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists():
+        if is_full_access(user):
             if unassign_type == 'PRIMARY':
                 lead.assigned_to       = None
                 lead.assigned_by       = None
@@ -641,6 +668,8 @@ class EmployeeFollowUpSummaryView(APIView):
 
         target_name = "All Counsellors"
         base_fup_qs = FollowUp.objects.filter(status='pending')
+        if not has_dynamic_permission(request.user, 'staff:access_flag'):
+            base_fup_qs = base_fup_qs.filter(assigned_to__company=request.user.company)
 
         if employee_id and employee_id != 'all':
             try:
@@ -720,15 +749,12 @@ class BulkRescheduleFollowUpsView(APIView):
                 return Response({'error': 'Invalid source date format. Use YYYY-MM-DD.'}, status=status.HTTP_400_BAD_REQUEST)
 
         # Check permissions
-        is_full_access = (
-            user.db_roles.filter(name__in=FULL_ACCESS_ROLES + ['SENIOR ADM', 'SENIOR_ADM', 'ADM_MANAGER']).exists() or 
-            has_dynamic_permission(user, 'leads:read_any') or 
-            has_dynamic_permission(user, 'leads:read_tenant') or
-            has_dynamic_permission(user, 'staff_analysis:admin')
-        )
+        is_full_access = is_full_access_or_manager(user)
 
         # Query pending follow-ups to reschedule
         fup_qs = FollowUp.objects.filter(status='pending')
+        if not has_dynamic_permission(user, 'staff:access_flag'):
+            fup_qs = fup_qs.filter(assigned_to__company=user.company)
 
         if not is_full_access:
             fup_qs = fup_qs.filter(DQ(assigned_to=user) | DQ(lead__assigned_to=user))
@@ -758,7 +784,10 @@ class BulkRescheduleFollowUpsView(APIView):
             covered_lead_ids = set(f.lead_id for f in followups_to_update if f.lead_id)
             missing_lead_ids = [lid for lid in lead_ids if lid not in covered_lead_ids]
             if missing_lead_ids:
-                missing_leads = Lead.objects.filter(id__in=missing_lead_ids).select_related('assigned_to')
+                if not has_dynamic_permission(user, 'staff:access_flag'):
+                    missing_leads = Lead.objects.filter(id__in=missing_lead_ids, company=user.company).select_related('assigned_to')
+                else:
+                    missing_leads = Lead.objects.filter(id__in=missing_lead_ids).select_related('assigned_to')
                 new_fups = []
                 for idx, ld in enumerate(missing_leads):
                     shift = (idx % stagger_days) if stagger_days > 1 else 0

@@ -43,6 +43,21 @@ TASK_ASSIGNEES = EXECUTION_ROLES
 
 
 
+def can_manage_all_tasks(user):
+    return (
+        user.is_superuser or
+        has_dynamic_permission(user, 'tasks:read_all') or 
+        has_dynamic_permission(user, 'tasks:read_tenant') or 
+        user.db_roles.filter(name__in=TOP_MANAGEMENT).exists()
+    )
+
+def can_manage_own_assigned_tasks(user):
+    return (
+        has_dynamic_permission(user, 'tasks:edit_any') or 
+        user.db_roles.filter(name__in=OPERATIONS).exists() or
+        user.db_roles.filter(name__in=TASK_ASSIGNERS).exists()
+    )
+
 class IsTaskAssigner(BasePermission):
     def has_permission(self, request, view):
         return (

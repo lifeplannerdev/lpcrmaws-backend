@@ -231,6 +231,7 @@ class StaffDetailView(generics.RetrieveAPIView):
     queryset = User.objects.all()
     serializer_class = StaffDetailSerializer
     permission_classes = [IsManagement]
+    filter_backends = [CompanyFilterBackend]
 
 
 # Staff Create View 
@@ -240,6 +241,11 @@ class StaffCreateView(generics.CreateAPIView):
     permission_classes = [IsManagement]
 
     def create(self, request, *args, **kwargs):
+        requested_company = request.data.get('company')
+        if requested_company and requested_company != request.user.company:
+            if not has_dynamic_permission(request.user, 'staff:access_flag'):
+                raise PermissionDenied(f"You do not have permission to create staff for {requested_company}.")
+                
         response = super().create(request, *args, **kwargs)
         
         # If user is a trainer and a branch_id is in request, update the trainer profile
@@ -267,6 +273,7 @@ class StaffUpdateView(generics.UpdateAPIView):
     queryset = User.objects.all()
     serializer_class = StaffUpdateSerializer
     permission_classes = [IsManagement]
+    filter_backends = [CompanyFilterBackend]
 
     def update(self, request, *args, **kwargs):
         partial = kwargs.pop('partial', True)
@@ -301,6 +308,7 @@ class StaffAssetTimelineView(generics.ListAPIView):
     serializer_class = ActivityLogSerializer
     permission_classes = [IsManagement]
     pagination_class = StaffPagination
+    filter_backends = [CompanyFilterBackend]
 
     def get_queryset(self):
         staff_id = self.kwargs.get('pk')
@@ -314,7 +322,7 @@ class StaffAssetTimelineView(generics.ListAPIView):
 
 class EmployeeListAPI(APIView):
     def get(self, request):
-        employees = User.objects.filter(
+        qs = User.objects.filter(
             db_roles__name__in=[
                 "ADM_MANAGER",
                 "ADM_COUNSELLOR",  
@@ -324,6 +332,15 @@ class EmployeeListAPI(APIView):
             ],
             is_active=True
         ).distinct()
+
+        # Apply multi-tenant company filter manually since it's not a ListAPIView
+        requested_company = request.query_params.get('company')
+        if requested_company:
+            if requested_company != request.user.company and not has_dynamic_permission(request.user, 'staff:access_flag'):
+                raise PermissionDenied(f"You do not have permission to access {requested_company} data.")
+            employees = qs.filter(company=requested_company)
+        else:
+            employees = qs.filter(company=request.user.company)
 
         data = []
         for emp in employees:

@@ -28,6 +28,7 @@ from leads.permissions import (
     CanAccessLeads, CanAssignLeads, CanViewAllLeads,
     CanModifyAllLeads, FULL_ACCESS_ROLES, MANAGER_ROLES,
     EXECUTIVE_ROLES, CanManageConversion,
+    is_full_access, is_full_access_or_manager
 )
 from leads.serializers import (
     LeadListSerializer, LeadDetailSerializer, LeadCreateSerializer,
@@ -85,10 +86,7 @@ class LeadListView(generics.ListAPIView):
             'sub_assigned_to', 'sub_assigned_by',
         )
 
-        if (user.db_roles.filter(name__in=FULL_ACCESS_ROLES + ['SENIOR ADM', 'SENIOR_ADM', 'ADM_MANAGER']).exists() or 
-            has_dynamic_permission(user, 'leads:read_any') or 
-            has_dynamic_permission(user, 'leads:read_tenant') or
-            has_dynamic_permission(user, 'staff_analysis:admin')) :
+        if is_full_access_or_manager(user):
             perm_qs = base_qs.all()
         else:
             perm_qs = base_qs.filter(
@@ -337,9 +335,7 @@ class LeadDetailView(generics.RetrieveUpdateDestroyAPIView):
             'sub_assigned_to', 'sub_assigned_by',
         )
         from accounts.permissions import has_dynamic_permission
-        if (user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists() or 
-            has_dynamic_permission(user, 'leads:read_any') or 
-            has_dynamic_permission(user, 'leads:read_tenant')):
+        if is_full_access(user):
             return base_qs.all()
         return base_qs.filter(
             models.Q(assigned_to=user) |
@@ -391,7 +387,7 @@ class LeadDetailView(generics.RetrieveUpdateDestroyAPIView):
         user = request.user
 
         if (
-            not user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists() and
+            not is_full_access(user) and
             lead.assigned_to != user and
             lead.sub_assigned_to != user
         ):
@@ -430,7 +426,7 @@ class LeadProcessingTimelineView(generics.ListAPIView):
         lead    = get_object_or_404(Lead, id=lead_id)
         user    = self.request.user
 
-        if user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists():
+        if is_full_access(user):
             return ProcessingUpdate.objects.filter(lead=lead).select_related('changed_by').order_by('-timestamp')
 
         if lead.assigned_to != user and lead.sub_assigned_to != user:
@@ -447,7 +443,7 @@ class UpdateLeadView(APIView):
         if (
             lead.assigned_to != request.user
             and lead.sub_assigned_to != request.user
-            and not request.user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists()
+            and not is_full_access(request.user)
         ):
             return Response(
                 {'error': 'Permission denied'},
@@ -492,9 +488,7 @@ class MyTeamLeadsView(generics.ListAPIView):
             'sub_assigned_to', 'sub_assigned_by',
         )
         from accounts.permissions import has_dynamic_permission
-        if (user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists() or 
-            has_dynamic_permission(user, 'leads:read_any') or 
-            has_dynamic_permission(user, 'leads:read_tenant')):
+        if is_full_access(user):
             return base_qs.all().distinct()
             
         return base_qs.filter(
@@ -677,8 +671,8 @@ class ExportLeadsExcelView(LeadListView):
         from accounts.permissions import has_dynamic_permission
         from leads.permissions import FULL_ACCESS_ROLES
         is_elevated = (
-            user.is_superuser or
-            user.db_roles.filter(name__in=FULL_ACCESS_ROLES + ['SENIOR ADM', 'SENIOR_ADM', 'ADM_MANAGER', 'CM', 'BDM']).exists() or 
+            is_full_access_or_manager(user) or
+            user.db_roles.filter(name__in=['CM', 'BDM']).exists() or 
             has_dynamic_permission(user, 'leads:read_any') or 
             has_dynamic_permission(user, 'leads:read_tenant') or
             has_dynamic_permission(user, 'reports:sales_all') or
@@ -1013,7 +1007,7 @@ class LeadDocumentListCreateView(APIView):
         if (
             lead.assigned_to != request.user
             and lead.sub_assigned_to != request.user
-            and not request.user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists()
+            and not is_full_access(request.user)
         ):
             return Response(
                 {'error': 'Permission denied'},
@@ -1034,10 +1028,7 @@ class LeadCommandCentreStatsView(APIView):
         user = request.user
         base_qs = Lead.objects.all()
 
-        if not (user.db_roles.filter(name__in=FULL_ACCESS_ROLES + ['SENIOR ADM', 'SENIOR_ADM', 'ADM_MANAGER']).exists() or 
-                has_dynamic_permission(user, 'leads:read_any') or 
-                has_dynamic_permission(user, 'leads:read_tenant') or
-                has_dynamic_permission(user, 'staff_analysis:admin')):
+        if not is_full_access_or_manager(user):
             base_qs = base_qs.filter(
                 models.Q(assigned_to=user) | models.Q(sub_assigned_to=user)
             )

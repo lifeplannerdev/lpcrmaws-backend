@@ -23,6 +23,7 @@ from leads.models import (
     LeadAssignment, FollowUp, LeadConversionDetail, WebhookLog
 )
 from leads.permissions import (
+    is_full_access,
     CanAccessLeads, CanAssignLeads, CanViewAllLeads,
     CanModifyAllLeads, FULL_ACCESS_ROLES, MANAGER_ROLES,
     EXECUTIVE_ROLES, CanManageConversion,
@@ -56,9 +57,7 @@ class FollowUpListCreateAPIView(APIView):
         user = request.user
 
         from accounts.permissions import has_dynamic_permission
-        if (user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists() or 
-            has_dynamic_permission(user, 'leads:read_any') or 
-            has_dynamic_permission(user, 'leads:read_tenant')):
+        if is_full_access(user):
             queryset = FollowUp.objects.all()
         else:
             queryset = FollowUp.objects.filter(assigned_to=user)
@@ -234,9 +233,7 @@ class FollowUpDetailAPIView(APIView):
 
     def get_object(self, pk, user):
         from accounts.permissions import has_dynamic_permission
-        if (user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists() or 
-            has_dynamic_permission(user, 'leads:read_any') or 
-            has_dynamic_permission(user, 'leads:read_tenant')):
+        if is_full_access(user):
             return get_object_or_404(FollowUp, pk=pk)
         return get_object_or_404(FollowUp, pk=pk, assigned_to=user)
 
@@ -273,9 +270,7 @@ class TodayFollowUpsAPIView(APIView):
         today = timezone.localtime(timezone.now()).date()
 
         from accounts.permissions import has_dynamic_permission
-        if (request.user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists() or 
-            has_dynamic_permission(request.user, 'leads:read_any') or 
-            has_dynamic_permission(request.user, 'leads:read_tenant')):
+        if is_full_access(request.user):
             queryset = FollowUp.objects.filter(follow_up_date=today)
         else:
             queryset = FollowUp.objects.filter(
@@ -294,9 +289,7 @@ class OverdueFollowUpsAPIView(APIView):
         today = timezone.localtime(timezone.now()).date()
 
         from accounts.permissions import has_dynamic_permission
-        if (request.user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists() or 
-            has_dynamic_permission(request.user, 'leads:read_any') or 
-            has_dynamic_permission(request.user, 'leads:read_tenant')):
+        if is_full_access(request.user):
             queryset = FollowUp.objects.filter(
                 follow_up_date__lt=today,
                 status='pending'
