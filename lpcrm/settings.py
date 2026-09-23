@@ -227,11 +227,24 @@ CSRF_COOKIE_SECURE = True
 CSRF_COOKIE_HTTPONLY = False      
 FRONTEND_URL = config('FRONTEND_URL', default='http://localhost:3000')
 
-CSRF_TRUSTED_ORIGINS = [FRONTEND_URL]
+CSRF_TRUSTED_ORIGINS = [
+    FRONTEND_URL,
+    'https://*.vercel.app',
+    'http://localhost:3000',
+    'http://localhost:5173',
+]
 
 #  CORS settings
 CORS_ALLOW_CREDENTIALS = True
-CORS_ALLOWED_ORIGINS = [FRONTEND_URL]
+CORS_ALLOWED_ORIGINS = [
+    FRONTEND_URL,
+    'http://localhost:3000',
+    'http://localhost:5173',
+]
+
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^https:\/\/.*\.vercel\.app$",
+]
 
 CORS_ALLOW_METHODS = [
     'DELETE',
