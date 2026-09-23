@@ -238,6 +238,27 @@ class CandidateSerializer(serializers.ModelSerializer):
         return None
 
 class DocumentDetailSerializer(serializers.ModelSerializer):
+    days_remaining = serializers.SerializerMethodField(read_only=True)
+    days_remaining_next = serializers.SerializerMethodField(read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+
     class Meta:
         model = DocumentDetail
         fields = '__all__'
+        read_only_fields = ['next_renewal_date', 'created_at', 'updated_at']
+
+    def get_days_remaining(self, obj):
+        """Days until expiry. Negative = already expired."""
+        from django.utils import timezone
+        today = timezone.now().date()
+        if not obj.expiry_date:
+            return None
+        return (obj.expiry_date - today).days
+
+    def get_days_remaining_next(self, obj):
+        """Days until next renewal date (post-expiry). Null if no renewal interval."""
+        from django.utils import timezone
+        today = timezone.now().date()
+        if not obj.next_renewal_date:
+            return None
+        return (obj.next_renewal_date - today).days

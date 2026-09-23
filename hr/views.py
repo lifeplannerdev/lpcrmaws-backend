@@ -474,17 +474,36 @@ class DocumentDetailViewSet(CompanyFilterMixin, viewsets.ModelViewSet):
     queryset = DocumentDetail.objects.all()
     serializer_class = DocumentDetailSerializer
     permission_classes = [HasPermission('license:admin')]
-    filter_backends = [] # Add CompanyFilterBackend if needed, but mixin should handle it for ViewSet
+    filter_backends = []
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        status_filter = self.request.query_params.get('status')
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+        return qs
 
     @action(detail=False, methods=['get'])
     def expiring(self, request):
         today = timezone.now().date()
         thirty_days_from_now = today + timedelta(days=30)
-        
-        # Get documents that are already expired or expiring within 30 days
-        qs = self.get_queryset().filter(expiry_date__lte=thirty_days_from_now).order_by('expiry_date')
-        
+
+        # Return expired + expiring-soon docs, excluding 'paid' ones
+        qs = self.get_queryset().filter(
+            expiry_date__lte=thirty_days_from_now
+        ).exclude(status='paid').order_by('expiry_date')
+
         serializer = self.get_serializer(qs, many=True)
         return Response(serializer.data)
+
+    @action(detail=True, methods=['post'])
+    def mark_paid(self, request, pk=None):
+        """Mark a document's renewal fee as paid. Clears expired/overdue status."""
+        doc = self.get_object()
+        doc.status = 'paid'
+        doc.save()
+        serializer = self.get_serializer(doc)
+        return Response(serializer.data)
+
 
 

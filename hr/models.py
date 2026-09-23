@@ -243,13 +243,34 @@ class DocumentDetail(models.Model):
         ('FDS', 'FILMAATIC'),
     ]
 
+    STATUS_CHOICES = [
+        ('active', 'Active'),
+        ('paid', 'Paid'),
+        ('overdue', 'Overdue'),
+        ('expired', 'Expired'),
+    ]
+
     title = models.CharField(max_length=255, verbose_name="Document Title")
     document_type = models.CharField(max_length=100, verbose_name="Document Type", help_text="e.g. License, Contract, Certification")
     description = models.TextField(blank=True, null=True)
+    notes = models.TextField(blank=True, null=True, verbose_name="Internal Notes")
     
     issue_date = models.DateField(blank=True, null=True, verbose_name="Issue Date")
     expiry_date = models.DateField(verbose_name="Expiry Date")
     
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default='active',
+        db_index=True, verbose_name="Status"
+    )
+    renewal_interval_days = models.PositiveIntegerField(
+        blank=True, null=True,
+        verbose_name="Renewal Interval (Days)",
+        help_text="e.g. 365 for annual. Used to compute next renewal date."
+    )
+    next_renewal_date = models.DateField(
+        blank=True, null=True, verbose_name="Next Renewal Date"
+    )
+
     company = models.CharField(max_length=10, choices=COMPANY_CHOICES, default='LP', db_index=True)
     
     created_at = models.DateTimeField(auto_now_add=True)
@@ -259,6 +280,26 @@ class DocumentDetail(models.Model):
         verbose_name = 'Document Detail'
         verbose_name_plural = 'Document Details'
         ordering = ['expiry_date']
+
+    def save(self, *args, **kwargs):
+        from django.utils import timezone
+        from datetime import timedelta
+        today = timezone.now().date()
+
+        # Auto-compute next renewal date when interval is set
+        if self.renewal_interval_days and self.expiry_date:
+            self.next_renewal_date = self.expiry_date + timedelta(days=self.renewal_interval_days)
+
+        # Auto-update status unless manually set to 'paid'
+        if self.status != 'paid':
+            if today > self.expiry_date:
+                self.status = 'expired'
+            elif self.expiry_date <= today + timedelta(days=30):
+                self.status = 'overdue'
+            else:
+                self.status = 'active'
+
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.title} ({self.company}) - Expires {self.expiry_date}"
