@@ -17,6 +17,14 @@ class CompanyFilterMixin:
         requested_company = self.request.query_params.get('company')
         
         if requested_company:
+            if requested_company.lower() == 'all':
+                if has_dynamic_permission(user, 'staff:access_flag'):
+                    return qs
+                else:
+                    if hasattr(qs.model, 'company'):
+                        return qs.filter(company=user.company)
+                    return qs
+                    
             # Check if user is trying to access another company's data
             if requested_company != user.company:
                 # Allow cross-company access if they have the right permission

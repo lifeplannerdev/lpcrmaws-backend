@@ -15,6 +15,14 @@ class CompanyFilterBackend(filters.BaseFilterBackend):
         requested_company = request.query_params.get('company')
         
         if requested_company:
+            if requested_company.lower() == 'all':
+                if has_dynamic_permission(user, 'staff:access_flag'):
+                    return queryset
+                else:
+                    if hasattr(queryset.model, 'company'):
+                        return queryset.filter(company=user.company)
+                    return queryset
+            
             # Check if user is trying to access another company's data
             if requested_company != user.company:
                 # Allow cross-company access if they have the right permission
