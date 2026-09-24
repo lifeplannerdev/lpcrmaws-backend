@@ -103,7 +103,7 @@ class StudentViewSet(viewsets.ModelViewSet):
     serializer_class = StudentSerializer
     permission_classes = [FlagBasePermission]
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['batch', 'status', 'campus', 'academic_package', 'trainer']
+    filterset_fields = ['batch', 'status', 'campus', 'academic_package', 'trainer', 'batch__current_grade']
 
     def get_queryset(self):
         qs = super().get_queryset()
