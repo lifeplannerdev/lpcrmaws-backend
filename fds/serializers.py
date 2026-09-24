@@ -61,6 +61,7 @@ class FdsBatchSerializer(serializers.ModelSerializer):
     time_display = serializers.CharField(read_only=True)
     enrolled_count = serializers.IntegerField(read_only=True)
     trainer_name = serializers.SerializerMethodField()
+    coordinator_name = serializers.SerializerMethodField()
 
     class Meta:
         model = FdsBatch
@@ -69,6 +70,11 @@ class FdsBatchSerializer(serializers.ModelSerializer):
     def get_trainer_name(self, obj):
         if obj.trainer:
             return f"{obj.trainer.first_name} {obj.trainer.last_name}".strip() or obj.trainer.username
+        return None
+
+    def get_coordinator_name(self, obj):
+        if obj.coordinator:
+            return f"{obj.coordinator.first_name} {obj.coordinator.last_name}".strip() or obj.coordinator.username
         return None
 
 
@@ -171,6 +177,7 @@ class FdsWeddingGroupSerializer(serializers.ModelSerializer):
     classes_remaining = serializers.IntegerField(read_only=True)
     batch_detail = FdsBatchMinSerializer(source='batch', read_only=True)
     trainer_name = serializers.SerializerMethodField()
+    coordinator_name = serializers.SerializerMethodField()
 
     class Meta:
         model = FdsWeddingGroup
@@ -180,6 +187,11 @@ class FdsWeddingGroupSerializer(serializers.ModelSerializer):
     def get_trainer_name(self, obj):
         if obj.trainer:
             return f"{obj.trainer.first_name} {obj.trainer.last_name}".strip() or obj.trainer.username
+        return None
+
+    def get_coordinator_name(self, obj):
+        if obj.coordinator:
+            return f"{obj.coordinator.first_name} {obj.coordinator.last_name}".strip() or obj.coordinator.username
         return None
 
 
@@ -285,6 +297,7 @@ class FdsStudentFeeAccountSerializer(serializers.ModelSerializer):
     whatsapp_no = serializers.CharField(source='student.whatsapp_no', read_only=True)
     batch_name = serializers.CharField(source='student.batch.name', read_only=True)
     trainer_name = serializers.SerializerMethodField()
+    coordinator_name = serializers.SerializerMethodField()
     installments = FdsFeeInstallmentSerializer(many=True, read_only=True)
     payments = FdsFeesCollectionSerializer(many=True, read_only=True)
     adjustments = FdsFeeAdjustmentSerializer(many=True, read_only=True)
@@ -298,6 +311,12 @@ class FdsStudentFeeAccountSerializer(serializers.ModelSerializer):
         if obj.student and obj.student.batch and obj.student.batch.trainer:
             t = obj.student.batch.trainer
             return f"{t.first_name} {t.last_name}".strip() or t.username
+        return None
+
+    def get_coordinator_name(self, obj):
+        if obj.student and obj.student.batch and obj.student.batch.coordinator:
+            c = obj.student.batch.coordinator
+            return f"{c.first_name} {c.last_name}".strip() or c.username
         return None
 
 class FdsStudentFeeAccountCreateSerializer(serializers.ModelSerializer):

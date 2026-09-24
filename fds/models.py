@@ -120,6 +120,12 @@ class FdsBatch(models.Model):
     )
     time_slot_start = models.TimeField(null=True, blank=True)
     time_slot_end = models.TimeField(null=True, blank=True)
+    coordinator = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='fds_batches_coordinated'
+    )
     trainer = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,
@@ -383,6 +389,10 @@ class FdsWeddingGroup(models.Model):
     fee_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     amount_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='ENQUIRY')
+    coordinator = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='fds_wedding_groups_coordinated'
+    )
     trainer = models.ForeignKey(
         User, on_delete=models.SET_NULL, null=True, blank=True,
         related_name='fds_wedding_groups'

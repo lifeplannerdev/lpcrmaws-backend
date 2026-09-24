@@ -1569,14 +1569,21 @@ class FdsTrainerListView(APIView):
     def get(self, request):
         if not fds_read(request.user):
             return Response(status=403)
-        trainers = User.objects.filter(company='FDS', is_active=True).values(
-            'id', 'first_name', 'last_name', 'username'
-        )
+            
+        users = User.objects.filter(company='FDS', is_active=True)
+        roles = request.query_params.get('roles')
+        if roles:
+            role_names = [r.strip() for r in roles.split(',')]
+            users = users.filter(db_roles__name__in=role_names).distinct()
+            
+        users = users.values('id', 'first_name', 'last_name', 'username')
+        
         data = [
             {
                 'id': t['id'],
                 'name': f"{t['first_name']} {t['last_name']}".strip() or t['username']
             }
-            for t in trainers
+            for t in users
         ]
         return Response(data)
+

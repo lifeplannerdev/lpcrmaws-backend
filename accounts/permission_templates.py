@@ -64,6 +64,22 @@ ROLE_PERMISSIONS = {
         'dashboard:read', 'tasks:read_all', 'reports:read_own',
         'flag:trainer', 'flag:view'
     ],
+    'FDS_COORDINATOR': [
+        'dashboard:read', 'tasks:read_own', 'reports:read_own',
+        'fds:admin', 'fds:view', 'fds_fees:view',
+    ],
+    'FDS COORDINATOR': [
+        'dashboard:read', 'tasks:read_own', 'reports:read_own',
+        'fds:admin', 'fds:view', 'fds_fees:view',
+    ],
+    'FDS_TRAINER': [
+        'dashboard:read', 'tasks:read_own', 'reports:read_own',
+        'fds:view', 'fds:admin_own',
+    ],
+    'FDS TRAINER': [
+        'dashboard:read', 'tasks:read_own', 'reports:read_own',
+        'fds:view', 'fds:admin_own',
+    ],
     'BDM': [
         'dashboard:read', 'leads:read_tenant', 'tasks:read_all', 'reports:read_own', 'voxbay:read_own', 'voxbay_ai:read_own',
         'tasks:edit_any'
