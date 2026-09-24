@@ -951,8 +951,21 @@ class FdsAttendanceViewSet(viewsets.ModelViewSet):
         atts = FdsAttendance.objects.filter(
             batch_id=batch_id, date__month=month, date__year=year
         ).select_related('student')
-        # Group by student
+        
+        unique_dates = set(att.date for att in atts)
+        total_classes_in_month = len(unique_dates)
+
+        # Initialize report with all active students in the batch
+        students = FdsStudent.objects.filter(batch_id=batch_id, is_active=True)
         report = {}
+        for student in students:
+            report[student.student_id] = {
+                'student_id': student.student_id,
+                'name': student.name,
+                'days': {}
+            }
+
+        # Populate attendance data
         for att in atts:
             sid = att.student.student_id
             if sid not in report:
@@ -962,14 +975,25 @@ class FdsAttendanceViewSet(viewsets.ModelViewSet):
                     'days': {}
                 }
             report[sid]['days'][str(att.date)] = att.status
+            
         # Add summary counts
         for sid in report:
             days = report[sid]['days']
             report[sid]['present'] = sum(1 for v in days.values() if v == 'PRESENT')
             report[sid]['absent'] = sum(1 for v in days.values() if v == 'ABSENT')
             report[sid]['leave'] = sum(1 for v in days.values() if v == 'LEAVE')
-            report[sid]['total'] = len(days)
-            report[sid]['pct'] = round(report[sid]['present'] / report[sid]['total'] * 100, 1) if report[sid]['total'] else 0
+            report[sid]['makeup'] = sum(1 for v in days.values() if v == 'MAKEUP')
+            report[sid]['holiday'] = sum(1 for v in days.values() if v == 'HOLIDAY')
+            
+            # The total number of classes held in the month
+            report[sid]['total'] = total_classes_in_month
+            
+            # Calculate others (unmarked/unrecorded days that were held)
+            recorded_count = report[sid]['present'] + report[sid]['absent'] + report[sid]['leave'] + report[sid]['makeup'] + report[sid]['holiday']
+            report[sid]['others'] = total_classes_in_month - recorded_count
+            
+            report[sid]['pct'] = round(report[sid]['present'] / total_classes_in_month * 100, 1) if total_classes_in_month else 0
+            
         return Response(list(report.values()))
 
 
