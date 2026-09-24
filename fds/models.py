@@ -572,7 +572,22 @@ class FdsStudentFeeAccount(models.Model):
                 if self.status == 'RESTRUCTURED' and self.total_due:
                     base_due = self.total_due
                 else:
-                    base_due = self.active_package.amount
+                    if self.plan_type in ['PACKAGE', 'MONTHLY'] and self.start_date and getattr(self.active_package, 'duration_months', 0):
+                        from dateutil.relativedelta import relativedelta
+                        today = timezone.localdate()
+                        if today < self.start_date:
+                            cycles = 1
+                            self.next_due_date = self.start_date
+                        else:
+                            cycles = 0
+                            current_due = self.start_date
+                            while current_due <= today:
+                                cycles += 1
+                                current_due = current_due + relativedelta(months=self.active_package.duration_months)
+                            self.next_due_date = current_due
+                        base_due = Decimal(str(cycles * self.active_package.amount))
+                    else:
+                        base_due = self.active_package.amount
             elif self.total_due:
                 base_due = self.total_due
             else:
