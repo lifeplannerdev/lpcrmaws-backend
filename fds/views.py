@@ -992,7 +992,7 @@ class FdsAttendanceViewSet(viewsets.ModelViewSet):
             recorded_count = report[sid]['present'] + report[sid]['absent'] + report[sid]['leave'] + report[sid]['makeup'] + report[sid]['holiday']
             report[sid]['others'] = total_classes_in_month - recorded_count
             
-            report[sid]['pct'] = round(report[sid]['present'] / total_classes_in_month * 100, 1) if total_classes_in_month else 0
+            report[sid]['pct'] = round((report[sid]['present'] + report[sid]['holiday']) / total_classes_in_month * 100, 1) if total_classes_in_month else 0
             
         return Response(list(report.values()))
 
