@@ -695,7 +695,7 @@ class FdsFeesCollection(models.Model):
 
     payment_id = models.CharField(max_length=20, unique=True, blank=True)
     account = models.ForeignKey(
-        FdsStudentFeeAccount, on_delete=models.SET_NULL,
+        FdsStudentFeeAccount, on_delete=models.CASCADE,
         related_name='payments', null=True, blank=True
     )
     installment = models.ForeignKey(
