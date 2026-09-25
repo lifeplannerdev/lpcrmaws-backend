@@ -1098,7 +1098,7 @@ class ProcessingStudentListCreateAPIView(APIView):
         data = request.data.copy()
         
         # Enforce assigned_to constraints
-        is_operation = request.user.db_roles.filter(name='OPERATION').exists()
+        is_operation = request.user.db_roles.filter(name__in=['OPERATION', 'MANAGING_DIRECTOR']).exists()
         if not is_operation:
             data['assigned_to'] = request.user.id
         elif _has_perm(request.user, 'processing_students:edit_own') and not _has_perm(request.user, 'processing_students:edit_any'):

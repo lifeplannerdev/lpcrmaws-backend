@@ -531,7 +531,7 @@ class ProcessingStudentSerializer(serializers.ModelSerializer):
         request = self.context.get('request')
         
         if request and request.user:
-            is_operation = request.user.db_roles.filter(name='OPERATION').exists()
+            is_operation = request.user.db_roles.filter(name__in=['OPERATION', 'MANAGING_DIRECTOR']).exists()
             if not is_operation and 'assigned_to' in validated_data:
                 validated_data.pop('assigned_to', None)
         
