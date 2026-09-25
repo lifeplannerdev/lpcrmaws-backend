@@ -48,7 +48,7 @@ def has_fds_permission(user, *perms):
     return any(has_dynamic_permission(user, p) for p in perms)
 
 def fds_admin_all(user):
-    return has_fds_permission(user, 'fds:admin')
+    return has_fds_permission(user, 'fds:admin', 'fds:management')
 
 def fds_admin_own(user):
     return has_fds_permission(user, 'fds:admin_own')
@@ -57,10 +57,10 @@ def fds_write(user):
     return has_fds_permission(user, 'fds:admin', 'fds:admin_own')
 
 def fds_read(user):
-    return has_fds_permission(user, 'fds:admin', 'fds:admin_own', 'fds:view')
+    return has_fds_permission(user, 'fds:admin', 'fds:admin_own', 'fds:view', 'fds:management')
 
 def fds_fees_access(user):
-    return has_fds_permission(user, 'fds:admin', 'fds_fees:view')
+    return has_fds_permission(user, 'fds:admin', 'fds_fees:view', 'fds:management')
 
 def fds_management_access(user):
     """Management read-only view: fds:management OR fds:admin."""
