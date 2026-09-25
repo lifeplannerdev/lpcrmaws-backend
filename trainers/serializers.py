@@ -527,7 +527,13 @@ class ProcessingStudentSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
     def update(self, instance, validated_data):
-        fee_fields = ['processing_fee_amount', 'processing_fee_paid', 'processing_fee_status', 'fee_application_registration', 'fee_admission_offer_letter', 'fee_language_confirmation', 'fee_visa_approval', 'fee_ministry_letter']
+        fee_fields = [
+            'processing_fee_amount', 'processing_fee_paid', 'processing_fee_status',
+            'fee_admission_amount', 'fee_admission_paid', 'fee_admission_status',
+            'fee_language_amount', 'fee_language_paid', 'fee_language_status',
+            'fee_visa_amount', 'fee_visa_paid', 'fee_visa_status',
+            'fee_ministry_amount', 'fee_ministry_paid', 'fee_ministry_status'
+        ]
         request = self.context.get('request')
         
         if request and request.user:

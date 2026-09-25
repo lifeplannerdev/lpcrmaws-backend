@@ -714,11 +714,27 @@ class ProcessingStudent(models.Model):
     ]
     processing_fee_status = models.CharField(max_length=20, choices=PROCESSING_FEE_STATUS_CHOICES, default='PENDING')
 
-    fee_application_registration = models.CharField(max_length=200, blank=True, null=True)
-    fee_admission_offer_letter = models.CharField(max_length=200, blank=True, null=True)
-    fee_language_confirmation = models.CharField(max_length=200, blank=True, null=True)
-    fee_visa_approval = models.CharField(max_length=200, blank=True, null=True)
-    fee_ministry_letter = models.CharField(max_length=200, blank=True, null=True)
+    FEE_STATUS_CHOICES = [
+        ('PENDING', 'Pending'),
+        ('PARTIAL', 'Partial'),
+        ('PAID', 'Paid'),
+    ]
+
+    fee_admission_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    fee_admission_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    fee_admission_status = models.CharField(max_length=20, choices=FEE_STATUS_CHOICES, default='PENDING')
+
+    fee_language_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    fee_language_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    fee_language_status = models.CharField(max_length=20, choices=FEE_STATUS_CHOICES, default='PENDING')
+
+    fee_visa_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    fee_visa_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    fee_visa_status = models.CharField(max_length=20, choices=FEE_STATUS_CHOICES, default='PENDING')
+
+    fee_ministry_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    fee_ministry_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    fee_ministry_status = models.CharField(max_length=20, choices=FEE_STATUS_CHOICES, default='PENDING')
 
     
     # Dynamic Fields Data
