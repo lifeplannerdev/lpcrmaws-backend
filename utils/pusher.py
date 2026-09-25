@@ -160,6 +160,88 @@ def notify_task_remark(task, update):
         }
     )
 
+def notify_task_submitted_for_approval(task, submitted_by, notes=""):
+    from django.contrib.auth import get_user_model
+    from django.db.models import Q
+    User = get_user_model()
+    by_name = submitted_by.get_full_name() or submitted_by.username
+    message = f"Task \"{task.title}\" marked as complete by {by_name} and is waiting for Managing Director approval."
+
+    target_users = set()
+    if task.assigned_by_id and task.assigned_by_id != submitted_by.id:
+        target_users.add(task.assigned_by_id)
+
+    md_users = User.objects.filter(
+        Q(db_roles__name__in=['MANAGING_DIRECTOR', 'managing_director', 'MD', 'Managing Director']) |
+        Q(role__iexact='MANAGING_DIRECTOR') |
+        Q(is_superuser=True)
+    ).values_list('id', flat=True)
+    for u_id in md_users:
+        if u_id != submitted_by.id:
+            target_users.add(u_id)
+
+    for uid in target_users:
+        save_notification.delay(
+            user_id=uid,
+            type='task',
+            message=message,
+            by=by_name,
+            related_id=task.id,
+            title="Task Completion Needs Approval"
+        )
+        trigger_pusher.delay(
+            channel=f"private-user-{uid}",
+            event="task.status_updated",
+            data={
+                "task_id":         task.id,
+                "title":           task.title,
+                "old_status":      task.status,
+                "new_status":      'PENDING_APPROVAL',
+                "updated_by_id":   submitted_by.id,
+                "updated_by_name": by_name,
+                "notes":           notes or "",
+                "message":         message,
+            }
+        )
+
+def notify_task_approval_decision(task, decided_by, approved, notes="", new_deadline=None):
+    by_name = decided_by.get_full_name() or decided_by.username
+    if approved:
+        message = f"Task \"{task.title}\" completion was approved by {by_name}."
+        title = "Task Approved"
+        new_status = 'COMPLETED'
+    else:
+        dl_text = f" New deadline: {new_deadline}." if new_deadline else ""
+        reason = f" Reason: {notes}." if notes else ""
+        message = f"Task \"{task.title}\" completion was rejected by {by_name}. Task remains in progress.{reason}{dl_text}"
+        title = "Task Completion Rejected"
+        new_status = 'IN_PROGRESS'
+
+    target_user_id = task.assigned_to_id
+    if target_user_id:
+        save_notification.delay(
+            user_id=target_user_id,
+            type='task',
+            message=message,
+            by=by_name,
+            related_id=task.id,
+            title=title
+        )
+        trigger_pusher.delay(
+            channel=f"private-user-{target_user_id}",
+            event="task.status_updated",
+            data={
+                "task_id":         task.id,
+                "title":           task.title,
+                "new_status":      new_status,
+                "updated_by_id":   decided_by.id,
+                "updated_by_name": by_name,
+                "notes":           notes or "",
+                "message":         message,
+                "new_deadline":    str(new_deadline) if new_deadline else None,
+            }
+        )
+
 # ── Lead helpers ──────────────────────────────────────
 
 def notify_lead_assigned(assignee, assigned_by, lead, assignment_type):

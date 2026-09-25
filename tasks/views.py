@@ -22,6 +22,7 @@ from accounts.filters import CompanyFilterBackend
 from accounts.permissions import has_dynamic_permission
 from .permissions import (
     can_manage_all_tasks, can_manage_own_assigned_tasks,
+    is_managing_director,
     IsTaskAssigner,
     TASK_ASSIGNERS,
     TASK_ASSIGNEES,
@@ -30,7 +31,12 @@ from .permissions import (
 )
 
 # removed duplicate local pusher definitions — import from utils (single source of truth)
-from utils import notify_task_assigned, notify_task_status_updated
+from utils import (
+    notify_task_assigned,
+    notify_task_status_updated,
+    notify_task_submitted_for_approval,
+    notify_task_approval_decision,
+)
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -59,16 +65,17 @@ def _task_queryset_for_user(user, base_qs=None):
 
 
 def _apply_status_ordering(qs):
-    """Order tasks: OVERDUE → QUERIED → PENDING → IN_PROGRESS → COMPLETED → CANCELLED."""
+    """Order tasks: OVERDUE → QUERIED → PENDING_APPROVAL → PENDING → IN_PROGRESS → COMPLETED → CANCELLED."""
     return qs.annotate(
         status_priority=Case(
             When(status='OVERDUE', then=1),
             When(requires_attention_from__isnull=False, then=2),
-            When(status='PENDING', then=3),
-            When(status='IN_PROGRESS', then=4),
-            When(status='COMPLETED', then=5),
-            When(status='CANCELLED', then=6),
-            default=7,
+            When(status='PENDING_APPROVAL', then=3),
+            When(status='PENDING', then=4),
+            When(status='IN_PROGRESS', then=5),
+            When(status='COMPLETED', then=6),
+            When(status='CANCELLED', then=7),
+            default=8,
             output_field=IntegerField(),
         )
     ).order_by('status_priority', '-updated_at')
@@ -129,14 +136,16 @@ class TaskStatsAPIView(APIView):
         overdue_count = qs.filter(
             Q(deadline__lt=now_dt) &
             ~Q(status='COMPLETED') &
-            ~Q(status='CANCELLED')
+            ~Q(status='CANCELLED') &
+            ~Q(status='PENDING_APPROVAL')
         ).count()
 
         stats = qs.aggregate(
             total=Count('id'),
-            pending=Count('id',     filter=Q(status='PENDING')),
-            in_progress=Count('id', filter=Q(status='IN_PROGRESS')),
-            completed=Count('id',   filter=Q(status='COMPLETED')),
+            pending=Count('id',          filter=Q(status='PENDING')),
+            in_progress=Count('id',      filter=Q(status='IN_PROGRESS')),
+            pending_approval=Count('id', filter=Q(status='PENDING_APPROVAL')),
+            completed=Count('id',        filter=Q(status='COMPLETED')),
         )
         stats['overdue'] = overdue_count
 
@@ -407,9 +416,9 @@ class TaskStatusUpdateAPIView(generics.GenericAPIView):
     def post(self, request, pk):
         task = get_object_or_404(Task, pk=pk)
 
-        if request.user != task.assigned_to:
+        if request.user != task.assigned_to and not is_managing_director(request.user):
             return Response(
-                {"detail": "Only the assigned employee can change the task status."},
+                {"detail": "Only the assigned employee or Managing Director can change the task status."},
                 status=status.HTTP_403_FORBIDDEN
             )
 
@@ -422,7 +431,11 @@ class TaskStatusUpdateAPIView(generics.GenericAPIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        if new_status == task.status:
+        # Determine target status: If non-MD marks as COMPLETED, it goes to PENDING_APPROVAL
+        is_submitting_for_approval = (new_status == 'COMPLETED' and not is_managing_director(request.user))
+        target_status = 'PENDING_APPROVAL' if is_submitting_for_approval else new_status
+
+        if target_status == task.status:
             return Response(
                 {"detail": "New status must differ from the current status."},
                 status=status.HTTP_400_BAD_REQUEST
@@ -441,7 +454,7 @@ class TaskStatusUpdateAPIView(generics.GenericAPIView):
                 task=task,
                 updated_by=request.user,
                 previous_status=old_status,
-                new_status=new_status,
+                new_status=target_status,
                 notes=notes
             )
         except Exception as e:
@@ -452,7 +465,7 @@ class TaskStatusUpdateAPIView(generics.GenericAPIView):
             )
 
         try:
-            task.status = new_status
+            task.status = target_status
             task.requires_attention_from = None # Clear attention flag on status change
             task.save(update_fields=['status', 'requires_attention_from', 'updated_at'])
         except Exception as e:
@@ -462,18 +475,186 @@ class TaskStatusUpdateAPIView(generics.GenericAPIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-        # 🔔 Notify the task creator that status was updated
-        notify_task_status_updated(
+        if is_submitting_for_approval:
+            # 🔔 Notify Managing Director and task assigner
+            notify_task_submitted_for_approval(
+                task=task,
+                submitted_by=request.user,
+                notes=notes,
+            )
+            return Response({
+                "detail": "Task marked as complete and submitted for Managing Director approval.",
+                "update_id": update.id,
+                "status": "PENDING_APPROVAL",
+                "pending_approval": True,
+            })
+        else:
+            # 🔔 Notify the task creator that status was updated
+            notify_task_status_updated(
+                task=task,
+                updated_by=request.user,
+                old_status=old_status,
+                new_status=target_status,
+                notes=notes,
+            )
+            return Response({
+                "detail": "Status updated successfully",
+                "update_id": update.id,
+                "status": target_status,
+            })
+
+
+# ── Task Approval & Rejection (Managing Director) ────────────────────────────
+
+class TaskApproveAPIView(generics.GenericAPIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        task = get_object_or_404(Task, pk=pk)
+
+        if not is_managing_director(request.user):
+            return Response(
+                {"detail": "Only Managing Director can approve task completion."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        if task.status != 'PENDING_APPROVAL':
+            return Response(
+                {"detail": f"Task cannot be approved because its current status is '{task.status}' (expected 'PENDING_APPROVAL')."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        notes = request.data.get("notes", "").strip() or "Task completion approved by Managing Director."
+        old_status = task.status
+
+        try:
+            update = TaskUpdate.objects.create(
+                task=task,
+                updated_by=request.user,
+                previous_status=old_status,
+                new_status='COMPLETED',
+                notes=notes
+            )
+        except Exception as e:
+            logger.error(f"Error creating TaskUpdate on approval: {str(e)}", exc_info=True)
+            return Response(
+                {"detail": f"Failed to record approval: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        try:
+            task.status = 'COMPLETED'
+            task.completed_at = timezone.now()
+            task.requires_attention_from = None
+            task.save(update_fields=['status', 'completed_at', 'requires_attention_from', 'updated_at'])
+        except Exception as e:
+            logger.error(f"Error updating task status on approval: {str(e)}", exc_info=True)
+            return Response(
+                {"detail": f"Failed to update task: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        # 🔔 Notify the assignee that task was approved
+        notify_task_approval_decision(
             task=task,
-            updated_by=request.user,
-            old_status=old_status,
-            new_status=new_status,
-            notes=notes,
+            decided_by=request.user,
+            approved=True,
+            notes=notes
         )
 
         return Response({
-            "detail": "Status updated successfully",
-            "update_id": update.id
+            "detail": "Task approved successfully and marked as completed.",
+            "update_id": update.id,
+            "status": "COMPLETED",
+        })
+
+
+class TaskRejectAPIView(generics.GenericAPIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        task = get_object_or_404(Task, pk=pk)
+
+        if not is_managing_director(request.user):
+            return Response(
+                {"detail": "Only Managing Director can reject task completion."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        if task.status != 'PENDING_APPROVAL':
+            return Response(
+                {"detail": f"Task cannot be rejected because its current status is '{task.status}' (expected 'PENDING_APPROVAL')."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        notes = request.data.get("notes", "").strip()
+        new_deadline_str = request.data.get("new_deadline")
+
+        parsed_deadline = None
+        if new_deadline_str:
+            try:
+                from datetime import datetime
+                parsed_deadline = datetime.strptime(str(new_deadline_str).strip(), "%Y-%m-%d").date()
+            except ValueError:
+                return Response(
+                    {"detail": "Invalid deadline format. Expected YYYY-MM-DD."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        update_notes = notes or "Task completion rejected by Managing Director. Task remains in progress."
+        if parsed_deadline:
+            update_notes += f" [Deadline updated to {parsed_deadline}]"
+
+        old_status = task.status
+
+        try:
+            update = TaskUpdate.objects.create(
+                task=task,
+                updated_by=request.user,
+                previous_status=old_status,
+                new_status='IN_PROGRESS',
+                notes=update_notes
+            )
+        except Exception as e:
+            logger.error(f"Error creating TaskUpdate on rejection: {str(e)}", exc_info=True)
+            return Response(
+                {"detail": f"Failed to record rejection: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        try:
+            # "if he rejects the task prevails ,while rejecting give an opttion to chnage deadline (optional)"
+            task.status = 'IN_PROGRESS'
+            task.completed_at = None
+            task.requires_attention_from = task.assigned_to
+            update_fields = ['status', 'completed_at', 'requires_attention_from', 'updated_at']
+
+            if parsed_deadline:
+                task.deadline = parsed_deadline
+                update_fields.append('deadline')
+
+            task.save(update_fields=update_fields)
+        except Exception as e:
+            logger.error(f"Error updating task status on rejection: {str(e)}", exc_info=True)
+            return Response(
+                {"detail": f"Failed to update task: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        # 🔔 Notify the assignee that task completion was rejected
+        notify_task_approval_decision(
+            task=task,
+            decided_by=request.user,
+            approved=False,
+            notes=notes,
+            new_deadline=parsed_deadline
+        )
+
+        return Response({
+            "detail": "Task completion rejected. Task remains in progress.",
+            "update_id": update.id,
+            "status": "IN_PROGRESS",
+            "deadline": str(task.deadline),
         })
 
 

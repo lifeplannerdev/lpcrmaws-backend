@@ -43,6 +43,19 @@ TASK_ASSIGNEES = EXECUTION_ROLES
 
 
 
+def is_managing_director(user):
+    if not user or not user.is_authenticated:
+        return False
+    if user.is_superuser:
+        return True
+    role_names = []
+    if hasattr(user, 'db_roles'):
+        role_names.extend(list(user.db_roles.values_list('name', flat=True)))
+    role = getattr(user, 'role', '')
+    if role:
+        role_names.append(role)
+    return any(str(r).strip().upper() in {'MANAGING_DIRECTOR', 'MANAGING DIRECTOR', 'MD', 'ADMIN'} for r in role_names)
+
 def can_manage_all_tasks(user):
     return (
         user.is_superuser or

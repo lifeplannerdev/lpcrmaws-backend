@@ -7,6 +7,7 @@ class Task(models.Model):
     STATUS_CHOICES = [
         ('PENDING', 'Pending'),
         ('IN_PROGRESS', 'In Progress'),
+        ('PENDING_APPROVAL', 'Pending Approval'),
         ('COMPLETED', 'Completed'),
         ('CANCELLED', 'Cancelled'),
         ('OVERDUE', 'Overdue'),
@@ -82,13 +83,13 @@ class Task(models.Model):
 
     @property
     def is_overdue(self):
-        if self.status in ['COMPLETED', 'CANCELLED']:
+        if self.status in ['COMPLETED', 'CANCELLED', 'PENDING_APPROVAL']:
             return False
         return timezone.now().date() > self.deadline
 
     @property
     def overdue_days(self):
-        if self.status in ['COMPLETED', 'CANCELLED']:
+        if self.status in ['COMPLETED', 'CANCELLED', 'PENDING_APPROVAL']:
             return 0
         if self.is_overdue:
             delta = timezone.now().date() - self.deadline
@@ -97,7 +98,7 @@ class Task(models.Model):
 
     @property
     def days_until_deadline(self):
-        if self.status in ['COMPLETED', 'CANCELLED']:
+        if self.status in ['COMPLETED', 'CANCELLED', 'PENDING_APPROVAL']:
             return 0
         delta = self.deadline - timezone.now().date()
         return max(delta.days, 0)
