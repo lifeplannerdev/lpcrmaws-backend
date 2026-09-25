@@ -322,16 +322,29 @@ class StaffAssetTimelineView(generics.ListAPIView):
 
 class EmployeeListAPI(APIView):
     def get(self, request):
-        qs = User.objects.filter(
-            db_roles__name__in=[
-                "ADM_MANAGER",
-                "ADM_COUNSELLOR",  
-                "ADM_EXEC",
-                "FOE",
-                "CM"
-            ],
-            is_active=True
-        ).distinct()
+        source_filter = request.query_params.get('source_filter') == 'true'
+        if source_filter:
+            qs = User.objects.filter(
+                Q(db_roles__name__in=['MANAGING_DIRECTOR', 'DOCUMENTATION', 'OPERATION']) |
+                Q(team__iexact='Sales'),
+                is_active=True
+            ).distinct()
+        else:
+            roles = request.query_params.get('roles')
+            if roles:
+                role_list = [r.strip() for r in roles.split(',')]
+                qs = User.objects.filter(db_roles__name__in=role_list, is_active=True).distinct()
+            else:
+                qs = User.objects.filter(
+                    db_roles__name__in=[
+                        "ADM_MANAGER",
+                        "ADM_COUNSELLOR",  
+                        "ADM_EXEC",
+                        "FOE",
+                        "CM"
+                    ],
+                    is_active=True
+                ).distinct()
 
         # Apply multi-tenant company filter manually since it's not a ListAPIView
         requested_company = request.query_params.get('company')

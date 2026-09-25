@@ -1097,8 +1097,11 @@ class ProcessingStudentListCreateAPIView(APIView):
 
         data = request.data.copy()
         
-        # If user can only edit own, enforce assignment
-        if _has_perm(request.user, 'processing_students:edit_own') and not _has_perm(request.user, 'processing_students:edit_any'):
+        # Enforce assigned_to constraints
+        is_operation = request.user.db_roles.filter(name='OPERATION').exists()
+        if not is_operation:
+            data['assigned_to'] = request.user.id
+        elif _has_perm(request.user, 'processing_students:edit_own') and not _has_perm(request.user, 'processing_students:edit_any'):
             data['assigned_to'] = request.user.id
 
         serializer = ProcessingStudentSerializer(data=data)

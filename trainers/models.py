@@ -695,6 +695,7 @@ class ProcessingStudent(models.Model):
     # Required relationships and categorizations
     category = models.CharField(max_length=50, default='All Students', help_text="e.g., GCC Students")
     assigned_to = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='assigned_processing_students')
+    source = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='sourced_processing_students')
 
     # Fee tracking fields
     processing_fee_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)

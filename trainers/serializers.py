@@ -520,6 +520,7 @@ class ProcessingDynamicFieldSerializer(serializers.ModelSerializer):
 
 class ProcessingStudentSerializer(serializers.ModelSerializer):
     assigned_to_name = serializers.CharField(source='assigned_to.get_full_name', read_only=True)
+    source_name = serializers.CharField(source='source.get_full_name', read_only=True)
     
     class Meta:
         model = ProcessingStudent
@@ -528,6 +529,11 @@ class ProcessingStudentSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         fee_fields = ['processing_fee_amount', 'processing_fee_paid', 'processing_fee_status']
         request = self.context.get('request')
+        
+        if request and request.user:
+            is_operation = request.user.db_roles.filter(name='OPERATION').exists()
+            if not is_operation and 'assigned_to' in validated_data:
+                validated_data.pop('assigned_to', None)
         
         updating_fees = any(field in validated_data for field in fee_fields)
         if updating_fees:
