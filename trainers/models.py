@@ -666,10 +666,16 @@ class ProcessingStudent(models.Model):
 
     REG_FEE_STATUS_CHOICES = [
         ('Pending', 'Pending'),
-        ('Shared with student', 'Shared with student'),
-        ('Without Tax amount', 'Without Tax amount'),
+        ('Paid without gst', 'Paid without gst'),
+        ('Paid with gst', 'Paid with gst'),
     ]
     registration_fee_status = models.CharField(max_length=50, choices=REG_FEE_STATUS_CHOICES, default='Pending')
+
+    RECEIPT_STATUS_CHOICES = [
+        ('Pending', 'Pending'),
+        ('Shared with student', 'Shared with student'),
+    ]
+    registration_fee_receipt_status = models.CharField(max_length=50, choices=RECEIPT_STATUS_CHOICES, default='Pending')
 
     ENROLLMENT_STATUS_CHOICES = [
         ('Pending', 'Pending'),
