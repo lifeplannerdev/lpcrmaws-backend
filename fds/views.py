@@ -62,6 +62,10 @@ def fds_read(user):
 def fds_fees_access(user):
     return has_fds_permission(user, 'fds:admin', 'fds_fees:view')
 
+def fds_management_access(user):
+    """Management read-only view: fds:management OR fds:admin."""
+    return has_fds_permission(user, 'fds:management', 'fds:admin')
+
 def get_user_branch(user):
     loc = getattr(user, 'location', '')
     if loc and 'kochi' in loc.lower():
@@ -1653,4 +1657,290 @@ class FdsTrainerListView(APIView):
             for t in users
         ]
         return Response(data)
+
+
+# ── FDS Analysis (Management Read-Only) ──────────────────────────
+
+class FdsAnalysisView(APIView):
+    """
+    Comprehensive analytics endpoint for the FDS Analysis page.
+    Accessible to users with fds:management OR fds:admin.
+    Supports ?branch=KOCHI|KOTTAYAM|ALL and ?date_from / ?date_to filters.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if not fds_management_access(request.user):
+            return Response({'error': 'Permission denied. fds:management required.'}, status=403)
+
+        import calendar as _cal
+        from datetime import date as _date
+        from django.db.models import Q, Sum, Count
+
+        today = timezone.now().date()
+        this_month_start = today.replace(day=1)
+
+        # Branch filter — management can see BOTH or a specific branch
+        branch_param = request.query_params.get('branch', 'ALL').upper()
+
+        # Date range filters
+        date_from = request.query_params.get('date_from')
+        date_to   = request.query_params.get('date_to')
+
+        def apply_branch(qs, branch_field='branch'):
+            if branch_param in ('KOCHI', 'KOTTAYAM'):
+                return qs.filter(**{branch_field: branch_param})
+            return qs  # ALL
+
+        def apply_date(qs, field='date'):
+            if date_from:
+                qs = qs.filter(**{f'{field}__gte': date_from})
+            if date_to:
+                qs = qs.filter(**{f'{field}__lte': date_to})
+            return qs
+
+        # ── Base querysets ────────────────────────────────────────
+        students_qs  = apply_branch(FdsStudent.objects.all())
+        batches_qs   = apply_branch(FdsBatch.objects.all())
+        enquiries_qs = apply_branch(FdsEnquiry.objects.all())
+        trials_qs    = apply_branch(FdsTrial.objects.all())
+        wedding_qs   = apply_branch(FdsWeddingGroup.objects.all())
+
+        if branch_param in ('KOCHI', 'KOTTAYAM'):
+            payments_qs = FdsFeesCollection.objects.filter(student__branch=branch_param)
+        else:
+            payments_qs = FdsFeesCollection.objects.all()
+
+        if date_from or date_to:
+            enquiries_qs = apply_date(enquiries_qs, 'date')
+            trials_qs    = apply_date(trials_qs, 'date')
+            payments_qs  = apply_date(payments_qs, 'pay_date')
+
+        # ── Students ──────────────────────────────────────────────
+        active_students = students_qs.filter(is_active=True)
+        new_this_month  = active_students.filter(joining_date__gte=this_month_start).count()
+
+        students_by_branch = {
+            'kochi':    FdsStudent.objects.filter(is_active=True, branch='KOCHI').count(),
+            'kottayam': FdsStudent.objects.filter(is_active=True, branch='KOTTAYAM').count(),
+        }
+        students_by_category = {
+            'dance': active_students.filter(batch__class_category='DANCE').count(),
+            'zumba': active_students.filter(batch__class_category='ZUMBA').count(),
+            'yoga':  active_students.filter(batch__class_category='YOGA').count(),
+        }
+        students_by_gender = {
+            'male':   active_students.filter(gender='MALE').count(),
+            'female': active_students.filter(gender='FEMALE').count(),
+            'other':  active_students.filter(gender='OTHER').count(),
+        }
+        # Monthly join trend — last 6 months (branch-unfiltered for all-time trend)
+        join_trend = []
+        for i in range(5, -1, -1):
+            month_num = today.month - i
+            year_num  = today.year
+            while month_num <= 0:
+                month_num += 12
+                year_num  -= 1
+            m_start = _date(year_num, month_num, 1)
+            m_end   = _date(year_num, month_num, _cal.monthrange(year_num, month_num)[1])
+            kochi_count = FdsStudent.objects.filter(
+                branch='KOCHI', joining_date__gte=m_start, joining_date__lte=m_end
+            ).count()
+            ktm_count = FdsStudent.objects.filter(
+                branch='KOTTAYAM', joining_date__gte=m_start, joining_date__lte=m_end
+            ).count()
+            join_trend.append({
+                'month':    m_start.strftime('%b %Y'),
+                'kochi':    kochi_count,
+                'kottayam': ktm_count,
+                'total':    kochi_count + ktm_count,
+            })
+
+        # ── Batches ───────────────────────────────────────────────
+        active_batches = batches_qs.filter(status='ACTIVE')
+        batches_by_branch = {
+            'kochi':    FdsBatch.objects.filter(status='ACTIVE', branch='KOCHI').count(),
+            'kottayam': FdsBatch.objects.filter(status='ACTIVE', branch='KOTTAYAM').count(),
+        }
+        batches_by_category = {
+            'dance': active_batches.filter(class_category='DANCE').count(),
+            'zumba': active_batches.filter(class_category='ZUMBA').count(),
+            'yoga':  active_batches.filter(class_category='YOGA').count(),
+        }
+
+        # ── Enquiries ─────────────────────────────────────────────
+        enq_total = enquiries_qs.count()
+        enq_by_branch = {
+            'kochi':    FdsEnquiry.objects.filter(branch='KOCHI').count(),
+            'kottayam': FdsEnquiry.objects.filter(branch='KOTTAYAM').count(),
+        }
+        enq_by_status = {
+            'new':             enquiries_qs.filter(status='NEW').count(),
+            'contacted':       enquiries_qs.filter(status='CONTACTED').count(),
+            'trial_scheduled': enquiries_qs.filter(status='TRIAL_SCHEDULED').count(),
+            'converted':       enquiries_qs.filter(status='CONVERTED').count(),
+            'lost':            enquiries_qs.filter(status='LOST').count(),
+        }
+        enq_by_source = {
+            src.lower(): enquiries_qs.filter(source=src).count()
+            for src in ['WALK_IN', 'INSTAGRAM', 'FACEBOOK', 'REFERRAL', 'GOOGLE', 'WHATSAPP', 'OTHER']
+        }
+        enq_by_class = {
+            'dance': enquiries_qs.filter(class_interest='DANCE').count(),
+            'zumba': enquiries_qs.filter(class_interest='ZUMBA').count(),
+            'yoga':  enquiries_qs.filter(class_interest='YOGA').count(),
+        }
+        follow_up_due = enquiries_qs.filter(
+            Q(follow_up_1__lte=today) | Q(follow_up_2__lte=today),
+            ~Q(status__in=['CONVERTED', 'LOST'])
+        ).count()
+
+        # ── Trials ────────────────────────────────────────────────
+        trial_total = trials_qs.count()
+        trial_by_branch = {
+            'kochi':    FdsTrial.objects.filter(branch='KOCHI').count(),
+            'kottayam': FdsTrial.objects.filter(branch='KOTTAYAM').count(),
+        }
+        trial_by_status = {
+            'scheduled': trials_qs.filter(status='SCHEDULED').count(),
+            'completed': trials_qs.filter(status='COMPLETED').count(),
+            'no_show':   trials_qs.filter(status='NO_SHOW').count(),
+            'cancelled': trials_qs.filter(status='CANCELLED').count(),
+        }
+        trial_converted = trials_qs.filter(converted=True).count()
+        trial_completed = trials_qs.filter(status='COMPLETED').count()
+        trial_conversion_rate = round(
+            trial_converted / trial_completed * 100, 1
+        ) if trial_completed > 0 else 0
+        trial_by_category = {
+            'dance': trials_qs.filter(class_category='DANCE').count(),
+            'zumba': trials_qs.filter(class_category='ZUMBA').count(),
+            'yoga':  trials_qs.filter(class_category='YOGA').count(),
+        }
+        raw_ratings = list(
+            trials_qs.exclude(trainer_rating__isnull=True)
+            .values_list('trainer_rating', flat=True)
+        )
+        valid_ratings = [float(r) for r in raw_ratings if r is not None]
+        avg_trainer_rating = round(sum(valid_ratings) / len(valid_ratings), 1) if valid_ratings else 0
+
+        # ── Fees / Revenue ────────────────────────────────────────
+        total_collected      = float(payments_qs.aggregate(t=Sum('paid_amount'))['t'] or 0)
+        this_month_collected = float(
+            payments_qs.filter(pay_date__gte=this_month_start).aggregate(t=Sum('paid_amount'))['t'] or 0
+        )
+        total_outstanding = float(payments_qs.aggregate(t=Sum('balance'))['t'] or 0)
+        fees_by_status = {
+            'paid':    payments_qs.filter(status='PAID').count(),
+            'partial': payments_qs.filter(status='PARTIAL').count(),
+            'pending': payments_qs.filter(status='PENDING').count(),
+            'overdue': payments_qs.filter(status='OVERDUE').count(),
+        }
+        fees_by_mode = {
+            mode.lower(): float(
+                payments_qs.filter(mode_of_pay=mode).aggregate(t=Sum('paid_amount'))['t'] or 0
+            )
+            for mode in ['CASH', 'UPI', 'ONLINE', 'BANK_TRANSFER', 'CARD', 'OTHER']
+        }
+        fees_by_branch = {
+            'kochi':    float(FdsFeesCollection.objects.filter(student__branch='KOCHI').aggregate(t=Sum('paid_amount'))['t'] or 0),
+            'kottayam': float(FdsFeesCollection.objects.filter(student__branch='KOTTAYAM').aggregate(t=Sum('paid_amount'))['t'] or 0),
+        }
+        # Monthly revenue trend — last 6 months (always both branches for comparison)
+        revenue_trend = []
+        for i in range(5, -1, -1):
+            month_num = today.month - i
+            year_num  = today.year
+            while month_num <= 0:
+                month_num += 12
+                year_num  -= 1
+            m_start = _date(year_num, month_num, 1)
+            m_end   = _date(year_num, month_num, _cal.monthrange(year_num, month_num)[1])
+            kochi_rev = float(
+                FdsFeesCollection.objects.filter(
+                    pay_date__gte=m_start, pay_date__lte=m_end,
+                    student__branch='KOCHI'
+                ).aggregate(t=Sum('paid_amount'))['t'] or 0
+            )
+            ktm_rev = float(
+                FdsFeesCollection.objects.filter(
+                    pay_date__gte=m_start, pay_date__lte=m_end,
+                    student__branch='KOTTAYAM'
+                ).aggregate(t=Sum('paid_amount'))['t'] or 0
+            )
+            revenue_trend.append({
+                'month':    m_start.strftime('%b %Y'),
+                'kochi':    kochi_rev,
+                'kottayam': ktm_rev,
+                'total':    round(kochi_rev + ktm_rev, 2),
+            })
+
+        # ── Wedding Groups ────────────────────────────────────────
+        wedding_by_status = {
+            s.lower(): wedding_qs.filter(status=s).count()
+            for s in ['ENQUIRY', 'CONFIRMED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED']
+        }
+
+        # ── Funnel ────────────────────────────────────────────────
+        enq_to_trial_rate = round(
+            trial_total / enq_total * 100, 1
+        ) if enq_total > 0 else 0
+
+        return Response({
+            'branch_filter': branch_param,
+            'generated_at':  today.isoformat(),
+
+            'students': {
+                'total_active':   active_students.count(),
+                'new_this_month': new_this_month,
+                'by_branch':      students_by_branch,
+                'by_category':    students_by_category,
+                'by_gender':      students_by_gender,
+                'join_trend':     join_trend,
+            },
+            'batches': {
+                'total_active':  active_batches.count(),
+                'by_branch':     batches_by_branch,
+                'by_category':   batches_by_category,
+            },
+            'enquiries': {
+                'total':         enq_total,
+                'by_branch':     enq_by_branch,
+                'by_status':     enq_by_status,
+                'by_source':     enq_by_source,
+                'by_class':      enq_by_class,
+                'follow_up_due': follow_up_due,
+            },
+            'trials': {
+                'total':              trial_total,
+                'by_branch':          trial_by_branch,
+                'by_status':          trial_by_status,
+                'by_category':        trial_by_category,
+                'converted':          trial_converted,
+                'conversion_rate':    trial_conversion_rate,
+                'avg_trainer_rating': avg_trainer_rating,
+            },
+            'fees': {
+                'total_collected':      total_collected,
+                'this_month_collected': this_month_collected,
+                'total_outstanding':    total_outstanding,
+                'by_status':            fees_by_status,
+                'by_mode':              fees_by_mode,
+                'by_branch':            fees_by_branch,
+                'revenue_trend':        revenue_trend,
+            },
+            'weddings': {
+                'total':     wedding_qs.count(),
+                'active':    wedding_qs.filter(status__in=['CONFIRMED', 'IN_PROGRESS']).count(),
+                'by_status': wedding_by_status,
+            },
+            'funnel': {
+                'enquiries':         enq_total,
+                'trials':            trial_total,
+                'enq_to_trial_rate': enq_to_trial_rate,
+                'trial_conversion':  trial_conversion_rate,
+                'active_students':   active_students.count(),
+            },
+        })
 

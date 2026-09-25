@@ -4,7 +4,7 @@ from .views import (
     FdsFeeStructureViewSet, FdsBatchViewSet, FdsEnquiryViewSet,
     FdsTrialViewSet, FdsStudentViewSet, FdsWeddingGroupViewSet,
     FdsAttendanceViewSet, FdsFeesCollectionViewSet, FdsStudentFeeAccountViewSet,
-    FdsDashboardView, FdsTrainerListView
+    FdsDashboardView, FdsTrainerListView, FdsAnalysisView
 )
 
 router = DefaultRouter()
@@ -22,4 +22,5 @@ urlpatterns = [
     path('', include(router.urls)),
     path('dashboard/', FdsDashboardView.as_view(), name='fds-dashboard'),
     path('trainers/', FdsTrainerListView.as_view(), name='fds-trainers'),
+    path('analysis/', FdsAnalysisView.as_view(), name='fds-analysis'),
 ]
