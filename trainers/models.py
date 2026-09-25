@@ -712,6 +712,7 @@ class ProcessingStudent(models.Model):
         ('PARTIAL', 'Partial'),
         ('PAID', 'Paid'),
     ]
+    processing_fee_applicable = models.BooleanField(default=True)
     processing_fee_status = models.CharField(max_length=20, choices=PROCESSING_FEE_STATUS_CHOICES, default='PENDING')
 
     FEE_STATUS_CHOICES = [
@@ -720,18 +721,22 @@ class ProcessingStudent(models.Model):
         ('PAID', 'Paid'),
     ]
 
+    fee_admission_applicable = models.BooleanField(default=True)
     fee_admission_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     fee_admission_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     fee_admission_status = models.CharField(max_length=20, choices=FEE_STATUS_CHOICES, default='PENDING')
 
+    fee_language_applicable = models.BooleanField(default=True)
     fee_language_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     fee_language_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     fee_language_status = models.CharField(max_length=20, choices=FEE_STATUS_CHOICES, default='PENDING')
 
+    fee_visa_applicable = models.BooleanField(default=True)
     fee_visa_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     fee_visa_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     fee_visa_status = models.CharField(max_length=20, choices=FEE_STATUS_CHOICES, default='PENDING')
 
+    fee_ministry_applicable = models.BooleanField(default=True)
     fee_ministry_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     fee_ministry_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     fee_ministry_status = models.CharField(max_length=20, choices=FEE_STATUS_CHOICES, default='PENDING')
