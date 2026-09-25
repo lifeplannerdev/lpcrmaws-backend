@@ -714,6 +714,12 @@ class ProcessingStudent(models.Model):
     ]
     processing_fee_status = models.CharField(max_length=20, choices=PROCESSING_FEE_STATUS_CHOICES, default='PENDING')
 
+    fee_application_registration = models.CharField(max_length=200, blank=True, null=True)
+    fee_admission_offer_letter = models.CharField(max_length=200, blank=True, null=True)
+    fee_language_confirmation = models.CharField(max_length=200, blank=True, null=True)
+    fee_visa_approval = models.CharField(max_length=200, blank=True, null=True)
+    fee_ministry_letter = models.CharField(max_length=200, blank=True, null=True)
+
     
     # Dynamic Fields Data
     dynamic_data = models.JSONField(default=dict, blank=True, help_text="Stores data for dynamically added fields")
