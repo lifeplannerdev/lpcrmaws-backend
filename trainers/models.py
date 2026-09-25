@@ -692,11 +692,21 @@ class ProcessingStudent(models.Model):
 
     application_status = models.CharField(max_length=200, blank=True, null=True)
     offer_letter_status = models.CharField(max_length=200, blank=True, null=True)
-    visa_documentation_info_status = models.CharField(max_length=200, blank=True, null=True)
-    visa_appointment = models.CharField(max_length=200, blank=True, null=True)
-    visa_documentation = models.CharField(max_length=200, blank=True, null=True)
-    accommodation = models.CharField(max_length=200, blank=True, null=True)
-    visa_results = models.CharField(max_length=200, blank=True, null=True)
+    visa_appointment_date = models.CharField(max_length=200, blank=True, null=True)
+    
+    VISA_DOC_CHOICES = [
+        ('Pending', 'Pending'),
+        ('In Process', 'In Process'),
+        ('Complete', 'Complete'),
+    ]
+    visa_documentation = models.CharField(max_length=50, choices=VISA_DOC_CHOICES, default='Pending')
+    
+    VISA_RESULT_CHOICES = [
+        ('', ''),
+        ('Granted', 'Granted'),
+        ('Refused', 'Refused'),
+    ]
+    visa_results = models.CharField(max_length=50, choices=VISA_RESULT_CHOICES, blank=True, null=True)
 
     # Required relationships and categorizations
     category = models.CharField(max_length=50, default='All Students', help_text="e.g., GCC Students")
