@@ -62,6 +62,12 @@ def fds_read(user):
 def fds_fees_access(user):
     return has_fds_permission(user, 'fds:admin', 'fds_fees:view')
 
+def get_user_branch(user):
+    loc = getattr(user, 'location', '')
+    if loc and 'kochi' in loc.lower():
+        return 'KOCHI'
+    return 'KOTTAYAM'
+
 
 # ── Fee Structure ────────────────────────────────────────────────
 
@@ -204,11 +210,16 @@ class FdsBatchViewSet(viewsets.ModelViewSet):
         if not fds_read(self.request.user):
             return FdsBatch.objects.none()
         qs = FdsBatch.objects.select_related('trainer').all()
+        if fds_admin_all(self.request.user):
+            branch = self.request.query_params.get('branch')
+            if branch:
+                qs = qs.filter(branch=branch.upper())
+        else:
+            qs = qs.filter(branch=get_user_branch(self.request.user))
+            
         trainer_id = self.request.query_params.get('trainer')
         if trainer_id:
             qs = qs.filter(trainer_id=trainer_id)
-        elif getattr(self.request.user, 'role', None) == 'TRAINER':
-            qs = qs.filter(trainer=self.request.user)
         return qs
 
 
@@ -216,6 +227,10 @@ class FdsBatchViewSet(viewsets.ModelViewSet):
         if not fds_write(self.request.user):
             self.permission_denied(self.request, message="FDS write permission required.")
 
+    def perform_create(self, serializer):
+        self.check_write_permission()
+        serializer.save(branch=get_user_branch(self.request.user))
+        
     def create(self, request, *args, **kwargs):
         self.check_write_permission()
         return super().create(request, *args, **kwargs)
@@ -256,10 +271,13 @@ class FdsEnquiryViewSet(viewsets.ModelViewSet):
         
         if fds_admin_all(self.request.user):
             location = self.request.query_params.get('location')
-            if location:
+            branch = self.request.query_params.get('branch')
+            if branch:
+                qs = qs.filter(branch=branch.upper())
+            elif location:
                 qs = qs.filter(location__icontains=location)
-        elif fds_admin_own(self.request.user):
-            qs = qs.filter(created_by=self.request.user)
+        else:
+            qs = qs.filter(branch=get_user_branch(self.request.user))
 
         # Date range filter
         date_from = self.request.query_params.get('date_from')
@@ -288,7 +306,7 @@ class FdsEnquiryViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         if not fds_write(self.request.user):
             self.permission_denied(self.request, message="FDS write permission required.")
-        serializer.save(created_by=self.request.user)
+        serializer.save(created_by=self.request.user, branch=get_user_branch(self.request.user))
 
     def perform_update(self, serializer):
         student = serializer.save()
@@ -464,10 +482,13 @@ class FdsTrialViewSet(viewsets.ModelViewSet):
         
         if fds_admin_all(self.request.user):
             location = self.request.query_params.get('location')
-            if location:
+            branch = self.request.query_params.get('branch')
+            if branch:
+                qs = qs.filter(branch=branch.upper())
+            elif location:
                 qs = qs.filter(location__icontains=location)
-        elif fds_admin_own(self.request.user):
-            qs = qs.filter(created_by=self.request.user)
+        else:
+            qs = qs.filter(branch=get_user_branch(self.request.user))
         date_from = self.request.query_params.get('date_from')
         date_to = self.request.query_params.get('date_to')
         if date_from:
@@ -489,7 +510,7 @@ class FdsTrialViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         if not fds_write(self.request.user):
             self.permission_denied(self.request, message="FDS write permission required.")
-        trial = serializer.save(created_by=self.request.user)
+        trial = serializer.save(created_by=self.request.user, branch=get_user_branch(self.request.user))
         if trial.enquiry:
             trial.enquiry.status = 'TRIAL_SCHEDULED'
             trial.enquiry.save(update_fields=['status'])
@@ -598,10 +619,13 @@ class FdsStudentViewSet(viewsets.ModelViewSet):
 
         if fds_admin_all(self.request.user):
             trainer_id = self.request.query_params.get('trainer')
+            branch = self.request.query_params.get('branch')
+            if branch:
+                qs = qs.filter(branch=branch.upper())
             if trainer_id:
                 qs = qs.filter(batch__trainer_id=trainer_id)
-        elif fds_admin_own(self.request.user):
-            qs = qs.filter(created_by=self.request.user)
+        else:
+            qs = qs.filter(branch=get_user_branch(self.request.user))
 
         # Class category filter (via batch)
         class_cat = self.request.query_params.get('class_category')
@@ -620,7 +644,7 @@ class FdsStudentViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         if not fds_write(self.request.user):
             self.permission_denied(self.request, message="FDS write permission required.")
-        student = serializer.save(created_by=self.request.user)
+        student = serializer.save(created_by=self.request.user, branch=get_user_branch(self.request.user))
         
         if student.enquiry:
             student.enquiry.status = 'CONVERTED'
@@ -795,17 +819,20 @@ class FdsWeddingGroupViewSet(viewsets.ModelViewSet):
         
         if fds_admin_all(self.request.user):
             trainer_id = self.request.query_params.get('trainer')
+            branch = self.request.query_params.get('branch')
+            if branch:
+                qs = qs.filter(branch=branch.upper())
             if trainer_id:
                 qs = qs.filter(trainer_id=trainer_id)
-        elif fds_admin_own(self.request.user):
-            qs = qs.filter(created_by=self.request.user)
+        else:
+            qs = qs.filter(branch=get_user_branch(self.request.user))
             
         return qs
 
     def perform_create(self, serializer):
         if not fds_write(self.request.user):
             self.permission_denied(self.request, message="FDS write permission required.")
-        serializer.save(created_by=self.request.user)
+        serializer.save(created_by=self.request.user, branch=get_user_branch(self.request.user))
 
     def perform_update(self, serializer):
         student = serializer.save()
@@ -845,10 +872,13 @@ class FdsAttendanceViewSet(viewsets.ModelViewSet):
         
         if fds_admin_all(self.request.user):
             trainer_id = self.request.query_params.get('trainer')
+            branch = self.request.query_params.get('branch')
+            if branch:
+                qs = qs.filter(batch__branch=branch.upper())
             if trainer_id:
                 qs = qs.filter(batch__trainer_id=trainer_id)
-        elif fds_admin_own(self.request.user):
-            qs = qs.filter(marked_by=self.request.user)
+        else:
+            qs = qs.filter(batch__branch=get_user_branch(self.request.user))
         date_from = self.request.query_params.get('date_from')
         date_to = self.request.query_params.get('date_to')
         student_id = self.request.query_params.get('student')
@@ -1026,10 +1056,13 @@ class FdsStudentFeeAccountViewSet(viewsets.ModelViewSet):
 
         if fds_admin_all(self.request.user):
             trainer_id = self.request.query_params.get('trainer')
+            branch = self.request.query_params.get('branch')
+            if branch:
+                qs = qs.filter(student__branch=branch.upper())
             if trainer_id:
                 qs = qs.filter(student__batch__trainer_id=trainer_id)
-        elif fds_admin_own(self.request.user):
-            qs = qs.filter(student__created_by=self.request.user)
+        else:
+            qs = qs.filter(student__branch=get_user_branch(self.request.user))
 
         student_id = self.request.query_params.get('student_id') or self.request.query_params.get('student')
         class_cat = self.request.query_params.get('class_category')
@@ -1370,6 +1403,14 @@ class FdsFeesCollectionViewSet(viewsets.ModelViewSet):
         qs = FdsFeesCollection.objects.select_related(
             'student', 'wedding_group', 'fees_type', 'collected_by'
         )
+        if fds_admin_all(self.request.user) or fds_fees_access(self.request.user):
+            branch = self.request.query_params.get('branch')
+            if branch:
+                qs = qs.filter(Q(student__branch=branch.upper()) | Q(wedding_group__branch=branch.upper()))
+        else:
+            user_branch = get_user_branch(self.request.user)
+            qs = qs.filter(Q(student__branch=user_branch) | Q(wedding_group__branch=user_branch))
+            
         student_id = self.request.query_params.get('student_id')
         date_from = self.request.query_params.get('date_from')
         date_to = self.request.query_params.get('date_to')
@@ -1532,13 +1573,15 @@ class FdsDashboardView(APIView):
         enquiries = FdsEnquiry.objects.all()
         trials = FdsTrial.objects.all()
         payments = FdsFeesCollection.objects.all()
-        if fds_admin_own(request.user) and not fds_admin_all(request.user):
-            students = students.filter(Q(created_by=request.user) | Q(batch__trainer=request.user)).distinct()
+        if not fds_admin_all(request.user):
+            user_branch = get_user_branch(request.user)
+            students = students.filter(branch=user_branch)
+            batches = batches.filter(branch=user_branch)
+            enquiries = enquiries.filter(branch=user_branch)
+            trials = trials.filter(branch=user_branch)
+            payments = payments.filter(Q(student__branch=user_branch) | Q(wedding_group__branch=user_branch))
             if getattr(request.user, 'role', None) == 'TRAINER':
                 batches = batches.filter(trainer=request.user)
-            enquiries = enquiries.filter(created_by=request.user)
-            trials = trials.filter(Q(created_by=request.user) | Q(conducted_by=request.user)).distinct()
-            payments = payments.filter(created_by=request.user)
 
         response = {
             'students': {

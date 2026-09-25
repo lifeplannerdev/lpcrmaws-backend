@@ -8,6 +8,11 @@ User = settings.AUTH_USER_MODEL
 # ────────────────────────────────────────────────────────────────
 # Choice constants
 # ────────────────────────────────────────────────────────────────
+FDS_BRANCH_CHOICES = [
+    ('KOTTAYAM', 'Kottayam'),
+    ('KOCHI', 'Kochi'),
+]
+
 CLASS_CATEGORY_CHOICES = [
     ('DANCE', 'Dance'),
     ('ZUMBA', 'Zumba'),
@@ -120,6 +125,7 @@ class FdsBatch(models.Model):
     )
     time_slot_start = models.TimeField(null=True, blank=True)
     time_slot_end = models.TimeField(null=True, blank=True)
+    branch = models.CharField(max_length=20, choices=FDS_BRANCH_CHOICES, default='KOTTAYAM')
     coordinator = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,
@@ -188,6 +194,7 @@ class FdsEnquiry(models.Model):
     phone = models.CharField(max_length=20, blank=True, null=True)
     whatsapp_no = models.CharField(max_length=20, blank=True, null=True)
     preferred_timing = models.CharField(max_length=100, blank=True, null=True)
+    branch = models.CharField(max_length=20, choices=FDS_BRANCH_CHOICES, default='KOTTAYAM')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='NEW')
     follow_up_1 = models.DateField(null=True, blank=True)
     follow_up_2 = models.DateField(null=True, blank=True)
@@ -239,6 +246,7 @@ class FdsTrial(models.Model):
     phone = models.CharField(max_length=20, blank=True, null=True)
     location = models.CharField(max_length=200, blank=True, null=True)
     class_category = models.CharField(max_length=10, choices=CLASS_CATEGORY_CHOICES, default='DANCE')
+    branch = models.CharField(max_length=20, choices=FDS_BRANCH_CHOICES, default='KOTTAYAM')
     fee_quoted = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     feedback = models.TextField(blank=True, null=True)
     trainer_rating = models.PositiveIntegerField(
@@ -287,6 +295,7 @@ class FdsStudent(models.Model):
 
     student_id = models.CharField(max_length=20, unique=True, blank=True)
     student_type = models.CharField(max_length=20, choices=STUDENT_TYPE_CHOICES, default='REGULAR')
+    branch = models.CharField(max_length=20, choices=FDS_BRANCH_CHOICES, default='KOTTAYAM')
     name = models.CharField(max_length=200)
     joining_date = models.DateField(default=timezone.now)
     date_of_birth = models.DateField(null=True, blank=True)
@@ -376,6 +385,7 @@ class FdsWeddingGroup(models.Model):
     group_id = models.CharField(max_length=20, unique=True, blank=True)
     event_name = models.CharField(max_length=200, help_text="e.g., Riya & Arun Wedding")
     event_date = models.DateField(null=True, blank=True)
+    branch = models.CharField(max_length=20, choices=FDS_BRANCH_CHOICES, default='KOTTAYAM')
     package_type = models.CharField(max_length=20, choices=PACKAGE_TYPE_CHOICES)
     batch = models.ForeignKey(
         FdsBatch, on_delete=models.SET_NULL, null=True, blank=True,
