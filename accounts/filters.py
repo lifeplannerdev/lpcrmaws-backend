@@ -38,7 +38,14 @@ class CompanyFilterBackend(filters.BaseFilterBackend):
             return queryset
             
         else:
-            # If no company is explicitly requested, default to the user's native company
+            # If no company is explicitly requested, default to the user's native company.
+            # However, for detail views (pk in kwargs), allow access if they have cross-company permissions.
+            is_detail_view = 'pk' in getattr(view, 'kwargs', {}) or 'id' in getattr(view, 'kwargs', {})
+            has_cross_company = has_dynamic_permission(user, 'staff:access_flag') or has_dynamic_permission(user, 'staff:edit_any')
+            
+            if is_detail_view and has_cross_company:
+                return queryset
+
             if hasattr(queryset.model, 'company'):
                 return queryset.filter(company=user.company)
             return queryset
