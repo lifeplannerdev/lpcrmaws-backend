@@ -1069,7 +1069,7 @@ class ProcessingStudentListCreateAPIView(APIView):
         if not (can_read_any or can_read_own):
             return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
-        qs = ProcessingStudent.objects.select_related('assigned_to')
+        qs = ProcessingStudent.objects.select_related('assigned_to').order_by('-id')
 
         if not can_read_any and can_read_own:
             qs = qs.filter(assigned_to=request.user)
