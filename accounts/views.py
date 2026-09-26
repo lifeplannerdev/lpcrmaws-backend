@@ -5,7 +5,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework import generics, filters, status
 from rest_framework.pagination import PageNumberPagination
-from .permissions import IsManagement, IsSuperAdmin, has_dynamic_permission
+from .permissions import IsManagement, IsSuperAdmin, has_dynamic_permission, HasPermission
 from leads.models import Lead
 from trainers.models import Student
 from hr.models import Candidate
@@ -226,11 +226,20 @@ class StaffListView(generics.ListAPIView):
 
         return queryset
 
-# Staff Detail View 
+# Staff Detail View
+class CanViewOrEditStaff(IsManagement):
+    """Allow staff:read_tenant OR staff:edit_any OR staff:edit_tenant."""
+    def has_permission(self, request, view):
+        return (
+            has_dynamic_permission(request.user, 'staff:read_tenant') or
+            has_dynamic_permission(request.user, 'staff:edit_any') or
+            has_dynamic_permission(request.user, 'staff:edit_tenant')
+        )
+
 class StaffDetailView(generics.RetrieveAPIView):
     queryset = User.objects.all()
     serializer_class = StaffDetailSerializer
-    permission_classes = [IsManagement]
+    permission_classes = [CanViewOrEditStaff]
     filter_backends = [CompanyFilterBackend]
 
 
@@ -272,7 +281,7 @@ class StaffCreateView(generics.CreateAPIView):
 class StaffUpdateView(generics.UpdateAPIView):
     queryset = User.objects.all()
     serializer_class = StaffUpdateSerializer
-    permission_classes = [IsManagement]
+    permission_classes = [CanViewOrEditStaff]
     filter_backends = [CompanyFilterBackend]
 
     def update(self, request, *args, **kwargs):
