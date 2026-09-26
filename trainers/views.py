@@ -18,7 +18,7 @@ from .models import (
     Trainer, Student, Attendance, AcademicBatch, AcademicPackage, Branch,
     ExamResult, ProcessingStudent, ProcessingDynamicField, ProcessingStudentDocument,
     StudentTimeline, CourseLevel, CourseModule, StudentModuleProgress,
-    StudentPackageEnrollment, StudentAcademicPlacement,
+    StudentPackageEnrollment, StudentAcademicPlacement, IntakeOption
 )
 from .serializers import (
     TrainerSerializer, 
@@ -37,7 +37,8 @@ from .serializers import (
     StudentModuleProgressSerializer,
     AcademicPackageSerializer,
     StudentPackageEnrollmentSerializer,
-    StudentAcademicPlacementSerializer
+    StudentAcademicPlacementSerializer,
+    IntakeOptionSerializer
 )
 from .permissions import IsTrainerOwnStudent
 from .academic_services import (
@@ -1448,3 +1449,26 @@ class StudentModuleProgressAPIView(APIView):
         
         return Response(StudentModuleProgressSerializer(progress).data)
 
+
+class IntakeOptionListCreateAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        options = IntakeOption.objects.all()
+        serializer = IntakeOptionSerializer(options, many=True)
+        return Response(serializer.data)
+
+    def post(self, request):
+        serializer = IntakeOptionSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class IntakeOptionDetailAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, pk):
+        option = get_object_or_404(IntakeOption, pk=pk)
+        option.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
