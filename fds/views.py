@@ -48,13 +48,14 @@ def has_fds_permission(user, *perms):
     return any(has_dynamic_permission(user, p) for p in perms)
 
 def fds_admin_all(user):
-    return has_fds_permission(user, 'fds:admin', 'fds:management')
+    """Only fds:management sees ALL branches. fds:admin is branch-scoped."""
+    return has_fds_permission(user, 'fds:management')
 
 def fds_admin_own(user):
     return has_fds_permission(user, 'fds:admin_own')
 
 def fds_write(user):
-    return has_fds_permission(user, 'fds:admin', 'fds:admin_own')
+    return has_fds_permission(user, 'fds:admin', 'fds:admin_own', 'fds:management')
 
 def fds_read(user):
     return has_fds_permission(user, 'fds:admin', 'fds:admin_own', 'fds:view', 'fds:management')
@@ -63,12 +64,13 @@ def fds_fees_access(user):
     return has_fds_permission(user, 'fds:admin', 'fds_fees:view', 'fds:management')
 
 def fds_management_access(user):
-    """Management read-only view: fds:management OR fds:admin."""
-    return has_fds_permission(user, 'fds:management', 'fds:admin')
+    """Management read-only view: fds:management only (sees all branches)."""
+    return has_fds_permission(user, 'fds:management')
 
 def get_user_branch(user):
-    loc = getattr(user, 'location', '')
-    if loc and 'kochi' in loc.lower():
+    """Derive branch from user's location field. KOCHI → KOCHI, anything else → KOTTAYAM."""
+    loc = getattr(user, 'location', '') or ''
+    if 'kochi' in loc.lower():
         return 'KOCHI'
     return 'KOTTAYAM'
 
