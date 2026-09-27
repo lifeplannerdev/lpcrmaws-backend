@@ -193,6 +193,7 @@ class GradeExamRecord(models.Model):
 
 class AttendanceSession(models.Model):
     batch = models.ForeignKey(AcademicBatch, on_delete=models.CASCADE, related_name='sessions')
+    grade = models.ForeignKey(Grade, on_delete=models.PROTECT, related_name='attendance_sessions', null=True, blank=True)
     date = models.DateField(default=timezone.now)
     topic = models.CharField(max_length=200, blank=True)
     notes = models.TextField(blank=True)

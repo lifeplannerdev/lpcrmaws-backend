@@ -156,7 +156,7 @@ class AttendanceSessionViewSet(viewsets.ModelViewSet):
     serializer_class = AttendanceSessionSerializer
     permission_classes = [FlagBasePermission]
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['batch', 'date']
+    filterset_fields = ['batch', 'date', 'grade']
 
     def get_queryset(self):
         qs = super().get_queryset()

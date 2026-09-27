@@ -99,6 +99,7 @@ class AttendanceSessionSerializer(serializers.ModelSerializer):
     pending_count = serializers.ReadOnlyField()
     total_count = serializers.ReadOnlyField()
     batch_name = serializers.CharField(source='batch.name', read_only=True)
+    grade_name = serializers.CharField(source='grade.name', read_only=True)
     
     class Meta:
         model = AttendanceSession
@@ -107,6 +108,8 @@ class AttendanceSessionSerializer(serializers.ModelSerializer):
 class AttendanceRecordSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source='student.name', read_only=True)
     session_date = serializers.DateField(source='session.date', read_only=True)
+    batch_name = serializers.CharField(source='session.batch.name', read_only=True)
+    grade_name = serializers.CharField(source='session.grade.name', read_only=True, default='N/A')
     class Meta:
         model = AttendanceRecord
         fields = '__all__'
