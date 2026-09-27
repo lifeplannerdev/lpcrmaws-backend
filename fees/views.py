@@ -103,7 +103,15 @@ class FeeAccountListCreateAPIView(APIView):
         plan_type = request.GET.get('plan_type')
         branch_id = request.GET.get('branch_id')
 
-        if hasattr(request.user, 'trainer_profile') and not has_dynamic_permission(request.user, 'fees:read_tenant') and not has_dynamic_permission(request.user, 'fees:manage') and not has_dynamic_permission(request.user, 'fees:view_reports'):
+        is_global_viewer = (
+            has_dynamic_permission(request.user, 'fees:read_tenant') or 
+            has_dynamic_permission(request.user, 'fees:manage') or 
+            has_dynamic_permission(request.user, 'fees:view_reports') or
+            has_dynamic_permission(request.user, 'flag:admin') or
+            has_dynamic_permission(request.user, 'flag:fees')
+        )
+
+        if not is_global_viewer:
             qs = qs.filter(student__trainer=request.user)
 
         if company:
