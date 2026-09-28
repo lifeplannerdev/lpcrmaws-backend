@@ -4,7 +4,7 @@ from .models import (
     Trainer, Student, Attendance, AcademicBatch, AcademicPackage, Branch,
     ExamResult, ProcessingStudent, ProcessingDynamicField, ProcessingStudentDocument,
     StudentTimeline, CourseLevel, CourseModule, StudentModuleProgress,
-    StudentPackageEnrollment, StudentAcademicPlacement, IntakeOption
+    StudentPackageEnrollment, StudentAcademicPlacement, IntakeOption, CategoryOption
 )
 from django.contrib.auth import get_user_model
 from django.db import transaction
@@ -566,4 +566,9 @@ class ProcessingStudentDocumentSerializer(serializers.ModelSerializer):
 class IntakeOptionSerializer(serializers.ModelSerializer):
     class Meta:
         model = IntakeOption
+        fields = '__all__'
+
+class CategoryOptionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CategoryOption
         fields = '__all__'
