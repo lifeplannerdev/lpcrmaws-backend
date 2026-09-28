@@ -56,7 +56,8 @@ class StudentFeeAccount(models.Model):
         ('WAIVED', 'Waived'),
     ]
 
-    student = models.OneToOneField(Student, on_delete=models.CASCADE, related_name='fee_account')
+    student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name='fee_accounts')
+    grade = models.ForeignKey('students.Grade', on_delete=models.SET_NULL, null=True, blank=True, related_name='fee_accounts')
     company = models.CharField(max_length=10, choices=[('LP', 'LP'), ('FLAG', 'FLAG'), ('FDS', 'FILMAATIC')], default='LP', db_index=True)
     template = models.ForeignKey(FeePlanTemplate, on_delete=models.SET_NULL, null=True, blank=True, related_name='student_accounts')
     plan_code = models.CharField(max_length=80, blank=True)

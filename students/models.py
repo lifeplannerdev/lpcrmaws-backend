@@ -110,24 +110,34 @@ class Student(models.Model):
     def current_grade(self):
         return self.batch.current_grade if self.batch else None
     @property
+    def fee_account(self):
+        # Returns the most recent fee account. Returns None if no account exists.
+        return self.fee_accounts.order_by('-created_at').first()
+
+    @property
     def has_pending_fees(self):
-        if hasattr(self, 'fee_account'): return self.fee_account.overdue_amount > 0
+        account = self.fee_account
+        if account: return account.overdue_amount > 0
         return False
         
     @property
     def fee_status(self):
-        if not hasattr(self, 'fee_account'):
+        account = self.fee_account
+        if not account:
             return 'NO_ACCOUNT'
-        return self.fee_account.status
+        return account.status
         
     @property
     def fee_account_id(self):
-        if hasattr(self, 'fee_account'):
-            return self.fee_account.id
+        account = self.fee_account
+        if account:
+            return account.id
         return None
+
     @property
     def pending_fee_amount(self):
-        if hasattr(self, 'fee_account'): return self.fee_account.overdue_amount
+        account = self.fee_account
+        if account: return account.overdue_amount
         return 0
 
 class StudentBatchHistory(models.Model):

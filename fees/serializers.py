@@ -148,6 +148,7 @@ class StudentFeeAccountSerializer(serializers.ModelSerializer):
     trainer_name = serializers.CharField(source='student.trainer.user.get_full_name', read_only=True)
     branch_name = serializers.CharField(source='student.branch.name', read_only=True)
     template_name = serializers.CharField(source='template.name', read_only=True)
+    grade_name = serializers.CharField(source='grade.code', read_only=True)
     installments = FeeInstallmentSerializer(many=True, read_only=True)
     payments = FeePaymentSerializer(many=True, read_only=True)
     adjustments = FeeAdjustmentSerializer(many=True, read_only=True)
@@ -156,7 +157,7 @@ class StudentFeeAccountSerializer(serializers.ModelSerializer):
         model = StudentFeeAccount
         fields = [
             'id', 'student', 'student_name', 'student_status', 'trainer_name', 'branch_name',
-            'company', 'template', 'template_name', 'plan_code', 'plan_name', 'plan_type',
+            'company', 'template', 'template_name', 'grade', 'grade_name', 'plan_code', 'plan_name', 'plan_type',
             'status', 'total_due', 'total_paid', 'balance_due', 'overdue_amount',
             'registration_amount', 'due_day', 'start_date', 'next_due_date', 'last_payment_date',
             'last_restructure_date', 'closed_at', 'version', 'source_label', 'notes',
@@ -188,7 +189,7 @@ class StudentFeeAccountCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = StudentFeeAccount
         fields = [
-            'student', 'template', 'plan_code', 'plan_name', 'plan_type', 'total_due',
+            'student', 'template', 'grade', 'plan_code', 'plan_name', 'plan_type', 'total_due',
             'registration_amount', 'due_day', 'start_date', 'next_due_date', 'notes',
             'plan_snapshot', 'source_label', 'first_installment_date'
     ]
