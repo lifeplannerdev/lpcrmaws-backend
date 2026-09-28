@@ -666,9 +666,10 @@ class ProcessingStudent(models.Model):
 
     FILE_STATUS_CHOICES = [
         ('Active', 'Active'),
-        ('Cancelled by the student', 'Cancelled by the student'),
-        ('File closed', 'File closed'),
-        ('File on Hold', 'File on Hold'),
+        ('On Hold', 'On Hold'),
+        ('Cancelled by Student', 'Cancelled by Student'),
+        ('No Response from Student', 'No Response from Student'),
+        ('File Closed forever', 'File Closed forever'),
     ]
     student_file_status = models.CharField(max_length=50, choices=FILE_STATUS_CHOICES, default='Active')
 
