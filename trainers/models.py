@@ -664,6 +664,14 @@ class ProcessingStudent(models.Model):
     university = models.CharField(max_length=200, blank=True, null=True)
     intake = models.CharField(max_length=100, blank=True, null=True)
 
+    FILE_STATUS_CHOICES = [
+        ('Active', 'Active'),
+        ('Cancelled by the student', 'Cancelled by the student'),
+        ('File closed', 'File closed'),
+        ('File on Hold', 'File on Hold'),
+    ]
+    student_file_status = models.CharField(max_length=50, choices=FILE_STATUS_CHOICES, default='Active')
+
     REG_FEE_STATUS_CHOICES = [
         ('Pending', 'Pending'),
         ('Paid without gst', 'Paid without gst'),
