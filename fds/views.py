@@ -218,7 +218,7 @@ class FdsBatchViewSet(viewsets.ModelViewSet):
         qs = FdsBatch.objects.select_related('trainer').all()
         if fds_admin_all(self.request.user):
             branch = self.request.query_params.get('branch')
-            if branch:
+            if branch and branch.upper() in ('KOCHI', 'KOTTAYAM'):
                 qs = qs.filter(branch=branch.upper())
         else:
             qs = qs.filter(branch=get_user_branch(self.request.user))
@@ -278,7 +278,7 @@ class FdsEnquiryViewSet(viewsets.ModelViewSet):
         if fds_admin_all(self.request.user):
             location = self.request.query_params.get('location')
             branch = self.request.query_params.get('branch')
-            if branch:
+            if branch and branch.upper() in ('KOCHI', 'KOTTAYAM'):
                 qs = qs.filter(branch=branch.upper())
             elif location:
                 qs = qs.filter(location__icontains=location)
@@ -489,7 +489,7 @@ class FdsTrialViewSet(viewsets.ModelViewSet):
         if fds_admin_all(self.request.user):
             location = self.request.query_params.get('location')
             branch = self.request.query_params.get('branch')
-            if branch:
+            if branch and branch.upper() in ('KOCHI', 'KOTTAYAM'):
                 qs = qs.filter(branch=branch.upper())
             elif location:
                 qs = qs.filter(location__icontains=location)
@@ -626,7 +626,7 @@ class FdsStudentViewSet(viewsets.ModelViewSet):
         if fds_admin_all(self.request.user):
             trainer_id = self.request.query_params.get('trainer')
             branch = self.request.query_params.get('branch')
-            if branch:
+            if branch and branch.upper() in ('KOCHI', 'KOTTAYAM'):
                 qs = qs.filter(branch=branch.upper())
             if trainer_id:
                 qs = qs.filter(batch__trainer_id=trainer_id)
@@ -826,7 +826,7 @@ class FdsWeddingGroupViewSet(viewsets.ModelViewSet):
         if fds_admin_all(self.request.user):
             trainer_id = self.request.query_params.get('trainer')
             branch = self.request.query_params.get('branch')
-            if branch:
+            if branch and branch.upper() in ('KOCHI', 'KOTTAYAM'):
                 qs = qs.filter(branch=branch.upper())
             if trainer_id:
                 qs = qs.filter(trainer_id=trainer_id)
@@ -879,7 +879,7 @@ class FdsAttendanceViewSet(viewsets.ModelViewSet):
         if fds_admin_all(self.request.user):
             trainer_id = self.request.query_params.get('trainer')
             branch = self.request.query_params.get('branch')
-            if branch:
+            if branch and branch.upper() in ('KOCHI', 'KOTTAYAM'):
                 qs = qs.filter(batch__branch=branch.upper())
             if trainer_id:
                 qs = qs.filter(batch__trainer_id=trainer_id)
@@ -1063,7 +1063,7 @@ class FdsStudentFeeAccountViewSet(viewsets.ModelViewSet):
         if fds_admin_all(self.request.user):
             trainer_id = self.request.query_params.get('trainer')
             branch = self.request.query_params.get('branch')
-            if branch:
+            if branch and branch.upper() in ('KOCHI', 'KOTTAYAM'):
                 qs = qs.filter(student__branch=branch.upper())
             if trainer_id:
                 qs = qs.filter(student__batch__trainer_id=trainer_id)
@@ -1324,11 +1324,16 @@ class FdsStudentFeeAccountViewSet(viewsets.ModelViewSet):
 
         qs = FdsStudent.objects.filter(is_active=True, fee_account__isnull=True).select_related('batch', 'fee_structure')
         if fds_admin_all(request.user):
+            branch = request.query_params.get('branch')
+            if branch and branch.upper() in ('KOCHI', 'KOTTAYAM'):
+                qs = qs.filter(branch=branch.upper())
             trainer_id = request.query_params.get('trainer')
             if trainer_id:
                 qs = qs.filter(batch__trainer_id=trainer_id)
         elif fds_admin_own(request.user):
             qs = qs.filter(created_by=request.user)
+        else:
+            qs = qs.filter(branch=get_user_branch(request.user))
         search = request.query_params.get('search')
         if search:
             qs = qs.filter(Q(name__icontains=search) | Q(student_id__icontains=search) | Q(contact_no__icontains=search))
@@ -1362,7 +1367,14 @@ class FdsStudentFeeAccountViewSet(viewsets.ModelViewSet):
         total_balance = qs.aggregate(t=Sum('balance_due'))['t'] or Decimal('0')
         total_overdue = qs.aggregate(t=Sum('overdue_amount'))['t'] or Decimal('0')
 
-        pending_count = FdsStudent.objects.filter(is_active=True, fee_account__isnull=True).count()
+        pending_qs = FdsStudent.objects.filter(is_active=True, fee_account__isnull=True)
+        if fds_admin_all(request.user):
+            branch = request.query_params.get('branch')
+            if branch and branch.upper() in ('KOCHI', 'KOTTAYAM'):
+                pending_qs = pending_qs.filter(branch=branch.upper())
+        else:
+            pending_qs = pending_qs.filter(branch=get_user_branch(request.user))
+        pending_count = pending_qs.count()
 
         return Response({
             'totalDue': float(total_billed),
@@ -1411,7 +1423,7 @@ class FdsFeesCollectionViewSet(viewsets.ModelViewSet):
         )
         if fds_admin_all(self.request.user) or fds_fees_access(self.request.user):
             branch = self.request.query_params.get('branch')
-            if branch:
+            if branch and branch.upper() in ('KOCHI', 'KOTTAYAM'):
                 qs = qs.filter(Q(student__branch=branch.upper()) | Q(wedding_group__branch=branch.upper()))
         else:
             user_branch = get_user_branch(self.request.user)
@@ -1579,17 +1591,34 @@ class FdsDashboardView(APIView):
         enquiries = FdsEnquiry.objects.all()
         trials = FdsTrial.objects.all()
         payments = FdsFeesCollection.objects.all()
-        if not fds_admin_all(request.user):
+        wedding_groups = FdsWeddingGroup.objects.filter(status__in=['CONFIRMED', 'IN_PROGRESS'])
+
+        active_branch = 'ALL'
+        if fds_admin_all(request.user):
+            branch_param = request.query_params.get('branch', 'ALL').strip().upper()
+            if branch_param in ('KOCHI', 'KOTTAYAM'):
+                active_branch = branch_param
+                students = students.filter(branch=active_branch)
+                batches = batches.filter(branch=active_branch)
+                enquiries = enquiries.filter(branch=active_branch)
+                trials = trials.filter(branch=active_branch)
+                payments = payments.filter(Q(student__branch=active_branch) | Q(wedding_group__branch=active_branch))
+                wedding_groups = wedding_groups.filter(branch=active_branch)
+        else:
             user_branch = get_user_branch(request.user)
+            active_branch = user_branch
             students = students.filter(branch=user_branch)
             batches = batches.filter(branch=user_branch)
             enquiries = enquiries.filter(branch=user_branch)
             trials = trials.filter(branch=user_branch)
             payments = payments.filter(Q(student__branch=user_branch) | Q(wedding_group__branch=user_branch))
+            wedding_groups = wedding_groups.filter(branch=user_branch)
             if getattr(request.user, 'role', None) == 'TRAINER':
                 batches = batches.filter(trainer=request.user)
 
         response = {
+            'branch': active_branch,
+            'is_global': active_branch == 'ALL',
             'students': {
                 'total_active': students.count(),
                 'by_category': {
@@ -1628,7 +1657,7 @@ class FdsDashboardView(APIView):
                 'pending_count': payments.filter(status='PENDING').count(),
             },
             'wedding_groups': {
-                'total_active': FdsWeddingGroup.objects.filter(status__in=['CONFIRMED', 'IN_PROGRESS']).count(),
+                'total_active': wedding_groups.count(),
             }
         }
         return Response(response)

@@ -313,21 +313,38 @@ def _date_filter(qs, request):
     from django.utils import timezone
     from datetime import timedelta, datetime as dt_class
 
-    preset = request.query_params.get("date_preset")
-    from_str = request.query_params.get("from") or request.query_params.get("start_date")
-    to_str   = request.query_params.get("to") or request.query_params.get("end_date")
+    params = getattr(request, 'query_params', getattr(request, 'GET', {}))
+    preset = params.get("date_preset")
+    from_str = params.get("from") or params.get("start_date")
+    to_str   = params.get("to") or params.get("end_date")
 
+    has_call_start = hasattr(qs.model, 'call_start')
     today = timezone.now().date()
+
     if preset == 'today':
+        if has_call_start:
+            return qs.filter(Q(call_start__date=today) | Q(call_start__isnull=True, created_at__date=today))
         return qs.filter(created_at__date=today)
     elif preset == 'yesterday':
         y = today - timedelta(days=1)
+        if has_call_start:
+            return qs.filter(Q(call_start__date=y) | Q(call_start__isnull=True, created_at__date=y))
         return qs.filter(created_at__date=y)
     elif preset == 'this_week':
         start = today - timedelta(days=today.weekday())
+        if has_call_start:
+            return qs.filter(
+                Q(call_start__date__gte=start, call_start__date__lte=today) |
+                Q(call_start__isnull=True, created_at__date__gte=start, created_at__date__lte=today)
+            )
         return qs.filter(created_at__date__gte=start, created_at__date__lte=today)
     elif preset == 'this_month':
         start = today.replace(day=1)
+        if has_call_start:
+            return qs.filter(
+                Q(call_start__date__gte=start, call_start__date__lte=today) |
+                Q(call_start__isnull=True, created_at__date__gte=start, created_at__date__lte=today)
+            )
         return qs.filter(created_at__date__gte=start, created_at__date__lte=today)
 
     def _parse(s, is_end=False):
@@ -344,11 +361,17 @@ def _date_filter(qs, request):
     if from_str:
         dt = _parse(from_str, is_end=False)
         if dt:
-            qs = qs.filter(created_at__gte=dt)
+            if has_call_start:
+                qs = qs.filter(Q(call_start__gte=dt) | Q(call_start__isnull=True, created_at__gte=dt))
+            else:
+                qs = qs.filter(created_at__gte=dt)
     if to_str:
         dt = _parse(to_str, is_end=True)
         if dt:
-            qs = qs.filter(created_at__lte=dt)
+            if has_call_start:
+                qs = qs.filter(Q(call_start__lte=dt) | Q(call_start__isnull=True, created_at__lte=dt))
+            else:
+                qs = qs.filter(created_at__lte=dt)
     return qs
 
 
@@ -911,23 +934,64 @@ class CallStatsView(APIView):
         incoming    = qs.filter(call_type="incoming").count()
         outgoing    = qs.filter(call_type="outgoing").count()
 
+        inc_qs = qs.filter(call_type="incoming")
+        out_qs = qs.filter(call_type="outgoing")
+
+        incoming_answered   = inc_qs.filter(call_status="ANSWERED").count()
+        incoming_missed     = inc_qs.filter(call_status__in=["NOANSWER", "CANCEL", "MISSED"]).count()
+
+        outgoing_answered   = out_qs.filter(call_status="ANSWERED").count()
+        outgoing_missed     = out_qs.filter(call_status__in=["NOANSWER", "MISSED"]).count()
+        outgoing_busy       = out_qs.filter(call_status="BUSY").count()
+        outgoing_congestion = out_qs.filter(call_status="CONGESTION").count()
+        outgoing_chanunavail= out_qs.filter(call_status="CHANUNAVAIL").count()
+        outgoing_cancel     = out_qs.filter(call_status="CANCEL").count()
+
         avg_result = qs.filter(
             call_status="ANSWERED",
             duration__isnull=False,
         ).aggregate(avg=Avg("duration"))
         avg_duration = round(avg_result["avg"], 1) if avg_result["avg"] else 0.0
 
+        # Hourly breakdown over qs for Calls by Hour chart
+        hour_counts = {i: 0 for i in range(24)}
+        for call_time in qs.values_list('call_start', 'created_at'):
+            t = call_time[0] or call_time[1]
+            if t:
+                from django.utils import timezone
+                local_t = timezone.localtime(t) if timezone.is_aware(t) else t
+                h = local_t.hour
+                hour_counts[h] = hour_counts.get(h, 0) + 1
+
+        calls_by_hour = [
+            {
+                "label": "12 AM" if i == 0 else f"{i} AM" if i < 12 else "12 PM" if i == 12 else f"{i-12} PM",
+                "calls": hour_counts.get(i, 0),
+                "h": i,
+            }
+            for i in range(24)
+        ]
+
         data = {
-            "total":        total,
-            "answered":     answered,
-            "missed":       missed,
-            "busy":         busy,
-            "congestion":   congestion,
-            "chanunavail":  chanunavail,
-            "incoming":     incoming,
-            "outgoing":     outgoing,
-            "avg_duration": avg_duration,
-            "success_rate": round(answered / total * 100, 1) if total else 0.0,
+            "total":                total,
+            "answered":             answered,
+            "missed":               missed,
+            "busy":                 busy,
+            "congestion":           congestion,
+            "chanunavail":          chanunavail,
+            "incoming":             incoming,
+            "outgoing":             outgoing,
+            "avg_duration":         avg_duration,
+            "success_rate":         round(answered / total * 100, 1) if total else 0.0,
+            "incoming_answered":    incoming_answered,
+            "incoming_missed":      incoming_missed,
+            "outgoing_answered":    outgoing_answered,
+            "outgoing_missed":      outgoing_missed,
+            "outgoing_busy":        outgoing_busy,
+            "outgoing_congestion":  outgoing_congestion,
+            "outgoing_chanunavail": outgoing_chanunavail,
+            "outgoing_cancel":      outgoing_cancel,
+            "calls_by_hour":        calls_by_hour,
         }
 
         serializer = CallStatsSerializer(data)

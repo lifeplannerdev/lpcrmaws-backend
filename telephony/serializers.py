@@ -131,6 +131,15 @@ class CallStatsSerializer(serializers.Serializer):
     outgoing     = serializers.IntegerField()
     avg_duration = serializers.FloatField()
     success_rate = serializers.FloatField()
+    incoming_answered   = serializers.IntegerField(required=False, default=0)
+    incoming_missed     = serializers.IntegerField(required=False, default=0)
+    outgoing_answered   = serializers.IntegerField(required=False, default=0)
+    outgoing_missed     = serializers.IntegerField(required=False, default=0)
+    outgoing_busy       = serializers.IntegerField(required=False, default=0)
+    outgoing_congestion = serializers.IntegerField(required=False, default=0)
+    outgoing_chanunavail = serializers.IntegerField(required=False, default=0)
+    outgoing_cancel     = serializers.IntegerField(required=False, default=0)
+    calls_by_hour       = serializers.ListField(required=False, default=list)
 
 
 class ClickToCallSerializer(serializers.Serializer):
