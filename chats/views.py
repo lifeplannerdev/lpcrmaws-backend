@@ -134,7 +134,7 @@ class CreateDirectConversationView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        other_user = get_object_or_404(User, id=other_user_id)
+        other_user = get_object_or_404(User, id=other_user_id, is_active=True)
 
         if other_user == request.user:
             return Response(
@@ -233,7 +233,7 @@ class CreateGroupConversationView(APIView):
             created_by=request.user
         )
 
-        users = User.objects.filter(id__in=user_ids)
+        users = User.objects.filter(id__in=user_ids, is_active=True)
         conversation.participants.add(request.user, *users)
 
         # 🔔 Notify each added member
@@ -251,7 +251,7 @@ class EmployeeListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        users = User.objects.prefetch_related('db_roles').all()
+        users = User.objects.filter(is_active=True).prefetch_related('db_roles').order_by('username')
         # Exclude the requesting user
         # users = users.exclude(id=request.user.id) # Already handled in frontend possibly, but fine.
         from .serializers import UserSerializer

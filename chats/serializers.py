@@ -10,7 +10,7 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ["id", "username", "role"]
+        fields = ["id", "username", "role", "is_active"]
 
     def get_role(self, obj):
         first_role = obj.db_roles.first()
