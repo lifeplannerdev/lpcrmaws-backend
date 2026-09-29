@@ -652,10 +652,13 @@ class ConvertWebhookToLeadAPIView(APIView):
 class ExportLeadsExcelView(LeadListView):
     """
     Exports filtered leads to an Excel file.
-    Takes the same query parameters as LeadListView.
+    Takes the same query parameters as LeadListView, plus support for
+    Lead Command Centre filters (employee_status, active_pipeline_only, etc.)
+    and explicit lead_ids for selected leads. Supports both GET and POST.
     """
     pagination_class = None
     filter_backends = [
+        DjangoFilterBackend,
         filters.SearchFilter,
         filters.OrderingFilter,
         CompanyFilterBackend,
@@ -669,14 +672,15 @@ class ExportLeadsExcelView(LeadListView):
         )
 
         from accounts.permissions import has_dynamic_permission
-        from leads.permissions import FULL_ACCESS_ROLES
         is_elevated = (
             is_full_access_or_manager(user) or
             user.db_roles.filter(name__in=['CM', 'BDM']).exists() or 
             has_dynamic_permission(user, 'leads:read_any') or 
             has_dynamic_permission(user, 'leads:read_tenant') or
             has_dynamic_permission(user, 'reports:sales_all') or
-            has_dynamic_permission(user, 'staff_analysis:admin')
+            has_dynamic_permission(user, 'staff_analysis:admin') or
+            has_dynamic_permission(user, 'leads:assign') or
+            user.is_superuser
         )
         if is_elevated:
             perm_qs = base_qs.all()
@@ -688,104 +692,207 @@ class ExportLeadsExcelView(LeadListView):
         return perm_qs.distinct()
 
     def get(self, request, *args, **kwargs):
+        return self._generate_excel_export(request)
+
+    def post(self, request, *args, **kwargs):
+        return self._generate_excel_export(request)
+
+    def _generate_excel_export(self, request):
         import io
         from datetime import datetime as dt_cls
         from django.http import HttpResponse
         from openpyxl.styles import PatternFill, Font, Alignment
-        
-        # Base queryset
+
+        params = {}
+        if hasattr(request, 'query_params'):
+            params.update(request.query_params.dict())
+        if hasattr(request, 'data') and isinstance(request.data, dict):
+            if 'filters' in request.data and isinstance(request.data['filters'], dict):
+                params.update(request.data['filters'])
+            params.update(request.data)
+
         queryset = self.get_queryset()
 
-        # Date filtering
-        date_preset = request.query_params.get('date_preset')
-        start_date = request.query_params.get('start_date')
-        end_date = request.query_params.get('end_date')
-        tz = timezone.get_current_timezone()
-        now = timezone.localtime(timezone.now())
-        today = now.date()
+        # 1. Explicit lead IDs selection
+        lead_ids = params.get('lead_ids')
+        if isinstance(lead_ids, str):
+            lead_ids = [int(x.strip()) for x in lead_ids.split(',') if x.strip().isdigit()]
+        if isinstance(lead_ids, (list, tuple, set)) and len(lead_ids) > 0:
+            queryset = queryset.filter(id__in=lead_ids)
+        else:
+            # 2. Employee status (active / inactive / unassigned)
+            emp_status = params.get('employee_status')
+            if emp_status == 'active':
+                queryset = queryset.filter(assigned_to__isnull=False, assigned_to__is_active=True)
+            elif emp_status == 'inactive':
+                queryset = queryset.filter(assigned_to__isnull=False, assigned_to__is_active=False)
+            elif emp_status == 'unassigned':
+                queryset = queryset.filter(assigned_to__isnull=True)
+            elif emp_status == 'inactive_or_unassigned':
+                queryset = queryset.filter(models.Q(assigned_to__is_active=False) | models.Q(assigned_to__isnull=True))
 
-        if date_preset == 'today':
-            start_dt = timezone.make_aware(dt_cls.combine(today, dt_cls.min.time()), tz)
-            queryset = queryset.filter(created_at__gte=start_dt, created_at__lte=now)
-        elif date_preset == 'yesterday':
-            yesterday = today - timezone.timedelta(days=1)
-            start_dt = timezone.make_aware(dt_cls.combine(yesterday, dt_cls.min.time()), tz)
-            end_dt = timezone.make_aware(dt_cls.combine(yesterday, dt_cls.max.time()), tz)
-            queryset = queryset.filter(created_at__gte=start_dt, created_at__lte=end_dt)
-        elif date_preset == 'this_week':
-            start_week = today - timezone.timedelta(days=today.weekday())
-            start_dt = timezone.make_aware(dt_cls.combine(start_week, dt_cls.min.time()), tz)
-            queryset = queryset.filter(created_at__gte=start_dt, created_at__lte=now)
-        elif date_preset == 'this_month':
-            start_month = today.replace(day=1)
-            start_dt = timezone.make_aware(dt_cls.combine(start_month, dt_cls.min.time()), tz)
-            queryset = queryset.filter(created_at__gte=start_dt, created_at__lte=now)
-        elif date_preset == 'last_month':
-            first_this_month = today.replace(day=1)
-            last_month_end = first_this_month - timezone.timedelta(days=1)
-            first_last_month = last_month_end.replace(day=1)
-            start_dt = timezone.make_aware(dt_cls.combine(first_last_month, dt_cls.min.time()), tz)
-            end_dt = timezone.make_aware(dt_cls.combine(first_this_month, dt_cls.min.time()), tz)
-            queryset = queryset.filter(created_at__gte=start_dt, created_at__lt=end_dt)
-        elif date_preset == 'custom' or (start_date and end_date):
-            if start_date:
-                s_date = dt_cls.strptime(start_date, '%Y-%m-%d').date() if isinstance(start_date, str) else start_date
-                start_dt = timezone.make_aware(dt_cls.combine(s_date, dt_cls.min.time()), tz)
-                queryset = queryset.filter(created_at__gte=start_dt)
-            if end_date:
-                e_date = dt_cls.strptime(end_date, '%Y-%m-%d').date() if isinstance(end_date, str) else end_date
-                end_dt = timezone.make_aware(dt_cls.combine(e_date, dt_cls.max.time()), tz)
-                queryset = queryset.filter(created_at__lte=end_dt)
-
-        # Status filtering (comma-separated or single)
-        status_param = request.query_params.get('status')
-        if status_param and status_param != 'all':
-            statuses = [s.strip().upper() for s in status_param.split(',') if s.strip() and s.strip().upper() != 'ALL']
-            if statuses:
-                queryset = queryset.filter(status__in=statuses)
-
-        # Source filtering (comma-separated or single)
-        source_param = request.query_params.get('source')
-        if source_param and source_param != 'all':
-            sources = [s.strip() for s in source_param.split(',') if s.strip() and s.strip().lower() != 'all']
-            if sources:
-                source_q = models.Q()
-                for src in sources:
-                    if src.lower() == 'voxbay':
-                        source_q |= models.Q(source__icontains='voxbay')
-                    else:
-                        source_q |= models.Q(source__iexact=src)
-                queryset = queryset.filter(source_q)
-
-        # Call type filtering
-        call_type_param = request.query_params.get('call_type')
-        if call_type_param and call_type_param != 'all':
-            ct = call_type_param.lower()
-            if ct == 'incoming':
-                queryset = queryset.filter(
-                    models.Q(voxbay_status__icontains='inbound') |
-                    models.Q(voxbay_status__icontains='incoming')
-                )
-            elif ct == 'outgoing':
-                queryset = queryset.filter(
-                    models.Q(voxbay_status__icontains='outbound') |
-                    models.Q(voxbay_status__icontains='outgoing') |
-                    models.Q(source__icontains='voxbay')
+            # 3. Active pipeline only (exclude closed / converted / lost / legacy terminal)
+            if str(params.get('active_pipeline_only')).lower() in ('true', '1') or str(params.get('exclude_closed_converted')).lower() in ('true', '1'):
+                queryset = queryset.exclude(
+                    status__in=[
+                        'CLOSED', 'CONVERTED', 'REGISTERED', 'LOST', 'NOT_INTERESTED', 'CNR',
+                        'closed', 'converted', 'registered', 'lost', 'not_interested', 'not interested', 'cnr', 'could not reach'
+                    ]
                 )
 
-        # Apply standard filters (search, priority, staff, etc.)
-        queryset = self.filter_queryset(queryset).prefetch_related(
-            models.Prefetch('followups', queryset=FollowUp.objects.order_by('-created_at')),
-            models.Prefetch('remark_history', queryset=RemarkHistory.objects.order_by('-changed_at'))
-        )
-        
+            # 4. Assigned staff
+            assigned_to = params.get('assigned_to')
+            if assigned_to and assigned_to != 'all':
+                if str(assigned_to).lower() == 'unassigned' or str(params.get('assigned_to__isnull')).lower() in ('true', '1'):
+                    queryset = queryset.filter(assigned_to__isnull=True)
+                else:
+                    queryset = queryset.filter(assigned_to_id=assigned_to)
+
+            # 5. Dates
+            date_preset = params.get('date_preset')
+            start_date = params.get('start_date') or params.get('created_at__gte')
+            end_date = params.get('end_date') or params.get('created_at__lte')
+            tz = timezone.get_current_timezone()
+            now = timezone.localtime(timezone.now())
+            today = now.date()
+
+            if date_preset == 'today':
+                start_dt = timezone.make_aware(dt_cls.combine(today, dt_cls.min.time()), tz)
+                queryset = queryset.filter(created_at__gte=start_dt, created_at__lte=now)
+            elif date_preset == 'yesterday':
+                yesterday = today - timezone.timedelta(days=1)
+                start_dt = timezone.make_aware(dt_cls.combine(yesterday, dt_cls.min.time()), tz)
+                end_dt = timezone.make_aware(dt_cls.combine(yesterday, dt_cls.max.time()), tz)
+                queryset = queryset.filter(created_at__gte=start_dt, created_at__lte=end_dt)
+            elif date_preset == 'this_week':
+                start_week = today - timezone.timedelta(days=today.weekday())
+                start_dt = timezone.make_aware(dt_cls.combine(start_week, dt_cls.min.time()), tz)
+                queryset = queryset.filter(created_at__gte=start_dt, created_at__lte=now)
+            elif date_preset == 'this_month':
+                start_month = today.replace(day=1)
+                start_dt = timezone.make_aware(dt_cls.combine(start_month, dt_cls.min.time()), tz)
+                queryset = queryset.filter(created_at__gte=start_dt, created_at__lte=now)
+            elif date_preset == 'last_month':
+                first_this_month = today.replace(day=1)
+                last_month_end = first_this_month - timezone.timedelta(days=1)
+                first_last_month = last_month_end.replace(day=1)
+                start_dt = timezone.make_aware(dt_cls.combine(first_last_month, dt_cls.min.time()), tz)
+                end_dt = timezone.make_aware(dt_cls.combine(first_this_month, dt_cls.min.time()), tz)
+                queryset = queryset.filter(created_at__gte=start_dt, created_at__lt=end_dt)
+            elif date_preset == 'custom' or (start_date or end_date):
+                if start_date:
+                    s_date = dt_cls.strptime(str(start_date)[:10], '%Y-%m-%d').date() if isinstance(start_date, str) else start_date
+                    start_dt = timezone.make_aware(dt_cls.combine(s_date, dt_cls.min.time()), tz)
+                    queryset = queryset.filter(created_at__gte=start_dt)
+                if end_date:
+                    e_date = dt_cls.strptime(str(end_date)[:10], '%Y-%m-%d').date() if isinstance(end_date, str) else end_date
+                    end_dt = timezone.make_aware(dt_cls.combine(e_date, dt_cls.max.time()), tz)
+                    queryset = queryset.filter(created_at__lte=end_dt)
+
+            # 6. Follow-up filters
+            followup_date = params.get('followup_date')
+            if followup_date:
+                queryset = queryset.filter(followups__follow_up_date=followup_date, followups__status='pending')
+
+            if str(params.get('overdue')).lower() in ('true', '1'):
+                queryset = queryset.filter(followups__follow_up_date__lt=today, followups__status='pending')
+
+            if str(params.get('has_pending_followup')).lower() in ('true', '1'):
+                queryset = queryset.filter(followups__status='pending')
+
+            # 7. Status filtering (supporting comma-separated, single, and legacy normalization)
+            status_param = params.get('status')
+            if status_param and str(status_param).lower() != 'all':
+                statuses = [s.strip() for s in str(status_param).split(',') if s.strip() and s.strip().upper() != 'ALL']
+                if statuses:
+                    status_q = models.Q()
+                    for s in statuses:
+                        s_clean = s.strip().upper().replace(' ', '_')
+                        if s_clean in ['NOT_INTERESTED', 'NOTINTERESTED']:
+                            status_q |= (
+                                models.Q(status__iexact='NOT_INTERESTED') |
+                                models.Q(status__iexact='not interested') |
+                                models.Q(status__iexact='not_interested') |
+                                models.Q(status__iexact='NOT INTERESTED')
+                            )
+                        elif s_clean in ['CNR', 'COULD_NOT_REACH', 'COULDNOTREACH']:
+                            status_q |= (
+                                models.Q(status__iexact='CNR') |
+                                models.Q(status__iexact='could not reach') |
+                                models.Q(status__iexact='could_not_reach') |
+                                models.Q(status__iexact='COULD NOT REACH')
+                            )
+                        else:
+                            status_q |= models.Q(status__iexact=s) | models.Q(status__iexact=s_clean)
+                    queryset = queryset.filter(status_q)
+
+            # 8. Source filtering
+            source_param = params.get('source')
+            if source_param and str(source_param).lower() != 'all':
+                sources = [s.strip() for s in str(source_param).split(',') if s.strip() and s.strip().lower() != 'all']
+                if sources:
+                    source_q = models.Q()
+                    for src in sources:
+                        if src.lower() == 'voxbay':
+                            source_q |= models.Q(source__icontains='voxbay')
+                        else:
+                            source_q |= models.Q(source__iexact=src)
+                    queryset = queryset.filter(source_q)
+
+            # 9. Priority filtering
+            priority_param = params.get('priority')
+            if priority_param and str(priority_param).lower() != 'all':
+                queryset = queryset.filter(priority__iexact=priority_param.strip())
+
+            # 10. Company filtering
+            company_param = params.get('company')
+            if company_param and str(company_param).lower() != 'all':
+                queryset = queryset.filter(company__iexact=company_param.strip())
+
+            # 11. Search query
+            search_param = params.get('search')
+            if search_param:
+                sp = search_param.strip()
+                queryset = queryset.filter(
+                    models.Q(name__icontains=sp) |
+                    models.Q(phone__icontains=sp) |
+                    models.Q(email__icontains=sp) |
+                    models.Q(program__icontains=sp) |
+                    models.Q(campaign_name__icontains=sp)
+                )
+
+            # 12. Call type filtering
+            call_type_param = params.get('call_type')
+            if call_type_param and str(call_type_param).lower() != 'all':
+                ct = call_type_param.lower()
+                if ct == 'incoming':
+                    queryset = queryset.filter(
+                        models.Q(voxbay_status__icontains='inbound') |
+                        models.Q(voxbay_status__icontains='incoming')
+                    )
+                elif ct == 'outgoing':
+                    queryset = queryset.filter(
+                        models.Q(voxbay_status__icontains='outbound') |
+                        models.Q(voxbay_status__icontains='outgoing') |
+                        models.Q(source__icontains='voxbay')
+                    )
+
+        queryset = queryset.distinct()
+        total_leads = queryset.count()
+
+        # Prefetch related data
+        if total_leads <= 4000:
+            queryset = queryset.prefetch_related(
+                models.Prefetch('followups', queryset=FollowUp.objects.order_by('-created_at')),
+                models.Prefetch('remark_history', queryset=RemarkHistory.objects.order_by('-changed_at'))
+            )
+
         leads_data = []
         remarks_data = []
         followups_data = []
 
         for lead in queryset:
-            # Main Leads Sheet Data
-            latest_fup = lead.followups.first()
+            latest_fup = lead.followups.first() if hasattr(lead, 'followups') else None
             call_type = 'unknown'
             if lead.voxbay_status:
                 vs = lead.voxbay_status.lower()
@@ -793,47 +900,65 @@ class ExportLeadsExcelView(LeadListView):
                 elif 'outbound' in vs or 'outgoing' in vs: call_type = 'outgoing'
             elif lead.source and 'VOXBAY' in lead.source.upper():
                 call_type = 'outgoing'
-                
+
+            assigned_staff_name = lead.assigned_to.get_full_name() if lead.assigned_to else 'Unassigned'
+            assigned_staff_status = ('Active' if lead.assigned_to.is_active else 'Inactive') if lead.assigned_to else 'Unassigned'
+
             leads_data.append({
                 'ID': lead.id,
-                'Name': lead.name,
-                'Phone': lead.phone,
-                'Email': lead.email,
-                'Status': lead.status,
+                'Name': lead.name or '',
+                'Phone': lead.phone or '',
+                'Email': lead.email or '',
+                'Status': lead.status or '',
+                'Priority': lead.priority or '',
+                'Company': lead.company or '',
+                'Source': lead.source or '',
+                'Campaign': lead.campaign_name or '',
+                'Program / Course': lead.program or lead.interested_course or '',
                 'Call Type': call_type,
-                'Latest Remarks': lead.remarks,
+                'Assigned To': assigned_staff_name,
+                'Staff Status': assigned_staff_status,
+                'Latest Remarks': lead.remarks or '',
                 'Latest Followup Date': latest_fup.follow_up_date.strftime('%Y-%m-%d') if latest_fup and latest_fup.follow_up_date else None,
                 'Latest Followup Status': latest_fup.status if latest_fup else None,
-                'Source': lead.source,
-                'Assigned To': lead.assigned_to.get_full_name() if lead.assigned_to else None,
                 'Created At': lead.created_at.replace(tzinfo=None) if lead.created_at else None,
             })
-            
-            # Remarks History Data
-            for rm in lead.remark_history.all():
-                remarks_data.append({
-                    'Lead ID': lead.id,
-                    'Lead Name': lead.name,
-                    'Previous Remarks': rm.previous_remarks,
-                    'New Remarks': rm.new_remarks,
-                    'Changed By': rm.changed_by.get_full_name() if rm.changed_by else 'System',
-                    'Changed At': rm.changed_at.replace(tzinfo=None) if rm.changed_at else None,
-                })
-                
-            # Followups History Data
-            for fup in lead.followups.all():
-                followups_data.append({
-                    'Lead ID': lead.id,
-                    'Lead Name': lead.name,
-                    'Follow-up Date': fup.follow_up_date.strftime('%Y-%m-%d') if fup.follow_up_date else None,
-                    'Type': fup.followup_type,
-                    'Status': fup.status,
-                    'Notes': fup.notes,
-                    'Assigned To': fup.assigned_to.get_full_name() if fup.assigned_to else None,
-                    'Created At': fup.created_at.replace(tzinfo=None) if fup.created_at else None,
-                })
-                
-        leads_cols = ['ID', 'Name', 'Phone', 'Email', 'Status', 'Call Type', 'Latest Remarks', 'Latest Followup Date', 'Latest Followup Status', 'Source', 'Assigned To', 'Created At']
+
+            # Cap history sheets at 5000 rows across file to ensure fast generation & low memory
+            if len(remarks_data) < 5000 and hasattr(lead, 'remark_history'):
+                for rm in lead.remark_history.all():
+                    remarks_data.append({
+                        'Lead ID': lead.id,
+                        'Lead Name': lead.name or '',
+                        'Previous Remarks': rm.previous_remarks or '',
+                        'New Remarks': rm.new_remarks or '',
+                        'Changed By': rm.changed_by.get_full_name() if rm.changed_by else 'System',
+                        'Changed At': rm.changed_at.replace(tzinfo=None) if rm.changed_at else None,
+                    })
+                    if len(remarks_data) >= 5000:
+                        break
+
+            if len(followups_data) < 5000 and hasattr(lead, 'followups'):
+                for fup in lead.followups.all():
+                    followups_data.append({
+                        'Lead ID': lead.id,
+                        'Lead Name': lead.name or '',
+                        'Follow-up Date': fup.follow_up_date.strftime('%Y-%m-%d') if fup.follow_up_date else None,
+                        'Type': fup.followup_type or '',
+                        'Status': fup.status or '',
+                        'Notes': fup.notes or '',
+                        'Assigned To': fup.assigned_to.get_full_name() if fup.assigned_to else None,
+                        'Created At': fup.created_at.replace(tzinfo=None) if fup.created_at else None,
+                    })
+                    if len(followups_data) >= 5000:
+                        break
+
+        leads_cols = [
+            'ID', 'Name', 'Phone', 'Email', 'Status', 'Priority', 'Company',
+            'Source', 'Campaign', 'Program / Course', 'Call Type',
+            'Assigned To', 'Staff Status', 'Latest Remarks',
+            'Latest Followup Date', 'Latest Followup Status', 'Created At'
+        ]
         remarks_cols = ['Lead ID', 'Lead Name', 'Previous Remarks', 'New Remarks', 'Changed By', 'Changed At']
         fups_cols = ['Lead ID', 'Lead Name', 'Follow-up Date', 'Type', 'Status', 'Notes', 'Assigned To', 'Created At']
 
@@ -846,13 +971,13 @@ class ExportLeadsExcelView(LeadListView):
             df_leads.to_excel(writer, sheet_name='Leads Overview', index=False)
             df_remarks.to_excel(writer, sheet_name='Remarks History', index=False)
             df_fups.to_excel(writer, sheet_name='Follow-ups History', index=False)
-            
+
             workbook = writer.book
-            
+
             # ── Format Leads Sheet ──
             if 'Leads Overview' in workbook.sheetnames:
                 ws_leads = workbook['Leads Overview']
-                
+
                 status_colors = {
                     'ENQUIRY': 'DBEAFE', 'JOB_ENQUIRY': 'E0E7FF', 'B2B': 'EDE9FE',
                     'COLD': 'E0F2FE', 'WARM': 'FEF08A', 'HOT': 'FFEDD5', 'CLOSED': 'FFE4E6',
@@ -860,18 +985,18 @@ class ExportLeadsExcelView(LeadListView):
                     'QUALIFIED': 'F3E8FF', 'NOT_INTERESTED': 'FEE2E2', 'CNR': 'F3F4F6', 'REGISTERED': 'DCFCE7',
                 }
                 fup_status_colors = {'contacted': 'D1FAE5', 'pending': 'FEF3C7', 'not_interested': 'FEE2E2', 'rescheduled': 'DBEAFE'}
-                
+
                 header_font = Font(bold=True, color='FFFFFF')
                 header_fill = PatternFill(start_color='4F46E5', end_color='4F46E5', fill_type='solid')
-                
+
                 for cell in ws_leads[1]:
                     cell.font = header_font
                     cell.fill = header_fill
                     cell.alignment = Alignment(horizontal='center', vertical='center')
-                    
+
                 status_col_idx = df_leads.columns.get_loc('Status') + 1 if 'Status' in df_leads.columns else None
                 fup_col_idx = df_leads.columns.get_loc('Latest Followup Status') + 1 if 'Latest Followup Status' in df_leads.columns else None
-                
+
                 for row_idx, row in enumerate(ws_leads.iter_rows(min_row=2), start=2):
                     if status_col_idx:
                         cell = row[status_col_idx - 1]
@@ -881,14 +1006,14 @@ class ExportLeadsExcelView(LeadListView):
                         cell = row[fup_col_idx - 1]
                         if cell.value in fup_status_colors:
                             cell.fill = PatternFill(start_color=fup_status_colors[cell.value], end_color=fup_status_colors[cell.value], fill_type='solid')
-                            
+
                 # Legend
                 ws_leads.append([])
                 ws_leads.append(['COLOR LEGEND - LEAD STATUS'])
                 for status, hex_code in status_colors.items():
                     ws_leads.append([status])
                     ws_leads.cell(row=ws_leads.max_row, column=1).fill = PatternFill(start_color=hex_code, end_color=hex_code, fill_type='solid')
-                    
+
             for sheet_name in ['Remarks History', 'Follow-ups History']:
                 if sheet_name in workbook.sheetnames:
                     ws = workbook[sheet_name]
