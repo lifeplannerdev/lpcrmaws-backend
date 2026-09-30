@@ -278,34 +278,54 @@ def process_voxbay_call_log(obj):
                     assignment_type='PRIMARY',
                     notes="Auto-assigned on Unanswered Outgoing Voxbay Call"
                 )
+            elif existing_lead.assigned_to != agent_user and existing_lead.sub_assigned_to != agent_user and agent_user:
+                existing_lead.sub_assigned_to = agent_user
+                existing_lead.sub_assigned_date = timezone.now()
+                update_fields.extend(['sub_assigned_to', 'sub_assigned_date'])
+                LeadAssignment.objects.create(
+                    lead=existing_lead,
+                    assigned_to=agent_user,
+                    assigned_by=None,
+                    assignment_type='SUB',
+                    notes=f"Auto-sub-assigned: Outgoing call attempted by {agent_user.username}"
+                )
             existing_lead.save(update_fields=update_fields)
 
         if existing_lead:
             answered_exists = VoxbayCallLog.objects.filter(call_uuid=obj.call_uuid, call_status__in=['ANSWER', 'ANSWERED']).exists()
             if not answered_exists:
-                lead_owner = existing_lead.assigned_to
-                if lead_owner:
+                lead_handler = agent_user or existing_lead.sub_assigned_to or existing_lead.assigned_to
+                duration_str = f"{obj.duration}s" if obj.duration else "0s"
+                call_status_str = obj.call_status or ('Answered' if obj.duration and obj.duration > 0 else 'Missed')
+                summary_lines = [
+                    f"Unanswered {direction_text} Call ({call_status_str})",
+                    f"Duration: {duration_str}"
+                ]
+                if obj.recording_url:
+                    summary_lines.append(f"Recording: {obj.recording_url}")
+                if obj.call_uuid:
+                    summary_lines.append(f"Call UUID: {obj.call_uuid}")
+                unanswered_summary_text = "\n".join(summary_lines)
+
+                existing_fu = None
+                if obj.call_uuid:
                     existing_fu = FollowUp.objects.filter(lead=existing_lead, notes__contains=str(obj.call_uuid)).first()
-                    if existing_fu:
-                        if obj.call_uuid and str(obj.call_uuid) not in existing_fu.notes:
-                            existing_fu.notes = f"{existing_fu.notes.strip()}\nCall UUID: {obj.call_uuid}"
-                            existing_fu.save(update_fields=['notes'])
-                    elif existing_lead.status not in ['CLOSED', 'CONVERTED']:
-                        # Don't create duplicate pending followups if one already exists for this lead
-                        has_pending = FollowUp.objects.filter(lead=existing_lead, status='pending').exists()
-                        if not has_pending:
-                            missed_notes = f"Missed {direction_text} Call\nCall UUID: {obj.call_uuid}" if obj.call_uuid else f"Missed {direction_text} Call"
-                            FollowUp.objects.create(
-                                lead=existing_lead,
-                                name=existing_lead.name if existing_lead else None,
-                                phone_number=existing_lead.phone if existing_lead else (lead_number or ''),
-                                assigned_to=lead_owner,
-                                follow_up_date=timezone.now().date(),
-                                followup_type='call',
-                                status='pending',
-                                priority='low',
-                                notes=missed_notes,
-                            )
+                if existing_fu:
+                    if obj.call_uuid and str(obj.call_uuid) not in (existing_fu.notes or ''):
+                        existing_fu.notes = f"{existing_fu.notes.strip()}\nCall UUID: {obj.call_uuid}"
+                        existing_fu.save(update_fields=['notes'])
+                else:
+                    FollowUp.objects.create(
+                        lead=existing_lead,
+                        name=existing_lead.name if existing_lead else None,
+                        phone_number=existing_lead.phone if existing_lead else (lead_number or ''),
+                        assigned_to=lead_handler,
+                        follow_up_date=timezone.now().date(),
+                        followup_type='call',
+                        status='contacted',
+                        priority='low',
+                        notes=unanswered_summary_text,
+                    )
 
 
 

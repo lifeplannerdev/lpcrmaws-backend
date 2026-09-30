@@ -106,15 +106,49 @@ class LeadListView(generics.ListAPIView):
                 target_date = timezone.localtime(timezone.now()).date()
             
             from django.db.models import Exists, OuterRef, Q
-            return perm_qs.filter(
+            from telephony.models import VoxbayCallLog
+            import re
+
+            # Collect phones called by this user (or all users for admin) on target_date
+            call_log_qs = VoxbayCallLog.objects.filter(created_at__date=target_date)
+            if not is_full_access(user):
+                user_exts = [str(x) for x in [getattr(user, 'voxbay_extension', None), getattr(user, 'voxbay_number', None), getattr(user, 'phone', None)] if x]
+                call_log_qs = call_log_qs.filter(models.Q(extension__in=user_exts) | models.Q(agent_number__in=user_exts))
+
+            called_digits = set()
+            for l in call_log_qs:
+                num = l.destination if l.call_type == 'outgoing' else l.caller_number
+                if num:
+                    d = re.sub(r'\D', '', str(num))
+                    if len(d) >= 10:
+                        called_digits.add(d[-10:])
+
+            called_phone_q = models.Q()
+            if called_digits:
+                for d in called_digits:
+                    called_phone_q |= models.Q(phone__endswith=d)
+
+            # In daily agenda mode, ensure the user has permission to see any lead they dialed today
+            if not is_full_access(user) and called_digits:
+                perm_qs = base_qs.filter(
+                    models.Q(assigned_to=user) |
+                    models.Q(sub_assigned_to=user) |
+                    called_phone_q
+                )
+
+            agenda_filter = (
                 models.Q(created_at__date=target_date) |
-                models.Q(followups__follow_up_date=target_date, followups__status='pending')
-            ).annotate(
+                models.Q(followups__follow_up_date=target_date) |
+                models.Q(followups__created_at__date=target_date)
+            )
+            if called_digits:
+                agenda_filter |= called_phone_q
+
+            return perm_qs.filter(agenda_filter).annotate(
                 has_follow_up_today=Exists(
                     FollowUp.objects.filter(
                         lead=OuterRef('pk'),
-                        follow_up_date=target_date,
-                        status='pending'
+                        follow_up_date=target_date
                     )
                 )
             ).distinct()

@@ -279,17 +279,21 @@ class LeadListSerializer(serializers.ModelSerializer):
             return 'Normal'
         
         from django.utils import timezone
-        today = timezone.localtime(timezone.now()).date()
+        agenda_date_str = request.query_params.get('agenda_date')
+        if agenda_date_str:
+            from datetime import datetime
+            try:
+                target_date = datetime.strptime(agenda_date_str, '%Y-%m-%d').date()
+            except ValueError:
+                target_date = timezone.localtime(timezone.now()).date()
+        else:
+            target_date = timezone.localtime(timezone.now()).date()
         
-        # If created today, it's always Fresh
-        if obj.created_at and timezone.localtime(obj.created_at).date() == today:
+        # If created on target date, it is Fresh
+        if obj.created_at and timezone.localtime(obj.created_at).date() == target_date:
             return 'Fresh'
 
-        # If we annotated has_follow_up_today, use it
-        if getattr(obj, 'has_follow_up_today', False):
-            return 'Follow-up'
-            
-        return 'Fresh'
+        return 'Follow-up'
 
     def get_current_handler(self, obj):
         handler = obj.current_handler
