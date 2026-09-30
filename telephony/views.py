@@ -294,6 +294,7 @@ def process_voxbay_call_log(obj):
                         # Don't create duplicate pending followups if one already exists for this lead
                         has_pending = FollowUp.objects.filter(lead=existing_lead, status='pending').exists()
                         if not has_pending:
+                            missed_notes = f"Missed {direction_text} Call\nCall UUID: {obj.call_uuid}" if obj.call_uuid else f"Missed {direction_text} Call"
                             FollowUp.objects.create(
                                 lead=existing_lead,
                                 name=existing_lead.name if existing_lead else None,
