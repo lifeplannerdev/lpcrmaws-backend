@@ -325,6 +325,9 @@ def process_voxbay_call_log(obj, agent_user=None):
             answered_exists = VoxbayCallLog.objects.filter(call_uuid=obj.call_uuid, call_status__in=['ANSWER', 'ANSWERED']).exists()
             if not answered_exists:
                 lead_handler = agent_user or existing_lead.sub_assigned_to or existing_lead.assigned_to
+                if not lead_handler:
+                    from accounts.models import User
+                    lead_handler = User.objects.filter(is_superuser=True).first() or User.objects.filter(is_active=True).first()
                 duration_str = f"{obj.duration}s" if obj.duration else "0s"
                 call_status_str = obj.call_status or ('Answered' if obj.duration and obj.duration > 0 else 'Missed')
                 summary_lines = [
@@ -344,7 +347,7 @@ def process_voxbay_call_log(obj, agent_user=None):
                     if obj.call_uuid and str(obj.call_uuid) not in (existing_fu.notes or ''):
                         existing_fu.notes = f"{existing_fu.notes.strip()}\nCall UUID: {obj.call_uuid}"
                         existing_fu.save(update_fields=['notes'])
-                else:
+                elif lead_handler:
                     FollowUp.objects.create(
                         lead=existing_lead,
                         name=existing_lead.name if existing_lead else None,
@@ -618,11 +621,11 @@ class VoxbayWebhookView(APIView):
         if call_type == "incoming":
             _set("called_number",      data.get("calledNumber"))
             _set("caller_number",      data.get("callerNumber") or data.get("callerid") or data.get("caller_number") or data.get("phone") or data.get("number"))
-            _set("agent_number",       data.get("AgentNumber") or data.get("agentNumber") or data.get("extension") or data.get("last_tried_user") or data.get("last_tried_name"))
+            _set("agent_number",       data.get("AgentNumber") or data.get("agentNumber") or data.get("extension") or data.get("agentExtension") or data.get("AgentExtension") or data.get("last_tried_user") or data.get("last_tried_name"))
             _set("dtmf",               data.get("dtmf"))
             _set("transferred_number", data.get("transferredNumber"))
         else:
-            _set("extension",     data.get("extension") or data.get("agentNumber") or data.get("AgentNumber"))
+            _set("extension",     data.get("extension") or data.get("agentExtension") or data.get("AgentExtension") or data.get("agentNumber") or data.get("AgentNumber"))
             _set("destination",   data.get("destination") or data.get("calledNumber") or data.get("phone") or data.get("number"))
             _set("caller_id",     data.get("callerid"))
             _set("caller_number", data.get("callerid"))
@@ -649,6 +652,8 @@ class VoxbayWebhookView(APIView):
             if call_type == "outgoing":
                 agent_ext = (
                     data.get("extension") or
+                    data.get("agentExtension") or
+                    data.get("AgentExtension") or
                     defaults.get("extension") or
                     data.get("agentNumber") or
                     data.get("AgentNumber") or
@@ -659,6 +664,8 @@ class VoxbayWebhookView(APIView):
             else:
                 agent_ext = (
                     defaults.get("agent_number") or
+                    data.get("agentExtension") or
+                    data.get("AgentExtension") or
                     data.get("AgentNumber") or
                     data.get("agentNumber") or
                     data.get("extension") or
@@ -794,7 +801,7 @@ class VoxbayWebhookView(APIView):
                         )
 
             # Process CDR / Call Disconnect
-            if callevent_lower not in ["call start", "start", "connect", "ringing"] or is_disconnect:
+            if callevent_lower not in ["call start", "start", "connect", "ringing", "answered", "answer"] or is_disconnect:
                 try:
                     process_voxbay_call_log(obj, agent_user=agent_user)
                     # Re-fetch lead in case process_voxbay_call_log created or modified it
