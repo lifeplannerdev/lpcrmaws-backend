@@ -258,7 +258,11 @@ def log_followup_deleted(sender, instance, **kwargs):
         user=instance.assigned_to,
         description=f'Follow-up for "{label}" was deleted.',
     )
-    recalculate_lead_status(instance.lead)
+    try:
+        if instance.lead_id:
+            recalculate_lead_status(instance.lead)
+    except Exception:
+        pass
  
 @receiver(post_save, sender=RemarkHistory)
 def parse_mentions_in_remarks(sender, instance, created, **kwargs):
