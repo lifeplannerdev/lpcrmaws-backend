@@ -86,7 +86,7 @@ class LeadListView(generics.ListAPIView):
             'sub_assigned_to', 'sub_assigned_by',
         )
 
-        if is_full_access_or_manager(user):
+        if is_full_access(user):
             perm_qs = base_qs.all()
         else:
             perm_qs = base_qs.filter(
@@ -673,8 +673,7 @@ class ExportLeadsExcelView(LeadListView):
 
         from accounts.permissions import has_dynamic_permission
         is_elevated = (
-            is_full_access_or_manager(user) or
-            user.db_roles.filter(name__in=['CM', 'BDM']).exists() or 
+            is_full_access(user) or
             has_dynamic_permission(user, 'leads:read_any') or 
             has_dynamic_permission(user, 'leads:read_tenant') or
             has_dynamic_permission(user, 'reports:sales_all') or
@@ -1153,7 +1152,7 @@ class LeadCommandCentreStatsView(APIView):
         user = request.user
         base_qs = Lead.objects.all()
 
-        if not is_full_access_or_manager(user):
+        if not is_full_access(user) and not has_dynamic_permission(user, 'staff_analysis:admin'):
             base_qs = base_qs.filter(
                 models.Q(assigned_to=user) | models.Q(sub_assigned_to=user)
             )

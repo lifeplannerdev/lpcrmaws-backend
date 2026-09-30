@@ -49,7 +49,8 @@ def is_full_access_or_manager(user):
     return (
         is_full_access(user) or
         has_dynamic_permission(user, 'staff_analysis:admin') or
-        user.db_roles.filter(name__in=MANAGER_ROLES + ['SENIOR ADM', 'SENIOR_ADM']).exists()
+        has_dynamic_permission(user, 'leads:edit_tenant') or
+        has_dynamic_permission(user, 'leads:assign')
     )
 
 
@@ -60,6 +61,7 @@ class CanAccessLeads(BasePermission):
             (has_dynamic_permission(request.user, 'leads:read_any') or
              has_dynamic_permission(request.user, 'leads:read_tenant') or
              has_dynamic_permission(request.user, 'leads:read_own') or
+             has_dynamic_permission(request.user, 'leads:read') or
              has_dynamic_permission(request.user, 'staff_analysis:admin'))
         )
 
