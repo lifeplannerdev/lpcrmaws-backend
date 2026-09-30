@@ -77,10 +77,11 @@ def _resolve_recording_url(raw_url):
     return VOXBAY_RECORDING_BASE_URL + raw_url
 
 
-def process_voxbay_call_log(obj):
+def process_voxbay_call_log(obj, agent_user=None):
     from leads.models import Lead, FollowUp, LeadAssignment
     from accounts.models import User
     from django.utils import timezone
+    import re
 
     if obj.call_type == 'outgoing':
         lead_number = obj.destination
@@ -96,9 +97,38 @@ def process_voxbay_call_log(obj):
     if not lead_number:
         return
 
-    agent_user = None
-    if agent_phone:
-        agent_user = User.objects.filter(is_active=True).filter(Q(voxbay_number=agent_phone) | Q(voxbay_extension=agent_phone)).first()
+    if not agent_user and agent_phone:
+        ag_clean = re.sub(r'\D', '', str(agent_phone))
+        ag_10 = ag_clean[-10:] if len(ag_clean) >= 10 else ag_clean
+        agent_user = User.objects.filter(is_active=True).filter(
+            Q(voxbay_number=str(agent_phone)) |
+            Q(voxbay_extension=str(agent_phone)) |
+            Q(voxbay_number=ag_clean) |
+            Q(voxbay_extension=ag_clean) |
+            Q(voxbay_number__endswith=ag_10) |
+            Q(voxbay_extension__endswith=ag_10) |
+            Q(phone=ag_clean) |
+            Q(phone__endswith=ag_10)
+        ).first()
+
+        if not agent_user:
+            from telephony.models import VoxbayAgent
+            v_agent = VoxbayAgent.objects.filter(is_active=True).filter(
+                Q(extension=str(agent_phone)) |
+                Q(phone_number=str(agent_phone)) |
+                Q(phone_number=ag_clean) |
+                Q(phone_number__endswith=ag_10)
+            ).first()
+            if v_agent:
+                v_clean = re.sub(r'\D', '', str(v_agent.phone_number))
+                v_10 = v_clean[-10:] if len(v_clean) >= 10 else v_clean
+                agent_user = User.objects.filter(is_active=True).filter(
+                    Q(phone=v_agent.phone_number) |
+                    Q(phone=v_clean) |
+                    Q(phone__endswith=v_10) |
+                    Q(first_name__iexact=v_agent.name) |
+                    Q(username__iexact=v_agent.name)
+                ).first()
 
     import re
     clean_digits = re.sub(r'\D', '', str(lead_number))
@@ -750,7 +780,7 @@ class VoxbayWebhookView(APIView):
             # Process CDR / Call Disconnect
             if callevent_lower not in ["call start", "start", "connect", "ringing"] or is_disconnect:
                 try:
-                    process_voxbay_call_log(obj)
+                    process_voxbay_call_log(obj, agent_user=agent_user)
                     # Re-fetch lead in case process_voxbay_call_log created or modified it
                     if not existing_lead and clean_digits:
                         existing_lead = Lead.objects.filter(Q(phone=str(lead_num)) | Q(phone=clean_digits) | Q(phone__endswith=search_num)).first()
