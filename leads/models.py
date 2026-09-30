@@ -22,6 +22,8 @@ class Lead(models.Model):
         ('OTHER', 'Other'),
         ('ADS','Ads'),
         ('VOXBAY CALL','Voxbay'),
+        ('VOXBAY-EDITORIAL', 'Voxbay-Editorial'),
+        ('IN HOUSE SOCIAL MEDIA', 'In House Social Media'),
         ('BULK DATA','Bulk data')
     ]
         
@@ -68,7 +70,7 @@ class Lead(models.Model):
     program = models.TextField(blank=True, null=True, help_text="Enter the program name")
     remarks = models.TextField(blank=True, null=True, help_text="Additional notes or comments about the lead")
     location = models.CharField(max_length=100, blank=True, null=True)
-    source = models.CharField(max_length=20, choices=SOURCE_CHOICES, blank=True, null=True)
+    source = models.CharField(max_length=50, choices=SOURCE_CHOICES, blank=True, null=True)
     custom_source = models.CharField(max_length=50, blank=True, null=True)
     voxbay_status = models.CharField(max_length=50, blank=True, null=True)
     

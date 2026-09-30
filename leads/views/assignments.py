@@ -209,7 +209,16 @@ class BulkLeadAssignView(APIView):
                 target_qs = target_qs.filter(priority__iexact=filters_applied['priority'])
 
             if filters_applied.get('source') and filters_applied.get('source') != 'all':
-                target_qs = target_qs.filter(source=filters_applied['source'])
+                src_val = str(filters_applied['source']).strip()
+                src_lower = src_val.lower()
+                if src_lower in ['voxbay', 'voxbay call']:
+                    target_qs = target_qs.filter(models.Q(source__iexact='VOXBAY CALL') | models.Q(source__iexact='VOXBAY'))
+                elif 'voxbay-editorial' in src_lower or 'voxbay_editorial' in src_lower or 'voxbay editorial' in src_lower:
+                    target_qs = target_qs.filter(models.Q(source__iexact='VOXBAY-EDITORIAL') | models.Q(source__iexact='VOXBAY_EDITORIAL') | models.Q(source__iexact='VOXBAY EDITORIAL'))
+                elif 'in house' in src_lower or 'in_house' in src_lower:
+                    target_qs = target_qs.filter(models.Q(source__iexact='IN HOUSE SOCIAL MEDIA') | models.Q(source__iexact='IN_HOUSE_SOCIAL_MEDIA'))
+                else:
+                    target_qs = target_qs.filter(source__iexact=src_val)
 
             if filters_applied.get('company'):
                 target_qs = target_qs.filter(company__iexact=filters_applied['company'])
@@ -479,7 +488,16 @@ class BulkLeadCloseView(APIView):
                 target_qs = target_qs.filter(priority__iexact=filters_applied['priority'])
 
             if filters_applied.get('source') and filters_applied.get('source') != 'all':
-                target_qs = target_qs.filter(source=filters_applied['source'])
+                src_val = str(filters_applied['source']).strip()
+                src_lower = src_val.lower()
+                if src_lower in ['voxbay', 'voxbay call']:
+                    target_qs = target_qs.filter(models.Q(source__iexact='VOXBAY CALL') | models.Q(source__iexact='VOXBAY'))
+                elif 'voxbay-editorial' in src_lower or 'voxbay_editorial' in src_lower or 'voxbay editorial' in src_lower:
+                    target_qs = target_qs.filter(models.Q(source__iexact='VOXBAY-EDITORIAL') | models.Q(source__iexact='VOXBAY_EDITORIAL') | models.Q(source__iexact='VOXBAY EDITORIAL'))
+                elif 'in house' in src_lower or 'in_house' in src_lower:
+                    target_qs = target_qs.filter(models.Q(source__iexact='IN HOUSE SOCIAL MEDIA') | models.Q(source__iexact='IN_HOUSE_SOCIAL_MEDIA'))
+                else:
+                    target_qs = target_qs.filter(source__iexact=src_val)
 
             if filters_applied.get('company'):
                 target_qs = target_qs.filter(company__iexact=filters_applied['company'])

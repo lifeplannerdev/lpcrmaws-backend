@@ -101,6 +101,13 @@ class LeadCreateSerializer(serializers.ModelSerializer):
             if attrs.get(field):
                 attrs[field] = attrs[field].upper()
 
+        if attrs.get('source'):
+            src = attrs['source'].upper().strip()
+            if src in ['IN_HOUSE_SOCIAL_MEDIA', 'IN HOUSE SOCIAL MEDIA']:
+                attrs['source'] = 'IN HOUSE SOCIAL MEDIA'
+            elif src in ['VOXBAY_EDITORIAL', 'VOXBAY-EDITORIAL', 'VOXBAY EDITORIAL']:
+                attrs['source'] = 'VOXBAY-EDITORIAL'
+
         if attrs.get('source') == 'OTHER' and not attrs.get('custom_source'):
             raise serializers.ValidationError({
                 'custom_source': 'This field is required when source is OTHER.'
@@ -396,6 +403,16 @@ class LeadUpdateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('Status cannot be empty')
         return value.upper()
 
+    def validate_source(self, value):
+        if not value:
+            return value
+        src = value.upper().strip()
+        if src in ['IN_HOUSE_SOCIAL_MEDIA', 'IN HOUSE SOCIAL MEDIA']:
+            return 'IN HOUSE SOCIAL MEDIA'
+        elif src in ['VOXBAY_EDITORIAL', 'VOXBAY-EDITORIAL', 'VOXBAY EDITORIAL']:
+            return 'VOXBAY-EDITORIAL'
+        return src
+
     def update(self, instance, validated_data):
         request = self.context['request']
 
@@ -450,6 +467,13 @@ class BulkLeadCreateSerializer(LeadCreateSerializer):
         for field in ['source', 'status', 'priority']:
             if attrs.get(field):
                 attrs[field] = attrs[field].upper()
+
+        if attrs.get('source'):
+            src = attrs['source'].upper().strip()
+            if src in ['IN_HOUSE_SOCIAL_MEDIA', 'IN HOUSE SOCIAL MEDIA']:
+                attrs['source'] = 'IN HOUSE SOCIAL MEDIA'
+            elif src in ['VOXBAY_EDITORIAL', 'VOXBAY-EDITORIAL', 'VOXBAY EDITORIAL']:
+                attrs['source'] = 'VOXBAY-EDITORIAL'
 
         if attrs.get('source') == 'OTHER' and not attrs.get('custom_source'):
             raise serializers.ValidationError({

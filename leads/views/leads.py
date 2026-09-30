@@ -66,7 +66,6 @@ class LeadListView(generics.ListAPIView):
     ]
     filterset_fields = {
         'priority':          ['exact'],
-        'source':            ['exact'],
         'processing_status': ['exact'],
         'assigned_to':       ['exact', 'isnull'],
         'sub_assigned_to':   ['exact'],
@@ -160,6 +159,24 @@ class LeadListView(generics.ListAPIView):
                     models.Q(status__iexact=s_clean)
                 )
 
+        # Source filter (handles case-insensitivity, spacing/hyphen variations, and comma-separated sources)
+        source_param = self.request.query_params.get('source') or self.request.query_params.get('source__iexact')
+        if source_param and source_param.lower() != 'all':
+            sources = [s.strip() for s in str(source_param).split(',') if s.strip() and s.strip().lower() != 'all']
+            if sources:
+                source_q = models.Q()
+                for src in sources:
+                    src_lower = src.lower()
+                    if src_lower in ['voxbay', 'voxbay call']:
+                        source_q |= models.Q(source__iexact='VOXBAY CALL') | models.Q(source__iexact='VOXBAY')
+                    elif 'voxbay-editorial' in src_lower or 'voxbay_editorial' in src_lower or 'voxbay editorial' in src_lower:
+                        source_q |= models.Q(source__iexact='VOXBAY-EDITORIAL') | models.Q(source__iexact='VOXBAY_EDITORIAL') | models.Q(source__iexact='VOXBAY EDITORIAL')
+                    elif 'in house' in src_lower or 'in_house' in src_lower:
+                        source_q |= models.Q(source__iexact='IN HOUSE SOCIAL MEDIA') | models.Q(source__iexact='IN_HOUSE_SOCIAL_MEDIA')
+                    else:
+                        source_q |= models.Q(source__iexact=src)
+                perm_qs = perm_qs.filter(source_q)
+
         # Active pipeline only (strictly exclude closed, converted, registered, lost, and legacy statuses like not_interested, cnr)
         if self.request.query_params.get('active_pipeline_only') == 'true' or self.request.query_params.get('exclude_closed_converted') == 'true':
             perm_qs = perm_qs.exclude(
@@ -251,9 +268,9 @@ class LeadCreateView(generics.CreateAPIView):
             ).first()
 
             if existing_lead and (
-                existing_lead.source == 'VOXBAY CALL' or 
+                existing_lead.source in ['VOXBAY CALL', 'VOXBAY-EDITORIAL'] or 
                 (existing_lead.name and existing_lead.name.startswith('Voxbay ')) or
-                request.data.get('source') == 'VOXBAY CALL'
+                request.data.get('source') in ['VOXBAY CALL', 'VOXBAY-EDITORIAL']
             ):
                 update_fields = []
                 for field in ['name', 'status', 'priority', 'source', 'program', 'interested_country', 'interested_course', 'location', 'remarks']:
@@ -832,8 +849,13 @@ class ExportLeadsExcelView(LeadListView):
                 if sources:
                     source_q = models.Q()
                     for src in sources:
-                        if src.lower() == 'voxbay':
-                            source_q |= models.Q(source__icontains='voxbay')
+                        src_lower = src.lower()
+                        if src_lower in ['voxbay', 'voxbay call']:
+                            source_q |= models.Q(source__iexact='VOXBAY CALL') | models.Q(source__iexact='VOXBAY')
+                        elif 'voxbay-editorial' in src_lower or 'voxbay_editorial' in src_lower or 'voxbay editorial' in src_lower:
+                            source_q |= models.Q(source__iexact='VOXBAY-EDITORIAL') | models.Q(source__iexact='VOXBAY_EDITORIAL') | models.Q(source__iexact='VOXBAY EDITORIAL')
+                        elif 'in house' in src_lower or 'in_house' in src_lower:
+                            source_q |= models.Q(source__iexact='IN HOUSE SOCIAL MEDIA') | models.Q(source__iexact='IN_HOUSE_SOCIAL_MEDIA')
                         else:
                             source_q |= models.Q(source__iexact=src)
                     queryset = queryset.filter(source_q)

@@ -116,7 +116,18 @@ class StaffAnalysisAPIView(APIView):
         if source_filter:
             sources = [s.strip() for s in source_filter.split(',') if s.strip()]
             if sources:
-                lead_base = lead_base.filter(source__in=sources)
+                source_q = Q()
+                for src in sources:
+                    src_lower = src.lower()
+                    if src_lower in ['voxbay', 'voxbay call']:
+                        source_q |= Q(source__iexact='VOXBAY CALL') | Q(source__iexact='VOXBAY')
+                    elif 'voxbay-editorial' in src_lower or 'voxbay_editorial' in src_lower or 'voxbay editorial' in src_lower:
+                        source_q |= Q(source__iexact='VOXBAY-EDITORIAL') | Q(source__iexact='VOXBAY_EDITORIAL') | Q(source__iexact='VOXBAY EDITORIAL')
+                    elif 'in house' in src_lower or 'in_house' in src_lower:
+                        source_q |= Q(source__iexact='IN HOUSE SOCIAL MEDIA') | Q(source__iexact='IN_HOUSE_SOCIAL_MEDIA')
+                    else:
+                        source_q |= Q(source__iexact=src)
+                lead_base = lead_base.filter(source_q)
         if call_type_filter:
             ctypes = [c.strip().lower() for c in call_type_filter.split(',') if c.strip()]
             if 'incoming' in ctypes and 'outgoing' not in ctypes:
@@ -464,7 +475,18 @@ class StaffAnalysisLeadsAPIView(generics.ListAPIView):
         if source_filter:
             sources = [s.strip() for s in source_filter.split(',') if s.strip()]
             if sources:
-                lead_qs = lead_qs.filter(source__in=sources)
+                source_q = Q()
+                for src in sources:
+                    src_lower = src.lower()
+                    if src_lower in ['voxbay', 'voxbay call']:
+                        source_q |= Q(source__iexact='VOXBAY CALL') | Q(source__iexact='VOXBAY')
+                    elif 'voxbay-editorial' in src_lower or 'voxbay_editorial' in src_lower or 'voxbay editorial' in src_lower:
+                        source_q |= Q(source__iexact='VOXBAY-EDITORIAL') | Q(source__iexact='VOXBAY_EDITORIAL') | Q(source__iexact='VOXBAY EDITORIAL')
+                    elif 'in house' in src_lower or 'in_house' in src_lower:
+                        source_q |= Q(source__iexact='IN HOUSE SOCIAL MEDIA') | Q(source__iexact='IN_HOUSE_SOCIAL_MEDIA')
+                    else:
+                        source_q |= Q(source__iexact=src)
+                lead_qs = lead_qs.filter(source_q)
                 
         if call_type_filter:
             ctypes = [c.strip().lower() for c in call_type_filter.split(',') if c.strip()]
