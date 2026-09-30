@@ -675,29 +675,41 @@ class VoxbayWebhookView(APIView):
                 )
 
             if agent_ext:
-                agent_clean = re.sub(r'\D', '', str(agent_ext))
-                agent_10 = agent_clean[-10:] if len(agent_clean) >= 10 else agent_clean
-                agent_user = User.objects.filter(is_active=True).filter(
-                    Q(voxbay_number=str(agent_ext)) |
-                    Q(voxbay_extension=str(agent_ext)) |
-                    Q(voxbay_number=agent_clean) |
-                    Q(voxbay_extension=agent_clean) |
-                    Q(voxbay_number__endswith=agent_10) |
-                    Q(voxbay_extension__endswith=agent_10) |
-                    Q(phone=agent_clean) |
-                    Q(phone__endswith=agent_10)
-                ).first()
+                agent_str = str(agent_ext).strip()
+                agent_clean = re.sub(r'\D', '', agent_str)
+                if len(agent_clean) < 10:
+                    # It's an internal PBX extension (e.g. '100', '103', '114', '259')
+                    # Match STRICTLY by extension! NEVER match phone__endswith with short extension digits!
+                    agent_user = User.objects.filter(is_active=True).filter(
+                        Q(voxbay_extension__iexact=agent_str) |
+                        Q(voxbay_extension__iexact=agent_clean)
+                    ).first()
+                else:
+                    # Full 10+ digit DID or phone number
+                    agent_10 = agent_clean[-10:]
+                    agent_user = User.objects.filter(is_active=True).filter(
+                        Q(voxbay_number=agent_str) |
+                        Q(voxbay_number=agent_clean) |
+                        Q(voxbay_number__endswith=agent_10) |
+                        Q(phone=agent_clean) |
+                        Q(phone__endswith=agent_10)
+                    ).first()
 
                 # Fallback resolution via VoxbayAgent directory
                 if not agent_user:
                     from telephony.models import VoxbayAgent
-                    v_agent = VoxbayAgent.objects.filter(is_active=True).filter(
-                        Q(extension=str(agent_ext)) |
-                        Q(phone_number=str(agent_ext)) |
-                        Q(phone_number=agent_clean) |
-                        Q(phone_number__endswith=agent_10)
-                    ).first()
-                    if v_agent:
+                    if len(agent_clean) < 10:
+                        v_agent = VoxbayAgent.objects.filter(is_active=True).filter(
+                            Q(extension=agent_str) |
+                            Q(extension=agent_clean)
+                        ).first()
+                    else:
+                        v_agent = VoxbayAgent.objects.filter(is_active=True).filter(
+                            Q(phone_number=agent_str) |
+                            Q(phone_number=agent_clean) |
+                            Q(phone_number__endswith=agent_clean[-10:])
+                        ).first()
+                    if v_agent and v_agent.phone_number:
                         v_clean = re.sub(r'\D', '', str(v_agent.phone_number))
                         v_10 = v_clean[-10:] if len(v_clean) >= 10 else v_clean
                         agent_user = User.objects.filter(is_active=True).filter(
@@ -766,6 +778,7 @@ class VoxbayWebhookView(APIView):
                 "call_uuid": call_uuid,
                 "caller_number": clean_digits or str(lead_num or ""),
                 "agent_extension": str(agent_ext or ""),
+                "agent_user_id": agent_user.id if agent_user else None,
                 "call_type": call_type,
                 "callevent": callevent_lower or (raw_status.lower() if raw_status else ""),
                 "call_status": raw_status or ("ANSWERED" if is_answered else "RINGING"),
