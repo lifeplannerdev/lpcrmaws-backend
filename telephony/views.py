@@ -587,12 +587,18 @@ class VoxbayWebhookView(APIView):
             if val not in (None, "", "None"):
                 defaults[key] = val
         
+        callevent = data.get("Callevent") or data.get("callevent") or data.get("event") or ""
+        callevent_lower = callevent.strip().lower()
+        is_ringing = callevent_lower in ["call start", "start", "ringing"]
+
         duration_val = _safe_int(
             data.get("totalCallDuration") or data.get("duration") or data.get("callDuration") or data.get("billsec")
         )
 
         raw_status = data.get("callStatus") or data.get("status")
-        if not raw_status and duration_val and duration_val > 0:
+        if not raw_status and is_ringing:
+            raw_status = "RINGING"
+        elif not raw_status and duration_val and duration_val > 0:
             raw_status = "ANSWERED"
         elif not raw_status:
             raw_status = "MISSED"
@@ -731,13 +737,23 @@ class VoxbayWebhookView(APIView):
 
             callevent_lower = callevent.strip().lower()
             is_answered = callevent_lower in ["connect", "answer", "answered"] or (raw_status and raw_status.upper() in ["ANSWER", "ANSWERED"])
-            is_ringing = callevent_lower in ["call start", "start", "ringing"]
+            is_ringing = callevent_lower in ["call start", "start", "ringing"] or (raw_status and raw_status.upper() == "RINGING")
             is_disconnect = callevent_lower in ["disconnect", "hangup"]
 
             # Construct unified live lead payload
             lead_name_default = existing_lead.name if existing_lead else f"Voxbay {'Outgoing' if call_type == 'outgoing' else 'Incoming'} - {clean_digits or lead_num}"
-            event_type = "answered" if is_answered else ("ended" if raw_status and raw_status.upper() in ["CANCEL", "NOANSWER", "BUSY", "MISSED", "FAILED"] else "ringing")
-            status_val = "connected" if is_answered else ("ended" if event_type == "ended" else "ringing")
+            if is_ringing:
+                event_type = "ringing"
+                status_val = "ringing"
+            elif is_answered:
+                event_type = "answered"
+                status_val = "connected"
+            elif raw_status and raw_status.upper() in ["CANCEL", "NOANSWER", "BUSY", "MISSED", "FAILED", "DISCONNECTED"]:
+                event_type = "ended"
+                status_val = "ended"
+            else:
+                event_type = "ringing"
+                status_val = "ringing"
 
             full_lead_payload = {
                 "call_uuid": call_uuid,
