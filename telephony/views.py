@@ -589,16 +589,26 @@ class VoxbayWebhookView(APIView):
             import re
 
             agent_user = None
-            agent_ext = (
-                defaults.get("agent_number") or
-                data.get("AgentNumber") or
-                data.get("agentNumber") or
-                data.get("extension") or
-                getattr(obj, 'agent_number', None) or
-                getattr(obj, 'extension', None)
-            )
-            if not agent_ext and call_type == "outgoing":
-                agent_ext = defaults.get("extension") or data.get("extension") or getattr(obj, 'extension', None)
+            if call_type == "outgoing":
+                agent_ext = (
+                    data.get("extension") or
+                    defaults.get("extension") or
+                    data.get("agentNumber") or
+                    data.get("AgentNumber") or
+                    defaults.get("agent_number") or
+                    getattr(obj, 'extension', None) or
+                    getattr(obj, 'agent_number', None)
+                )
+            else:
+                agent_ext = (
+                    defaults.get("agent_number") or
+                    data.get("AgentNumber") or
+                    data.get("agentNumber") or
+                    data.get("extension") or
+                    defaults.get("extension") or
+                    getattr(obj, 'agent_number', None) or
+                    getattr(obj, 'extension', None)
+                )
 
             if agent_ext:
                 agent_clean = re.sub(r'\D', '', str(agent_ext))
@@ -634,21 +644,30 @@ class VoxbayWebhookView(APIView):
                             Q(username__iexact=v_agent.name)
                         ).first()
             
-            lead_num = (
-                defaults.get("caller_number") or
-                defaults.get("destination") or
-                data.get("callerNumber") or
-                data.get("caller_number") or
-                data.get("callernumber") or
-                data.get("callerid") or
-                data.get("calledNumber") or
-                data.get("destination") or
-                data.get("phone") or
-                data.get("number") or
-                data.get("phone_number") or
-                getattr(obj, 'caller_number', None) or
-                getattr(obj, 'destination', None)
-            )
+            if call_type == "outgoing":
+                lead_num = (
+                    defaults.get("destination") or
+                    data.get("destination") or
+                    data.get("calledNumber") or
+                    data.get("phone") or
+                    data.get("number") or
+                    data.get("phone_number") or
+                    getattr(obj, 'destination', None)
+                )
+            else:
+                lead_num = (
+                    defaults.get("caller_number") or
+                    data.get("callerNumber") or
+                    data.get("caller_number") or
+                    data.get("callernumber") or
+                    data.get("callerid") or
+                    data.get("phone") or
+                    data.get("number") or
+                    data.get("phone_number") or
+                    getattr(obj, 'caller_number', None) or
+                    defaults.get("destination") or
+                    data.get("destination")
+                )
             clean_digits = re.sub(r'\D', '', str(lead_num)) if lead_num else ""
             search_num = clean_digits[-10:] if len(clean_digits) >= 10 else clean_digits
             existing_lead = None
@@ -664,37 +683,47 @@ class VoxbayWebhookView(APIView):
             is_ringing = callevent_lower in ["call start", "start", "ringing"]
             is_disconnect = callevent_lower in ["disconnect", "hangup"]
 
-            # Emit Real-time event for ringing or connected call
-            if is_ringing or is_answered:
-                payload = {
-                    "call_uuid": call_uuid,
-                    "caller_number": clean_digits or lead_num,
-                    "agent_extension": agent_ext,
-                    "call_type": call_type,
-                    "callevent": callevent_lower,
-                    "event_type": "answered" if is_answered else "ringing",
-                    "is_new_lead": existing_lead is None,
-                    "lead_id": existing_lead.id if existing_lead else None,
-                    "lead_name": existing_lead.name if existing_lead else f"Voxbay {call_type.capitalize()} - {clean_digits or lead_num}",
-                    "lead_status": existing_lead.status if existing_lead else "ENQUIRY",
-                    "lead_priority": existing_lead.priority if existing_lead else "MEDIUM",
-                    "program": existing_lead.program if existing_lead else "",
-                    "interested_country": existing_lead.interested_country if existing_lead else "",
-                    "interested_course": existing_lead.interested_course if existing_lead else "",
-                    "location": existing_lead.location if existing_lead else "",
-                    "assigned_handler": (existing_lead.current_handler.get_full_name() or existing_lead.current_handler.username) if (existing_lead and existing_lead.current_handler) else None,
-                }
+            # Construct unified live lead payload
+            lead_name_default = existing_lead.name if existing_lead else f"Voxbay {'Outgoing' if call_type == 'outgoing' else 'Incoming'} - {clean_digits or lead_num}"
+            event_type = "answered" if is_answered else ("ended" if raw_status and raw_status.upper() in ["CANCEL", "NOANSWER", "BUSY", "MISSED", "FAILED"] else "ringing")
+            status_val = "connected" if is_answered else ("ended" if event_type == "ended" else "ringing")
+
+            full_lead_payload = {
+                "call_uuid": call_uuid,
+                "caller_number": clean_digits or str(lead_num or ""),
+                "agent_extension": str(agent_ext or ""),
+                "call_type": call_type,
+                "callevent": callevent_lower or (raw_status.lower() if raw_status else ""),
+                "call_status": raw_status or ("ANSWERED" if is_answered else "RINGING"),
+                "event_type": event_type,
+                "status": status_val,
+                "duration": duration_val or 0,
+                "recording_url": defaults.get("recording_url"),
+                "is_new_lead": existing_lead is None,
+                "lead_id": existing_lead.id if existing_lead else None,
+                "lead_name": lead_name_default,
+                "lead_status": existing_lead.status if existing_lead else "ENQUIRY",
+                "lead_priority": existing_lead.priority if existing_lead else "MEDIUM",
+                "program": existing_lead.program if existing_lead else "",
+                "interested_country": existing_lead.interested_country if existing_lead else "",
+                "interested_course": existing_lead.interested_course if existing_lead else "",
+                "location": existing_lead.location if existing_lead else "",
+                "assigned_handler": (existing_lead.current_handler.get_full_name() or existing_lead.current_handler.username) if (existing_lead and existing_lead.current_handler) else None,
+            }
+
+            # Emit Real-time event for ringing, answered, or any outgoing call (including app-dialed calls)
+            if is_ringing or is_answered or call_type == "outgoing":
                 if agent_user:
                     trigger_pusher.delay(
                         channel=f"private-user-{agent_user.id}",
                         event="telephony.incoming_call",
-                        data=payload
+                        data=full_lead_payload
                     )
                     if is_answered:
                         trigger_pusher.delay(
                             channel=f"private-user-{agent_user.id}",
                             event="telephony.call_connected",
-                            data=payload
+                            data=full_lead_payload
                         )
 
             # Process CDR / Call Disconnect
@@ -702,26 +731,38 @@ class VoxbayWebhookView(APIView):
                 try:
                     process_voxbay_call_log(obj)
                     # Re-fetch lead in case process_voxbay_call_log created or modified it
-                    if not existing_lead and lead_num:
-                        search_num = lead_num[-10:] if len(lead_num) >= 10 else lead_num
-                        existing_lead = Lead.objects.filter(Q(phone=lead_num) | Q(phone__endswith=search_num)).first()
+                    if not existing_lead and clean_digits:
+                        existing_lead = Lead.objects.filter(Q(phone=str(lead_num)) | Q(phone=clean_digits) | Q(phone__endswith=search_num)).first()
+                        if existing_lead:
+                            full_lead_payload.update({
+                                "is_new_lead": False,
+                                "lead_id": existing_lead.id,
+                                "lead_name": existing_lead.name,
+                                "lead_status": existing_lead.status,
+                                "lead_priority": existing_lead.priority,
+                                "program": existing_lead.program or "",
+                                "interested_country": existing_lead.interested_country or "",
+                                "interested_course": existing_lead.interested_course or "",
+                                "location": existing_lead.location or "",
+                                "assigned_handler": (existing_lead.current_handler.get_full_name() or existing_lead.current_handler.username) if existing_lead.current_handler else None,
+                            })
                 except Exception as e:
                     logger.error(f"[Voxbay] Error processing call log for lead generation: {e}")
 
-                # Emit call_ended event to agent
+                # Emit call_ended event to agent with complete lead details
                 if agent_user:
+                    ended_payload = {
+                        **full_lead_payload,
+                        "duration": duration_val or 0,
+                        "call_status": raw_status or "COMPLETED",
+                        "recording_url": defaults.get("recording_url"),
+                        "event_type": "ended",
+                        "status": "ended",
+                    }
                     trigger_pusher.delay(
                         channel=f"private-user-{agent_user.id}",
                         event="telephony.call_ended",
-                        data={
-                            "call_uuid": call_uuid,
-                            "caller_number": lead_num,
-                            "duration": duration_val or 0,
-                            "call_status": raw_status or "COMPLETED",
-                            "recording_url": defaults.get("recording_url"),
-                            "lead_id": existing_lead.id if existing_lead else None,
-                            "call_type": call_type,
-                        }
+                        data=ended_payload
                     )
             else:
                 logger.info(f"[Voxbay Webhook] Skipped timeline generation for intermediate event: {callevent}")
