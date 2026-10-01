@@ -109,6 +109,8 @@ class CurrentUserAPIView(APIView):
             "last_name": user.last_name,
             "role_names": list(user.db_roles.values_list('name', flat=True)),
             "company": user.company,
+            "is_superuser": user.is_superuser,
+            "is_staff": user.is_staff,
             "permissions": PermissionService.get_user_permissions(user),
             "phone": user.phone if hasattr(user, 'phone') else None,
             "location": user.location if hasattr(user, 'location') else None,
@@ -139,6 +141,8 @@ class LoginAPIView(APIView):
                 "last_name": user.last_name,
                 "role_names": list(user.db_roles.values_list('name', flat=True)),
                 "company": user.company,
+                "is_superuser": user.is_superuser,
+                "is_staff": user.is_staff,
                 "permissions": PermissionService.get_user_permissions(user),
                 "profile_picture": request.build_absolute_uri(user.profile_picture.url) if user.profile_picture else None
             }
@@ -417,6 +421,8 @@ class UserProfileUpdateAPIView(APIView):
                     "last_name": user.last_name,
                     "role_names": list(user.db_roles.values_list('name', flat=True)),
                     "company": user.company,
+                    "is_superuser": user.is_superuser,
+                    "is_staff": user.is_staff,
                     "permissions": PermissionService.get_user_permissions(user),
                     "profile_picture": request.build_absolute_uri(user.profile_picture.url) if user.profile_picture else None,
                     "phone": user.phone

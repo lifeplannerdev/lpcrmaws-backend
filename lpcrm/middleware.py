@@ -11,7 +11,7 @@ class QueryLoggingMiddleware:
     """
     def __init__(self, get_response):
         self.get_response = get_response
-
+ 
     def __call__(self, request):
         # We only want to log in debug mode or if explicitly enabled
         start_time = time.time()
