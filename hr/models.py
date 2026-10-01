@@ -238,9 +238,13 @@ class Asset(models.Model):
 
 class DocumentDetail(models.Model):
     COMPANY_CHOICES = [
-        ('LP', 'LP'),
+        ('LP', 'LP (All Branches)'),
+        ('LP_HQ', 'LP — HQ'),
+        ('LP_KOCHI', 'LP — Kochi'),
         ('FLAG', 'FLAG'),
-        ('FDS', 'FILMAATIC'),
+        ('FLAG_KOCHI', 'FLAG — Kochi'),
+        ('FDS', 'FDS (All Branches)'),
+        ('FDS_KOCHI', 'FDS — Kochi'),
     ]
 
     STATUS_CHOICES = [
@@ -271,7 +275,7 @@ class DocumentDetail(models.Model):
         blank=True, null=True, verbose_name="Next Renewal Date"
     )
 
-    company = models.CharField(max_length=10, choices=COMPANY_CHOICES, default='LP', db_index=True)
+    company = models.CharField(max_length=20, choices=COMPANY_CHOICES, default='LP', db_index=True)
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
