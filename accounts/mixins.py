@@ -68,6 +68,13 @@ class CompanyFilterMixin:
         else:
             # If no company is explicitly requested, default to the user's native company
             if hasattr(qs.model, 'company'):
+                # For detail views (retrieve, update, destroy), if the user has cross-company access,
+                # return the unfiltered queryset so they can find the object (avoiding a 404).
+                is_detail_view = getattr(self, 'detail', False) or getattr(self, 'action', '') in ['retrieve', 'update', 'partial_update', 'destroy', 'mark_paid']
+                
+                if self.has_cross_company_access(user) and is_detail_view:
+                    return qs
+                    
                 return qs.filter(company=user.company)
             return qs
 
