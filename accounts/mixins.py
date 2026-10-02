@@ -15,6 +15,18 @@ class CompanyFilterMixin:
     or the requested company if the user has cross-company permissions.
     Supports branch-level keys: LP_HQ, LP_KOCHI, FLAG_KOCHI, FDS_KOCHI.
     """
+    def get_cross_company_permissions(self):
+        # Allow viewsets to specify which permissions grant cross-company access
+        return getattr(self, 'cross_company_permissions', ['staff:access_flag'])
+
+    def has_cross_company_access(self, user):
+        if user.is_superuser:
+            return True
+        for perm in self.get_cross_company_permissions():
+            if has_dynamic_permission(user, perm):
+                return True
+        return False
+
     def get_queryset(self):
         qs = super().get_queryset()
         
@@ -27,7 +39,7 @@ class CompanyFilterMixin:
         
         if requested_company:
             if requested_company.lower() == 'all':
-                if has_dynamic_permission(user, 'staff:access_flag'):
+                if self.has_cross_company_access(user):
                     return qs
                 else:
                     if hasattr(qs.model, 'company'):
@@ -41,10 +53,10 @@ class CompanyFilterMixin:
             # Check if user is trying to access another company's data
             if parent_company != user_parent_company:
                 # Allow cross-company access if they have the right permission
-                if parent_company in ['FLAG', 'FDS'] and has_dynamic_permission(user, 'staff:access_flag'):
+                if parent_company in ['FLAG', 'FDS'] and self.has_cross_company_access(user):
                     pass  # Access granted
-                elif user.is_superuser:
-                    pass  # Superuser always allowed
+                elif self.has_cross_company_access(user):
+                    pass  # Access granted generically if they have cross-company perms
                 else:
                     raise PermissionDenied(f"You do not have permission to access {requested_company} data.")
             

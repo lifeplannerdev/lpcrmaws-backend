@@ -474,6 +474,7 @@ class DocumentDetailViewSet(CompanyFilterMixin, viewsets.ModelViewSet):
     queryset = DocumentDetail.objects.all()
     serializer_class = DocumentDetailSerializer
     permission_classes = [HasPermission('license:admin')]
+    cross_company_permissions = ['license:admin', 'staff:access_flag']
     filter_backends = []
 
     def get_queryset(self):
