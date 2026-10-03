@@ -4,7 +4,8 @@ from .views import (
     FdsFeeStructureViewSet, FdsBatchViewSet, FdsEnquiryViewSet,
     FdsTrialViewSet, FdsStudentViewSet, FdsWeddingGroupViewSet,
     FdsAttendanceViewSet, FdsFeesCollectionViewSet, FdsStudentFeeAccountViewSet,
-    FdsDashboardView, FdsTrainerListView, FdsAnalysisView
+    FdsDashboardView, FdsTrainerListView, FdsAnalysisView,
+    FdsTaskTemplateViewSet, FdsWeeklyTaskViewSet
 )
 
 router = DefaultRouter()
@@ -17,6 +18,8 @@ router.register(r'wedding-groups', FdsWeddingGroupViewSet, basename='fds-wedding
 router.register(r'attendance', FdsAttendanceViewSet, basename='fds-attendance')
 router.register(r'payments', FdsFeesCollectionViewSet, basename='fds-payments')
 router.register(r'fee-accounts', FdsStudentFeeAccountViewSet, basename='fds-fee-accounts')
+router.register(r'task-templates', FdsTaskTemplateViewSet, basename='fds-task-templates')
+router.register(r'weekly-tasks', FdsWeeklyTaskViewSet, basename='fds-weekly-tasks')
 
 urlpatterns = [
     path('', include(router.urls)),

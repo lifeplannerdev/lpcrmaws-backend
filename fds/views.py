@@ -1975,3 +1975,142 @@ class FdsAnalysisView(APIView):
             },
         })
 
+
+from rest_framework.exceptions import PermissionDenied
+from .models import FdsTaskTemplate, FdsWeeklyTask
+from .serializers import FdsTaskTemplateSerializer, FdsWeeklyTaskSerializer, FdsWeeklyTaskAdminUpdateSerializer, FdsWeeklyTaskSubmitSerializer
+import datetime
+
+class FdsTaskTemplateViewSet(viewsets.ModelViewSet):
+    serializer_class = FdsTaskTemplateSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        if not fds_read(self.request.user):
+            return FdsTaskTemplate.objects.none()
+        # Admin/Management can see all templates. Others see only their own.
+        if has_fds_permission(self.request.user, 'fds:admin', 'fds:management'):
+            return FdsTaskTemplate.objects.all()
+        return FdsTaskTemplate.objects.filter(assignee=self.request.user)
+
+    def perform_create(self, serializer):
+        if not has_fds_permission(self.request.user, 'fds:admin', 'fds:management'):
+            raise PermissionDenied("Only admins can create templates.")
+        serializer.save(assigned_by=self.request.user)
+
+    def perform_update(self, serializer):
+        if not has_fds_permission(self.request.user, 'fds:admin', 'fds:management'):
+            raise PermissionDenied("Only admins can update templates.")
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        if not has_fds_permission(self.request.user, 'fds:admin', 'fds:management'):
+            raise PermissionDenied("Only admins can delete templates.")
+        instance.delete()
+
+
+class FdsWeeklyTaskViewSet(viewsets.ModelViewSet):
+    serializer_class = FdsWeeklyTaskSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        if not fds_read(self.request.user):
+            return FdsWeeklyTask.objects.none()
+
+        week_start = self.request.query_params.get('week_start_date')
+        user_id = self.request.query_params.get('user_id')
+
+        # Auto-generate tasks for the requested week (if provided) or current week
+        if week_start:
+            try:
+                week_start_date = datetime.datetime.strptime(week_start, '%Y-%m-%d').date()
+            except ValueError:
+                week_start_date = timezone.localdate()
+        else:
+            today = timezone.localdate()
+            week_start_date = today - datetime.timedelta(days=today.weekday()) # Monday
+
+        target_users = []
+        if user_id and has_fds_permission(self.request.user, 'fds:admin', 'fds:management'):
+            try:
+                target_users = [User.objects.get(id=user_id)]
+            except User.DoesNotExist:
+                pass
+        elif has_fds_permission(self.request.user, 'fds:admin_own') and not has_fds_permission(self.request.user, 'fds:admin', 'fds:management'):
+            target_users = [self.request.user]
+        elif has_fds_permission(self.request.user, 'fds:admin', 'fds:management'):
+            # Generate for all users with active templates
+            target_users = User.objects.filter(fds_task_templates__is_active=True).distinct()
+        
+        # Lazy generation
+        for t_user in target_users:
+            templates = FdsTaskTemplate.objects.filter(assignee=t_user, is_active=True)
+            for template in templates:
+                FdsWeeklyTask.objects.get_or_create(
+                    assignee=t_user,
+                    week_start_date=week_start_date,
+                    template=template,
+                    defaults={
+                        'title': template.title,
+                        'description': template.description,
+                        'status': 'PENDING'
+                    }
+                )
+
+        # Return queryset
+        qs = FdsWeeklyTask.objects.all()
+        if not has_fds_permission(self.request.user, 'fds:admin', 'fds:management'):
+            qs = qs.filter(assignee=self.request.user)
+        
+        if week_start:
+            qs = qs.filter(week_start_date=week_start_date)
+        if user_id:
+            qs = qs.filter(assignee_id=user_id)
+            
+        return qs
+
+    def perform_create(self, serializer):
+        if not has_fds_permission(self.request.user, 'fds:admin', 'fds:management'):
+            raise PermissionDenied("Only admins can create manual tasks.")
+        serializer.save(is_manual=True)
+        
+    @action(detail=True, methods=['post'])
+    def submit(self, request, pk=None):
+        """Coordinator submits a task for approval."""
+        task = self.get_object()
+        if task.assignee != request.user and not has_fds_permission(request.user, 'fds:admin', 'fds:management'):
+            return Response({"detail": "Not allowed."}, status=status.HTTP_403_FORBIDDEN)
+        
+        serializer = FdsWeeklyTaskSubmitSerializer(task, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save(status='PENDING_APPROVAL')
+            return Response(FdsWeeklyTaskSerializer(task).data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['post'])
+    def approve(self, request, pk=None):
+        """Admin approves the task."""
+        if not has_fds_permission(request.user, 'fds:admin', 'fds:management'):
+            return Response({"detail": "Only admins can approve tasks."}, status=status.HTTP_403_FORBIDDEN)
+        
+        task = self.get_object()
+        task.status = 'APPROVED'
+        task.approved_by = request.user
+        task.approved_at = timezone.now()
+        task.save()
+        return Response(FdsWeeklyTaskSerializer(task).data)
+
+    @action(detail=True, methods=['post'])
+    def reject(self, request, pk=None):
+        """Admin rejects the task."""
+        if not has_fds_permission(request.user, 'fds:admin', 'fds:management'):
+            return Response({"detail": "Only admins can reject tasks."}, status=status.HTTP_403_FORBIDDEN)
+        
+        task = self.get_object()
+        serializer = FdsWeeklyTaskAdminUpdateSerializer(task, data=request.data, partial=True)
+        if serializer.is_valid():
+            if not serializer.validated_data.get('admin_remarks'):
+                return Response({"admin_remarks": ["Remarks are required for rejection."]}, status=status.HTTP_400_BAD_REQUEST)
+            serializer.save(status='REJECTED')
+            return Response(FdsWeeklyTaskSerializer(task).data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

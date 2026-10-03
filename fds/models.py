@@ -832,3 +832,57 @@ class FdsFeesCollection(models.Model):
         # Trigger recalculation on the student's main fee account
         if student and hasattr(student, 'fee_account'):
             student.fee_account.recalculate()
+
+# =========================================================================================
+# FDS Weekly Tasks Checklist
+# =========================================================================================
+
+class FdsTaskTemplate(models.Model):
+    """Defines a recurring task assigned to a specific coordinator."""
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    assignee = models.ForeignKey(User, on_delete=models.CASCADE, related_name='fds_task_templates')
+    is_active = models.BooleanField(default=True)
+    assigned_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='fds_templates_assigned')
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    def __str__(self):
+        return f"{self.title} - {self.assignee.get_full_name()}"
+
+
+class FdsWeeklyTask(models.Model):
+    """An actual checklist item for a specific week."""
+    STATUS_CHOICES = [
+        ('PENDING', 'Pending'),
+        ('PENDING_APPROVAL', 'Pending Approval'),
+        ('APPROVED', 'Approved'),
+        ('REJECTED', 'Rejected')
+    ]
+
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    assignee = models.ForeignKey(User, on_delete=models.CASCADE, related_name='fds_weekly_tasks')
+    week_start_date = models.DateField() # Always a Monday
+    
+    # 4-State Approval Workflow
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
+    
+    # Notes and Remarks
+    coordinator_notes = models.TextField(blank=True, help_text="Notes/Links added by the coordinator (e.g. links to reels)")
+    admin_remarks = models.TextField(blank=True, help_text="Feedback from the admin if rejected")
+    
+    # Approval metadata
+    approved_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='fds_tasks_approved')
+    approved_at = models.DateTimeField(null=True, blank=True)
+    
+    # If generated from a template
+    template = models.ForeignKey(FdsTaskTemplate, on_delete=models.SET_NULL, null=True, blank=True, related_name='instances')
+    # If manually added just for this week
+    is_manual = models.BooleanField(default=False)
+    
+    class Meta:
+        ordering = ['week_start_date', 'title']
+        unique_together = ['assignee', 'week_start_date', 'template'] # Prevent duplicate instances per week
+
+    def __str__(self):
+        return f"[{self.week_start_date}] {self.title} - {self.assignee.get_full_name()}"

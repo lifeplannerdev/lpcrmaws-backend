@@ -398,3 +398,36 @@ class FdsStudentFeeAccountCreateSerializer(serializers.ModelSerializer):
             account.recalculate(save=True)
 
         return account
+
+from .models import FdsTaskTemplate, FdsWeeklyTask
+
+class FdsTaskTemplateSerializer(serializers.ModelSerializer):
+    assignee_name = serializers.CharField(source='assignee.get_full_name', read_only=True)
+    assigned_by_name = serializers.CharField(source='assigned_by.get_full_name', read_only=True)
+
+    class Meta:
+        model = FdsTaskTemplate
+        fields = '__all__'
+        read_only_fields = ('created_at', 'assigned_by')
+
+
+class FdsWeeklyTaskSerializer(serializers.ModelSerializer):
+    assignee_name = serializers.CharField(source='assignee.get_full_name', read_only=True)
+    approved_by_name = serializers.CharField(source='approved_by.get_full_name', read_only=True)
+
+    class Meta:
+        model = FdsWeeklyTask
+        fields = '__all__'
+        read_only_fields = ('approved_by', 'approved_at', 'status', 'admin_remarks')
+
+class FdsWeeklyTaskAdminUpdateSerializer(serializers.ModelSerializer):
+    """Serializer for Admin to approve/reject with remarks."""
+    class Meta:
+        model = FdsWeeklyTask
+        fields = ('status', 'admin_remarks')
+
+class FdsWeeklyTaskSubmitSerializer(serializers.ModelSerializer):
+    """Serializer for Coordinator to submit with notes."""
+    class Meta:
+        model = FdsWeeklyTask
+        fields = ('coordinator_notes',)
