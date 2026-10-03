@@ -60,6 +60,7 @@ class User(AbstractUser):
     permissions = models.JSONField(default=list, blank=True)
     extra_permissions = models.TextField(default='[]', blank=True)
     db_roles = models.ManyToManyField(Role, related_name='users', blank=True, db_table='user_roles')
+    gmail_credentials = models.JSONField(default=dict, blank=True, null=True, help_text="Stores Gmail OAuth2 credentials (access_token, refresh_token, etc)")
 
     # Resolve auth clashes
     groups = models.ManyToManyField(

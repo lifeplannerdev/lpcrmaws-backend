@@ -19,8 +19,12 @@ from .views import (
     UserProfileUpdateAPIView,
     ChangePasswordAPIView
 )
+from .gmail_views import GmailAuthorizeAPIView, GmailOAuth2CallbackAPIView, GmailStatusAPIView
 
 urlpatterns = [
+    path('gmail/authorize/', GmailAuthorizeAPIView.as_view(), name='gmail_authorize'),
+    path('gmail/callback/', GmailOAuth2CallbackAPIView.as_view(), name='gmail_callback'),
+    path('gmail/status/', GmailStatusAPIView.as_view(), name='gmail_status'),
     path('login/', LoginAPIView.as_view(), name='login'),
     path('token/refresh/', RefreshTokenAPIView.as_view(), name='token_refresh'),
     path('logout/', LogoutAPIView.as_view(), name='logout'),

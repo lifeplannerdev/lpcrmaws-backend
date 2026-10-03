@@ -763,6 +763,9 @@ class ProcessingStudent(models.Model):
     
     # Dynamic Fields Data
     dynamic_data = models.JSONField(default=dict, blank=True, help_text="Stores data for dynamically added fields")
+    
+    # Email Threading
+    gmail_thread_id = models.CharField(max_length=100, blank=True, null=True, help_text="Gmail Thread ID for automated drafts")
 
     class Meta:
         permissions = [
