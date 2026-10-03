@@ -1989,22 +1989,22 @@ class FdsTaskTemplateViewSet(viewsets.ModelViewSet):
         if not fds_read(self.request.user):
             return FdsTaskTemplate.objects.none()
         # Admin/Management can see all templates. Others see only their own.
-        if has_fds_permission(self.request.user, 'fds:admin', 'fds:management'):
+        if has_fds_permission(self.request.user, 'fds:management'):
             return FdsTaskTemplate.objects.all()
         return FdsTaskTemplate.objects.filter(assignee=self.request.user)
 
     def perform_create(self, serializer):
-        if not has_fds_permission(self.request.user, 'fds:admin', 'fds:management'):
+        if not has_fds_permission(self.request.user, 'fds:management'):
             raise PermissionDenied("Only admins can create templates.")
         serializer.save(assigned_by=self.request.user)
 
     def perform_update(self, serializer):
-        if not has_fds_permission(self.request.user, 'fds:admin', 'fds:management'):
+        if not has_fds_permission(self.request.user, 'fds:management'):
             raise PermissionDenied("Only admins can update templates.")
         serializer.save()
 
     def perform_destroy(self, instance):
-        if not has_fds_permission(self.request.user, 'fds:admin', 'fds:management'):
+        if not has_fds_permission(self.request.user, 'fds:management'):
             raise PermissionDenied("Only admins can delete templates.")
         instance.delete()
 
@@ -2031,14 +2031,14 @@ class FdsWeeklyTaskViewSet(viewsets.ModelViewSet):
             week_start_date = today - datetime.timedelta(days=today.weekday()) # Monday
 
         target_users = []
-        if user_id and has_fds_permission(self.request.user, 'fds:admin', 'fds:management'):
+        if user_id and has_fds_permission(self.request.user, 'fds:management'):
             try:
                 target_users = [User.objects.get(id=user_id)]
             except User.DoesNotExist:
                 pass
-        elif has_fds_permission(self.request.user, 'fds:admin_own') and not has_fds_permission(self.request.user, 'fds:admin', 'fds:management'):
+        elif has_fds_permission(self.request.user, 'fds:admin_own', 'fds:admin') and not has_fds_permission(self.request.user, 'fds:management'):
             target_users = [self.request.user]
-        elif has_fds_permission(self.request.user, 'fds:admin', 'fds:management'):
+        elif has_fds_permission(self.request.user, 'fds:management'):
             # Generate for all users with active templates
             target_users = User.objects.filter(fds_task_templates__is_active=True).distinct()
         
@@ -2059,7 +2059,7 @@ class FdsWeeklyTaskViewSet(viewsets.ModelViewSet):
 
         # Return queryset
         qs = FdsWeeklyTask.objects.all()
-        if not has_fds_permission(self.request.user, 'fds:admin', 'fds:management'):
+        if not has_fds_permission(self.request.user, 'fds:management'):
             qs = qs.filter(assignee=self.request.user)
         
         if week_start:
@@ -2070,7 +2070,7 @@ class FdsWeeklyTaskViewSet(viewsets.ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
-        if not has_fds_permission(self.request.user, 'fds:admin', 'fds:management'):
+        if not has_fds_permission(self.request.user, 'fds:management'):
             raise PermissionDenied("Only admins can create manual tasks.")
         serializer.save(is_manual=True)
         
@@ -2078,7 +2078,7 @@ class FdsWeeklyTaskViewSet(viewsets.ModelViewSet):
     def submit(self, request, pk=None):
         """Coordinator submits a task for approval."""
         task = self.get_object()
-        if task.assignee != request.user and not has_fds_permission(request.user, 'fds:admin', 'fds:management'):
+        if task.assignee != request.user and not has_fds_permission(request.user, 'fds:management'):
             return Response({"detail": "Not allowed."}, status=status.HTTP_403_FORBIDDEN)
         
         serializer = FdsWeeklyTaskSubmitSerializer(task, data=request.data, partial=True)
@@ -2090,7 +2090,7 @@ class FdsWeeklyTaskViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
         """Admin approves the task."""
-        if not has_fds_permission(request.user, 'fds:admin', 'fds:management'):
+        if not has_fds_permission(request.user, 'fds:management'):
             return Response({"detail": "Only admins can approve tasks."}, status=status.HTTP_403_FORBIDDEN)
         
         task = self.get_object()
@@ -2103,7 +2103,7 @@ class FdsWeeklyTaskViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def reject(self, request, pk=None):
         """Admin rejects the task."""
-        if not has_fds_permission(request.user, 'fds:admin', 'fds:management'):
+        if not has_fds_permission(request.user, 'fds:management'):
             return Response({"detail": "Only admins can reject tasks."}, status=status.HTTP_403_FORBIDDEN)
         
         task = self.get_object()
