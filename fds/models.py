@@ -841,7 +841,7 @@ class FdsTaskTemplate(models.Model):
     """Defines a recurring task assigned to a specific coordinator."""
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
-    assignee = models.ForeignKey(User, on_delete=models.CASCADE, related_name='fds_task_templates')
+    assignee = models.ForeignKey(User, on_delete=models.CASCADE, related_name='fds_task_templates', null=True, blank=True)
     is_active = models.BooleanField(default=True)
     assigned_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='fds_templates_assigned')
     created_at = models.DateTimeField(auto_now_add=True)
