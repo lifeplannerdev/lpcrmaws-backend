@@ -3,6 +3,8 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.db.models import Q
+from django.db.models.functions import Coalesce
+
 from .models import MailAccount, EmailSignature, EmailTemplate, EmailMessage, EmailAttachment
 from .serializers import (
     MailAccountSerializer, EmailSignatureSerializer, EmailTemplateSerializer,
@@ -97,7 +99,9 @@ class EmailMessageViewSet(MailPermissionMixin, viewsets.ModelViewSet):
     serializer_class = EmailMessageSerializer
 
     def get_queryset(self):
-        qs = EmailMessage.objects.all().select_related('account', 'template', 'created_by', 'student').prefetch_related('attachments').order_by('-effective_time')
+                qs = EmailMessage.objects.all().select_related('account', 'template', 'created_by', 'student').prefetch_related('attachments').annotate(
+            sort_time=Coalesce('sent_at', 'created_at')
+        ).order_by('-sort_time')
         student_id = self.request.query_params.get('student_id')
         if student_id:
             qs = qs.filter(student_id=student_id)
