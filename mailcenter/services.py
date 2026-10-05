@@ -218,9 +218,38 @@ def _threading_for(message):
 
 
 
+def apply_variables(message, user=None):
+    from .variables import build_context, render_string
+    if not message.student:
+        return
+    ctx = build_context(message.student, user or message.created_by)
+    changed = False
+    
+    if message.subject:
+        s, _, _ = render_string(message.subject, ctx, html=False)
+        if s != message.subject:
+            message.subject = s
+            changed = True
+            
+    if message.body_html:
+        b, _, _ = render_string(message.body_html, ctx, html=True)
+        if b != message.body_html:
+            message.body_html = b
+            changed = True
+            
+    if message.signature_html:
+        s, _, _ = render_string(message.signature_html, ctx, html=True)
+        if s != message.signature_html:
+            message.signature_html = s
+            changed = True
+            
+    if changed:
+        message.save(update_fields=['subject', 'body_html', 'signature_html'])
+
 def sync_draft_to_gmail(message):
     if message.state != EmailMessage.STATE_DRAFT or not message.account:
         return
+    apply_variables(message)
     final_html = _compose_final_html(message)
     final_text = html_to_text(final_html)
     from email.utils import formataddr
@@ -256,6 +285,7 @@ def send_draft(message_id, user, force=False):
         EmailMessage.objects.filter(pk=message_id).update(state=EmailMessage.STATE_DRAFT, error=str(error)[:490])
 
     try:
+        apply_variables(message, user)
         account = message.account
         if not account or not account.is_active:
             raise MailError('Choose a sender account (From) before sending.')
