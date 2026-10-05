@@ -3,7 +3,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     MailAccountViewSet, EmailSignatureViewSet, EmailTemplateViewSet, 
     EmailMessageViewSet, EmailAttachmentViewSet,
-    gmail_authorize, gmail_callback
+    gmail_authorize, gmail_callback, get_template_variables
 )
 
 router = DefaultRouter()
@@ -14,6 +14,7 @@ router.register(r'messages', EmailMessageViewSet, basename='mail-message')
 router.register(r'attachments', EmailAttachmentViewSet, basename='mail-attachment')
 
 urlpatterns = [
+    path('template-variables/', get_template_variables, name='template-variables'),
     path('authorize/', gmail_authorize, name='gmail-authorize'),
     path('callback/', gmail_callback, name='gmail-callback'),
     path('', include(router.urls)),

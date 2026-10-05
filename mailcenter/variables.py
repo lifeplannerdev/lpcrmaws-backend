@@ -68,7 +68,8 @@ def build_context(student, user=None):
 
     assigned = student.assigned_to.get_full_name() if student.assigned_to_id else ''
 
-    return {
+
+    ctx = {
         'student_name': name,
         'student_first_name': name.split(' ')[0] if name else '',
         'student_email': student.email or '',
@@ -96,6 +97,15 @@ def build_context(student, user=None):
         'staff_phone': staff_phone,
         'today': _fmt_date(timezone.localdate()),
     }
+    
+    if hasattr(student, 'dynamic_data') and student.dynamic_data:
+        for k, v in student.dynamic_data.items():
+            clean_k = re.sub(r'[^a-zA-Z0-9_]', '_', k.lower().strip())
+            if clean_k not in ctx:
+                ctx[clean_k] = str(v) if v is not None else ''
+                
+    return ctx
+
 
 
 def render_string(text, context, html=False):

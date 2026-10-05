@@ -48,11 +48,12 @@ class EmailMessageSerializer(serializers.ModelSerializer):
     attachments = EmailAttachmentSerializer(many=True, read_only=True)
     account_email = serializers.CharField(source='account.email', read_only=True)
     sender_name = serializers.CharField(source='created_by.get_full_name', read_only=True)
+    student_name = serializers.CharField(source='student.name', read_only=True)
 
     class Meta:
         model = EmailMessage
         fields = [
-            'id', 'student', 'account', 'account_email', 'direction', 'state',
+            'id', 'student', 'student_name', 'account', 'account_email', 'direction', 'state',
             'gmail_message_id', 'gmail_thread_id', 'new_thread',
             'from_email', 'to', 'cc', 'bcc', 'subject', 'body_html', 'body_text', 'signature_html', 'snippet',
             'template', 'error', 'sent_at', 'created_at', 'effective_time', 'attachments', 'sender_name'

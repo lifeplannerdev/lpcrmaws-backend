@@ -71,7 +71,7 @@ class EmailMessageViewSet(MailPermissionMixin, viewsets.ModelViewSet):
     serializer_class = EmailMessageSerializer
 
     def get_queryset(self):
-        qs = EmailMessage.objects.all().select_related('account', 'template', 'created_by').prefetch_related('attachments')
+        qs = EmailMessage.objects.all().select_related('account', 'template', 'created_by', 'student').prefetch_related('attachments')
         student_id = self.request.query_params.get('student_id')
         if student_id:
             qs = qs.filter(student_id=student_id)
@@ -189,7 +189,27 @@ import os
 
 os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = '1'
 
+
 @api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_template_variables(request):
+    from .variables import VARIABLES
+    import re
+    vars_list = [{'id': v[0], 'label': v[1]} for v in VARIABLES]
+    
+    try:
+        from trainers.models import ProcessingDynamicField
+        for d in ProcessingDynamicField.objects.all():
+            clean_k = re.sub(r'[^a-zA-Z0-9_]', '_', d.name.lower().strip())
+            if clean_k not in [v['id'] for v in vars_list]:
+                vars_list.append({'id': clean_k, 'label': d.name})
+    except Exception:
+        pass
+        
+    return Response(vars_list)
+
+@api_view(['GET'])
+
 @permission_classes([IsAuthenticated])
 def gmail_authorize(request):
     if not has_dynamic_permission(request.user, 'mail:manage'):
