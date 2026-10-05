@@ -26,5 +26,6 @@ __pycache__/
 .env.vercel
 .vercel
 credentials/credentials.json
+google_sheets_credentials.json
 
 credentials/credentials.json
