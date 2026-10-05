@@ -161,6 +161,9 @@ class EmailAttachmentViewSet(MailPermissionMixin, mixins.CreateModelMixin, mixin
 from django.conf import settings
 from google_auth_oauthlib.flow import Flow
 from rest_framework.decorators import api_view, permission_classes
+import os
+
+os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = '1'
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
