@@ -97,7 +97,7 @@ class EmailMessageViewSet(MailPermissionMixin, viewsets.ModelViewSet):
     serializer_class = EmailMessageSerializer
 
     def get_queryset(self):
-        qs = EmailMessage.objects.all().select_related('account', 'template', 'created_by', 'student').prefetch_related('attachments')
+        qs = EmailMessage.objects.all().select_related('account', 'template', 'created_by', 'student').prefetch_related('attachments').order_by('-effective_time')
         student_id = self.request.query_params.get('student_id')
         if student_id:
             qs = qs.filter(student_id=student_id)

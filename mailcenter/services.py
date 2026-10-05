@@ -430,7 +430,7 @@ def sync_student(student):
         )
         try:
             if student.email:
-                thread_ids.update(client.search_thread_ids(f'from:{student.email} OR to:{student.email}', max_results=25))
+                thread_ids.update(client.search_thread_ids(f'from:{student.email} OR to:{student.email}', max_results=100))
             for thread_id in thread_ids:
                 try:
                     thread = client.get_thread(thread_id)
