@@ -151,6 +151,15 @@ class EmailMessageViewSet(MailPermissionMixin, viewsets.ModelViewSet):
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=False, methods=['post'])
+    def sync_all(self, request):
+        from .tasks import sync_emails_for_all_students_task
+        try:
+            sync_emails_for_all_students_task.delay()
+            return Response({"detail": "Sync process started in the background."})
+        except Exception as e:
+            return Response({"detail": str(e)}, status=400)
+
+    @action(detail=False, methods=['post'])
     def sync(self, request):
         student_id = request.data.get('student_id')
         if not student_id:
