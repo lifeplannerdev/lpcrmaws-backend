@@ -106,6 +106,7 @@ class EmailMessage(models.Model):
 
     gmail_message_id = models.CharField(max_length=64, blank=True, null=True, db_index=True)
     gmail_thread_id = models.CharField(max_length=64, blank=True, null=True, db_index=True)
+    gmail_draft_id = models.CharField(max_length=64, blank=True, null=True, db_index=True)
     rfc_message_id = models.CharField(max_length=300, blank=True, help_text="RFC 822 Message-ID header")
     references = models.TextField(blank=True, help_text="References header used for threading")
     new_thread = models.BooleanField(default=False, help_text="Draft should start a brand new conversation")

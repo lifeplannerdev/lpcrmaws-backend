@@ -217,6 +217,34 @@ def _threading_for(message):
     return thread_id, in_reply_to, references
 
 
+
+def sync_draft_to_gmail(message):
+    if message.state != EmailMessage.STATE_DRAFT or not message.account:
+        return
+    final_html = _compose_final_html(message)
+    final_text = html_to_text(final_html)
+    from email.utils import formataddr
+    from_header = formataddr((message.account.display_name or '', message.account.email))
+    thread_id, in_reply_to, references = _threading_for(message)
+    raw = build_mime(
+        from_header, message.to, message.cc, message.bcc, message.subject or '(no subject)',
+        final_html, final_text, _attachment_payloads(message), in_reply_to, references,
+    )
+    from .gmail_client import GmailClient
+    client = GmailClient(message.account)
+    if message.gmail_draft_id:
+        try:
+            res = client.update_draft(message.gmail_draft_id, raw, thread_id)
+            message.gmail_message_id = res.get('message', {}).get('id')
+            message.save(update_fields=['gmail_message_id'])
+            return
+        except Exception:
+            pass
+    res = client.create_draft(raw, thread_id)
+    message.gmail_draft_id = res.get('id')
+    message.gmail_message_id = res.get('message', {}).get('id')
+    message.save(update_fields=['gmail_draft_id', 'gmail_message_id'])
+
 def send_draft(message_id, user, force=False):
     """Send a draft through Gmail. Never called automatically - only from the explicit Send action."""
     claimed = EmailMessage.objects.filter(pk=message_id, state=EmailMessage.STATE_DRAFT).update(state=EmailMessage.STATE_SENDING)
@@ -257,6 +285,11 @@ def send_draft(message_id, user, force=False):
         )
 
         client = GmailClient(account)
+        if message.gmail_draft_id:
+            try:
+                client.delete_draft(message.gmail_draft_id)
+            except Exception:
+                pass
         try:
             response = client.send_raw(raw, thread_id=thread_id)
         except GmailAuthError:

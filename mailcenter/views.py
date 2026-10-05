@@ -8,7 +8,7 @@ from .serializers import (
     MailAccountSerializer, EmailSignatureSerializer, EmailTemplateSerializer,
     EmailMessageSerializer, EmailMessageCreateUpdateSerializer, EmailAttachmentSerializer
 )
-from .services import send_draft, sync_student, get_gmail_attachment
+from .services import send_draft, sync_student, get_gmail_attachment, sync_draft_to_gmail
 from accounts.permissions import has_dynamic_permission
 from rest_framework.exceptions import PermissionDenied
 import mimetypes
@@ -59,7 +59,12 @@ class EmailTemplateViewSet(MailManagePermissionMixin, viewsets.ModelViewSet):
     serializer_class = EmailTemplateSerializer
 
     def perform_create(self, serializer):
-        serializer.save(created_by=self.request.user)
+        msg = serializer.save(created_by=self.request.user)
+        try:
+            sync_draft_to_gmail(msg)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning('Failed to sync draft to gmail: %s', e)
 
 
 class EmailMessageViewSet(MailPermissionMixin, viewsets.ModelViewSet):
@@ -78,14 +83,33 @@ class EmailMessageViewSet(MailPermissionMixin, viewsets.ModelViewSet):
         return EmailMessageSerializer
 
     def perform_create(self, serializer):
-        serializer.save(created_by=self.request.user)
+        msg = serializer.save(created_by=self.request.user)
+        try:
+            sync_draft_to_gmail(msg)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning('Failed to sync draft to gmail: %s', e)
         
     def perform_update(self, serializer):
-        # Ensure only drafts can be updated
         message = self.get_object()
         if message.state != EmailMessage.STATE_DRAFT:
             raise PermissionDenied("Only drafts can be edited.")
-        serializer.save()
+        msg = serializer.save()
+        try:
+            sync_draft_to_gmail(msg)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning('Failed to sync draft to gmail: %s', e)
+
+    def perform_destroy(self, instance):
+        if instance.state == EmailMessage.STATE_DRAFT and instance.gmail_draft_id and instance.account:
+            from .gmail_client import GmailClient
+            try:
+                client = GmailClient(instance.account)
+                client.delete_draft(instance.gmail_draft_id)
+            except Exception:
+                pass
+        instance.delete()
 
     @action(detail=True, methods=['post'])
     def send(self, request, pk=None):
