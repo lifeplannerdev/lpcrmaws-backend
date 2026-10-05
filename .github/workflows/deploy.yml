@@ -23,6 +23,7 @@ jobs:
             source venv/bin/activate
             pip install -r requirements.txt
             python manage.py migrate
+            python seed_mail_permissions.py
             python manage.py collectstatic --noinput
             sudo systemctl daemon-reload
             sudo systemctl restart lpcrm-web
