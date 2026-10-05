@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     'programs',
     'students',
     'fds',
+    'mailcenter',
 ]
 
 MIDDLEWARE = [
@@ -327,6 +328,14 @@ CELERY_BEAT_SCHEDULE = {
     'snapshot_voxbay_ai_daily': {
         'task': 'telephony.tasks.snapshot_voxbay_ai_daily',
         'schedule': crontab(hour=23, minute=59),
+    },
+    'sync_emails_for_all_students': {
+        'task': 'mailcenter.tasks.sync_emails_for_all_students_task',
+        'schedule': crontab(minute='*/5'),
+    },
+    'sync_all_mail_accounts': {
+        'task': 'mailcenter.tasks.sync_all_mail_accounts_task',
+        'schedule': crontab(minute='*/15'),
     },
 }
 

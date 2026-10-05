@@ -40,6 +40,7 @@ urlpatterns = [
     path('api/feeds/', include('feeds.urls')),
     path('api/students/', include('students.urls')),
     path('api/fds/', include('fds.urls')),
+    path('api/mail/', include('mailcenter.urls')),
 ]
 
 if settings.DEBUG:
