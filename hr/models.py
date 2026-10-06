@@ -139,13 +139,16 @@ class Location(models.Model):
 
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
-        # Auto-assign all assets in this location to the location manager
-        if self.assigned_to:
-            self.assets.update(assigned_to=self.assigned_to)
 
 
 class AssetCategory(models.Model):
     name = models.CharField(max_length=100, unique=True)
+    classification = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        help_text="Grouping classification (e.g., Communication Systems, System Classification)"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -154,6 +157,166 @@ class AssetCategory(models.Model):
 
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+        if not self.classification:
+            self.classification = self.get_classification()
+        super().save(*args, **kwargs)
+
+    def get_classification(self):
+        if self.classification:
+            return self.classification
+        clean_name = (self.name or '').strip().lower()
+        classification_map = {
+            # Communication Systems
+            'mobile': 'Communication Systems',
+            'mobiles': 'Communication Systems',
+            'mobile phone': 'Communication Systems',
+            'mobile phones': 'Communication Systems',
+            'sim': 'Communication Systems',
+            'sims': 'Communication Systems',
+            'sim card': 'Communication Systems',
+            'sim cards': 'Communication Systems',
+            'phone': 'Communication Systems',
+            'phones': 'Communication Systems',
+            'telephone': 'Communication Systems',
+            'telephones': 'Communication Systems',
+            'smartphone': 'Communication Systems',
+            'smartphones': 'Communication Systems',
+            'tablet': 'Communication Systems',
+            'tablets': 'Communication Systems',
+            'iphone': 'Communication Systems',
+            'iphones': 'Communication Systems',
+            'ipad': 'Communication Systems',
+            'ipads': 'Communication Systems',
+            'cellphone': 'Communication Systems',
+            'cellphones': 'Communication Systems',
+            'handset': 'Communication Systems',
+            'handsets': 'Communication Systems',
+            'intercom': 'Communication Systems',
+            'voip': 'Communication Systems',
+
+            # System Classification
+            'cpu': 'System Classification',
+            'cpus': 'System Classification',
+            'keyboard': 'System Classification',
+            'keyboards': 'System Classification',
+            'mouse': 'System Classification',
+            'mice': 'System Classification',
+            'pc': 'System Classification',
+            'pcs': 'System Classification',
+            'laptop': 'System Classification',
+            'laptops': 'System Classification',
+            'macbook': 'System Classification',
+            'macbooks': 'System Classification',
+            'thinkpad': 'System Classification',
+            'thinkpads': 'System Classification',
+            'imac': 'System Classification',
+            'imacs': 'System Classification',
+            'chromebook': 'System Classification',
+            'chromebooks': 'System Classification',
+            'workstation': 'System Classification',
+            'workstations': 'System Classification',
+            'server': 'System Classification',
+            'servers': 'System Classification',
+            'lap charger': 'System Classification',
+            'laptop charger': 'System Classification',
+            'moniter': 'System Classification',
+            'monitors': 'System Classification',
+            'monitor': 'System Classification',
+            'screen': 'System Classification',
+            'screens': 'System Classification',
+            'display': 'System Classification',
+            'displays': 'System Classification',
+            'wify adaptor': 'System Classification',
+            'wifi adaptor': 'System Classification',
+            'wifi adapter': 'System Classification',
+            'wifi adapters': 'System Classification',
+            'hard drive': 'System Classification',
+            'hard drives': 'System Classification',
+            'hard disk': 'System Classification',
+            'hard disks': 'System Classification',
+            'ram': 'System Classification',
+            'desktop': 'System Classification',
+            'desktops': 'System Classification',
+
+            # Office Furniture
+            'chair': 'Office Furniture',
+            'chairs': 'Office Furniture',
+            'office chair': 'Office Furniture',
+            'office chairs': 'Office Furniture',
+            'table': 'Office Furniture',
+            'tables': 'Office Furniture',
+            'teapoy': 'Office Furniture',
+            'teapoys': 'Office Furniture',
+            'sofa': 'Office Furniture',
+            'sofas': 'Office Furniture',
+            'shelf': 'Office Furniture',
+            'shelves': 'Office Furniture',
+            'stand': 'Office Furniture',
+            'stands': 'Office Furniture',
+            'desk': 'Office Furniture',
+            'desks': 'Office Furniture',
+            'cupboard': 'Office Furniture',
+            'cupboards': 'Office Furniture',
+
+            # Electronics & Appliances
+            'ac': 'Electronics & Appliances',
+            'air conditioner': 'Electronics & Appliances',
+            'fan': 'Electronics & Appliances',
+            'fans': 'Electronics & Appliances',
+            'tv': 'Electronics & Appliances',
+            'television': 'Electronics & Appliances',
+            'tv & remote': 'Electronics & Appliances',
+            'home theatre': 'Electronics & Appliances',
+            'speaker': 'Electronics & Appliances',
+            'speakers': 'Electronics & Appliances',
+            'ups': 'Electronics & Appliances',
+            'projector': 'Electronics & Appliances',
+            'projectors': 'Electronics & Appliances',
+
+            # Office Equipment & Utilities
+            'printer': 'Office Equipment & Utilities',
+            'printers': 'Office Equipment & Utilities',
+            'camera': 'Office Equipment & Utilities',
+            'cameras': 'Office Equipment & Utilities',
+            'white board': 'Office Equipment & Utilities',
+            'whiteboard': 'Office Equipment & Utilities',
+            'whiteboards': 'Office Equipment & Utilities',
+            'id card': 'Office Equipment & Utilities',
+            'id cards': 'Office Equipment & Utilities',
+            'key set box': 'Office Equipment & Utilities',
+            'waste in': 'Office Equipment & Utilities',
+            'waste bin': 'Office Equipment & Utilities',
+            'waste bins': 'Office Equipment & Utilities',
+            'wastebin': 'Office Equipment & Utilities',
+            'wastebins': 'Office Equipment & Utilities',
+            'scanner': 'Office Equipment & Utilities',
+            'scanners': 'Office Equipment & Utilities',
+        }
+        if clean_name in classification_map:
+            return classification_map[clean_name]
+
+        # Keyword and token fallback for compound/custom category names (e.g. 'Conference Chairs', 'Laser Printer')
+        import re
+        tokens = set(re.findall(r'\b[a-z0-9]+\b', clean_name))
+
+        if tokens & {'mobile', 'mobiles', 'sim', 'sims', 'phone', 'phones', 'telephone', 'telephones', 'smartphone', 'smartphones', 'tablet', 'tablets', 'iphone', 'iphones', 'ipad', 'ipads', 'cellphone', 'cellphones', 'handset', 'handsets', 'voip', 'intercom'} or 'sim card' in clean_name or 'mobile phone' in clean_name:
+            return 'Communication Systems'
+
+        if tokens & {'cpu', 'cpus', 'keyboard', 'keyboards', 'mouse', 'mice', 'pc', 'pcs', 'laptop', 'laptops', 'macbook', 'macbooks', 'thinkpad', 'thinkpads', 'imac', 'imacs', 'chromebook', 'chromebooks', 'workstation', 'workstations', 'server', 'servers', 'charger', 'chargers', 'monitor', 'monitors', 'moniter', 'screen', 'screens', 'display', 'displays', 'adapter', 'adaptor', 'ram', 'desktop', 'desktops', 'router', 'routers', 'switch', 'switches', 'hub', 'hubs', 'webcam', 'webcams', 'headphone', 'headphones', 'headset', 'headsets', 'earphone', 'earphones', 'mic', 'mics', 'microphone', 'microphones', 'dock', 'docks'} or 'hard disk' in clean_name or 'hard drive' in clean_name or 'lap charger' in clean_name or 'wifi router' in clean_name or 'network switch' in clean_name:
+            return 'System Classification'
+
+        if tokens & {'chair', 'chairs', 'table', 'tables', 'teapoy', 'teapoys', 'sofa', 'sofas', 'shelf', 'shelves', 'stand', 'stands', 'desk', 'desks', 'cupboard', 'cupboards'} or 'office chair' in clean_name:
+            return 'Office Furniture'
+
+        if tokens & {'ac', 'fan', 'fans', 'tv', 'television', 'speaker', 'speakers', 'ups', 'projector', 'projectors', 'cooler', 'coolers', 'refrigerator', 'refrigerators', 'fridge', 'fridges', 'dispenser', 'dispensers', 'microwave', 'microwaves'} or 'air condition' in clean_name or 'home theatre' in clean_name or 'air cooler' in clean_name or 'water dispenser' in clean_name:
+            return 'Electronics & Appliances'
+
+        if tokens & {'printer', 'printers', 'camera', 'cameras', 'whiteboard', 'scanner', 'scanners', 'bin', 'bins', 'shredder', 'shredders', 'extinguisher', 'extinguishers'} or 'white board' in clean_name or 'id card' in clean_name or 'key set' in clean_name or 'waste' in clean_name or 'paper shredder' in clean_name or 'fire extinguisher' in clean_name:
+            return 'Office Equipment & Utilities'
+
+        return 'General Assets'
 
 
 class Asset(models.Model):
@@ -219,22 +382,24 @@ class Asset(models.Model):
     def __str__(self):
         category_name = self.category.name if self.category else "Uncategorized"
         return f"{self.name} ({category_name}) - {self.company}"
+
+    @property
+    def classification(self):
+        cat_cls = self.category.get_classification() if self.category else None
+        if cat_cls and cat_cls != 'General Assets':
+            return cat_cls
+        if self.provider:
+            return 'Communication Systems'
+        if self.name:
+            inferred = AssetCategory(name=self.name).get_classification()
+            if inferred != 'General Assets':
+                return inferred
+        return cat_cls or 'General Assets'
         
     def save(self, *args, **kwargs):
-        # If asset is placed in a location with a manager, it inherits that manager
-        if self.assigned_location and self.assigned_location.assigned_to:
-            self.assigned_to = self.assigned_location.assigned_to
-
+        if self.assigned_location and not self.branch:
+            self.branch = self.assigned_location.branch
         super().save(*args, **kwargs)
-
-        # Sync assigned_to with primary_sim and secondary_sim
-        if self.primary_sim and self.primary_sim.assigned_to != self.assigned_to:
-            self.primary_sim.assigned_to = self.assigned_to
-            self.primary_sim.save()
-            
-        if self.secondary_sim and self.secondary_sim.assigned_to != self.assigned_to:
-            self.secondary_sim.assigned_to = self.assigned_to
-            self.secondary_sim.save()
 
 class DocumentDetail(models.Model):
     COMPANY_CHOICES = [

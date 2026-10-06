@@ -1,3 +1,4 @@
+from django.db.models import Q
 from rest_framework import serializers
 from .models import Penalty, AttendanceDocument, Candidate, Asset, Location, AssetCategory, Branch, DocumentDetail
 from django.contrib.auth import get_user_model
@@ -28,19 +29,45 @@ class BranchSerializer(serializers.ModelSerializer):
         model = Branch
         fields = '__all__'
 
+def _get_attachment_url(attachment_field, request=None):
+    if not attachment_field:
+        return None
+    try:
+        url = attachment_field.url
+        if request and url:
+            return request.build_absolute_uri(url)
+        return url
+    except Exception:
+        return None
+
 class LocationSerializer(serializers.ModelSerializer):
     branch_details = BranchSerializer(source='branch', read_only=True)
     assigned_to_details = UserMinimalSerializer(source='assigned_to', read_only=True)
     assigned_staff = serializers.SerializerMethodField(read_only=True)
     assigned_assets = serializers.SerializerMethodField(read_only=True)
+    members = serializers.SerializerMethodField(read_only=True)
+    general_assets = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Location
         fields = '__all__'
 
     def get_assigned_staff(self, obj):
-        users = User.objects.filter(location=obj.name, company=obj.company)
-        return UserMinimalSerializer(users, many=True).data
+        obj_name_clean = (obj.name or '').strip()
+        if not obj_name_clean:
+            return []
+        loc_filter = Q(location__icontains=obj_name_clean) | Q(location=str(obj.id))
+        candidates = User.objects.filter(loc_filter)
+        if obj.company:
+            candidates = candidates.filter(Q(company=obj.company) | Q(company__isnull=True))
+        matched = [
+            u for u in candidates
+            if u.location and (
+                u.location.strip().lower() == obj_name_clean.lower() or
+                u.location.strip() == str(obj.id)
+            )
+        ]
+        return UserMinimalSerializer(matched, many=True).data
         
     def get_assigned_assets(self, obj):
         assets = obj.assets.all()
@@ -49,22 +76,163 @@ class LocationSerializer(serializers.ModelSerializer):
                 "id": a.id,
                 "name": a.name,
                 "category": a.category.name if a.category else None,
+                "classification": a.classification,
                 "serial_number": a.serial_number,
                 "provider": a.provider,
                 "assigned_to": a.assigned_to.id if a.assigned_to else None,
             } for a in assets
         ]
 
+    def get_members(self, obj):
+        user_ids = set()
+        if obj.assigned_to_id:
+            user_ids.add(obj.assigned_to_id)
+
+        obj_name_clean = (obj.name or '').strip()
+        if obj_name_clean:
+            loc_filter = Q(location__icontains=obj_name_clean) | Q(location=str(obj.id))
+        else:
+            loc_filter = Q(location=str(obj.id))
+
+        loc_candidates = User.objects.filter(loc_filter)
+        if obj.company:
+            loc_candidates = loc_candidates.filter(Q(company=obj.company) | Q(company__isnull=True))
+        for u in loc_candidates:
+            if u.location and (
+                (obj_name_clean and u.location.strip().lower() == obj_name_clean.lower()) or
+                u.location.strip() == str(obj.id)
+            ):
+                user_ids.add(u.id)
+
+        asset_user_ids = obj.assets.filter(assigned_to__isnull=False).values_list('assigned_to_id', flat=True)
+        for uid in asset_user_ids:
+            if uid:
+                user_ids.add(uid)
+
+        if not user_ids:
+            return []
+
+        # Bulk fetch all members and sort: manager first, then alphabetical by display name
+        users = list(User.objects.filter(id__in=user_ids))
+        users.sort(key=lambda u: (
+            0 if u.id == obj.assigned_to_id else 1,
+            (f"{u.first_name or ''} {u.last_name or ''}".strip() or u.username).lower()
+        ))
+
+        # Bulk fetch all candidate assets for these users
+        all_user_assets = Asset.objects.filter(
+            assigned_to_id__in=user_ids
+        ).filter(
+            Q(assigned_location=obj) | Q(assigned_location__isnull=True)
+        ).select_related('category')
+
+        from collections import defaultdict
+        assets_by_user = defaultdict(list)
+        for a in all_user_assets:
+            assets_by_user[a.assigned_to_id].append(a)
+
+        request = self.context.get('request')
+        members_data = []
+        for user in users:
+            is_cabin_occupant = (
+                obj.assigned_to_id == user.id or
+                bool(user.location and (user.location.strip().lower() == obj_name_clean.lower() or user.location == str(obj.id)))
+            )
+            raw_assets = assets_by_user.get(user.id, [])
+            if is_cabin_occupant:
+                user_assets = raw_assets
+            else:
+                user_assets = [a for a in raw_assets if a.assigned_location_id == obj.id]
+
+            members_data.append({
+                "id": user.id,
+                "username": user.username,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "full_name": f"{user.first_name or ''} {user.last_name or ''}".strip() or user.username,
+                "email": user.email,
+                "phone": user.phone or user.office_phone,
+                "is_manager": obj.assigned_to_id == user.id,
+                "assets": [
+                    {
+                        "id": a.id,
+                        "name": a.name,
+                        "category": a.category.name if a.category else None,
+                        "classification": a.classification,
+                        "serial_number": a.serial_number,
+                        "provider": a.provider,
+                        "attachment_url": _get_attachment_url(a.attachment, request),
+                    } for a in user_assets
+                ]
+            })
+        return members_data
+
+    def get_general_assets(self, obj):
+        general = obj.assets.filter(assigned_to__isnull=True).select_related('category')
+        request = self.context.get('request')
+        return [
+            {
+                "id": a.id,
+                "name": a.name,
+                "category": a.category.name if a.category else None,
+                "classification": a.classification,
+                "serial_number": a.serial_number,
+                "provider": a.provider,
+                "purchase_date": str(a.purchase_date) if a.purchase_date else None,
+                "notes": a.notes,
+                "attachment_url": _get_attachment_url(a.attachment, request),
+            } for a in general
+        ]
+
+class LocationMinimalSerializer(serializers.ModelSerializer):
+    branch_details = BranchSerializer(source='branch', read_only=True)
+    assigned_to_details = UserMinimalSerializer(source='assigned_to', read_only=True)
+
+    class Meta:
+        model = Location
+        fields = ['id', 'name', 'company', 'branch', 'branch_details', 'assigned_to', 'assigned_to_details', 'created_at']
+
+class LocationSummarySerializer(serializers.ModelSerializer):
+    branch_details = BranchSerializer(source='branch', read_only=True)
+    assigned_to_details = UserMinimalSerializer(source='assigned_to', read_only=True)
+    assigned_assets = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = Location
+        fields = ['id', 'name', 'company', 'branch', 'branch_details', 'assigned_to', 'assigned_to_details', 'assigned_assets', 'created_at']
+
+    def get_assigned_assets(self, obj):
+        assets = obj.assets.select_related('category').all()
+        return [
+            {
+                "id": a.id,
+                "name": a.name,
+                "category": a.category.name if a.category else None,
+                "classification": a.classification,
+                "serial_number": a.serial_number,
+                "provider": a.provider,
+                "assigned_to": a.assigned_to_id,
+            } for a in assets
+        ]
+
 class AssetCategorySerializer(serializers.ModelSerializer):
+    classification = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+
     class Meta:
         model = AssetCategory
-        fields = '__all__'
+        fields = ['id', 'name', 'classification', 'created_at']
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data['classification'] = instance.get_classification()
+        return data
 
 class AssetSerializer(serializers.ModelSerializer):
     assigned_to_details = UserMinimalSerializer(source='assigned_to', read_only=True)
-    assigned_location_details = LocationSerializer(source='assigned_location', read_only=True)
+    assigned_location_details = LocationMinimalSerializer(source='assigned_location', read_only=True)
     category_details = AssetCategorySerializer(source='category', read_only=True)
     branch_details = BranchSerializer(source='branch', read_only=True)
+    classification = serializers.CharField(read_only=True)
     attachment_url = serializers.SerializerMethodField(read_only=True)
     primary_sim_details = serializers.SerializerMethodField(read_only=True)
     secondary_sim_details = serializers.SerializerMethodField(read_only=True)
@@ -72,19 +240,14 @@ class AssetSerializer(serializers.ModelSerializer):
     class Meta:
         model = Asset
         fields = [
-            'id', 'name', 'category', 'category_details', 'serial_number', 'company',
+            'id', 'name', 'category', 'category_details', 'classification', 'serial_number', 'company',
             'primary_sim', 'primary_sim_details', 'secondary_sim', 'secondary_sim_details', 'provider',
             'assigned_to', 'assigned_to_details', 'assigned_location', 'assigned_location_details',
             'branch', 'branch_details', 'attachment', 'attachment_url', 'purchase_date', 'notes', 'created_at', 'updated_at'
         ]
 
     def get_attachment_url(self, obj):
-        if obj.attachment:
-            request = self.context.get('request')
-            if request:
-                return request.build_absolute_uri(obj.attachment.url)
-            return obj.attachment.url
-        return None
+        return _get_attachment_url(obj.attachment, self.context.get('request'))
 
     def get_primary_sim_details(self, obj):
         if obj.primary_sim:
@@ -105,21 +268,6 @@ class AssetSerializer(serializers.ModelSerializer):
                 "provider": obj.secondary_sim.provider
             }
         return None
-
-    def update(self, instance, validated_data):
-        primary_sim = validated_data.get('primary_sim', instance.primary_sim)
-        secondary_sim = validated_data.get('secondary_sim', instance.secondary_sim)
-
-        # SIM swap logic: if this SIM is already primary or secondary on another asset, detach it
-        if primary_sim and primary_sim != instance.primary_sim:
-            Asset.objects.filter(primary_sim=primary_sim).exclude(id=instance.id).update(primary_sim=None)
-            Asset.objects.filter(secondary_sim=primary_sim).exclude(id=instance.id).update(secondary_sim=None)
-            
-        if secondary_sim and secondary_sim != instance.secondary_sim:
-            Asset.objects.filter(primary_sim=secondary_sim).exclude(id=instance.id).update(primary_sim=None)
-            Asset.objects.filter(secondary_sim=secondary_sim).exclude(id=instance.id).update(secondary_sim=None)
-
-        return super().update(instance, validated_data)
 
 class PenaltySerializer(serializers.ModelSerializer):
     user_name = serializers.SerializerMethodField(read_only=True)
@@ -181,6 +329,7 @@ class StaffSerializer(serializers.ModelSerializer):
     full_name = serializers.SerializerMethodField()
     assets = serializers.SerializerMethodField()
     responsible_locations = serializers.SerializerMethodField()
+    role_names = serializers.SerializerMethodField()
     
     class Meta:
         model = User
@@ -200,10 +349,16 @@ class StaffSerializer(serializers.ModelSerializer):
             "join_date",
             "is_active",
             "company",
+            "role_names",
             "assets",
             "responsible_locations",
         ]
     
+    def get_role_names(self, obj):
+        if hasattr(obj, 'db_roles'):
+            return list(obj.db_roles.values_list('name', flat=True))
+        return []
+
     def get_full_name(self, obj):
         if obj.first_name and obj.last_name:
             return f"{obj.first_name} {obj.last_name}"
@@ -213,13 +368,16 @@ class StaffSerializer(serializers.ModelSerializer):
 
     def get_assets(self, obj):
         assets = obj.assigned_assets.all()
-        return AssetSerializer(assets, many=True).data
+        return AssetSerializer(assets, many=True, context=self.context).data
 
     def get_responsible_locations(self, obj):
-        if obj.location:
-            locs = Location.objects.filter(name__icontains=obj.location, company=obj.company)
-            return LocationSerializer(locs, many=True).data
-        return []
+        filters = Q(assigned_to=obj)
+        if obj.location and obj.location.strip():
+            filters |= Q(name__icontains=obj.location.strip())
+        if obj.company:
+            filters &= (Q(company=obj.company) | Q(company__isnull=True))
+        locs = Location.objects.filter(filters).distinct().select_related('branch', 'assigned_to').prefetch_related('assets__category')
+        return LocationSummarySerializer(locs, many=True, context=self.context).data
 
 
 class CandidateSerializer(serializers.ModelSerializer):

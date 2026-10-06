@@ -48,30 +48,35 @@ class LocationViewSet(viewsets.ModelViewSet):
     permission_classes = [HasAssetPermission]
 
     def get_queryset(self):
-        qs = super().get_queryset()
+        qs = super().get_queryset().select_related('branch', 'assigned_to')
         company = self.request.query_params.get('company')
         if company:
             qs = qs.filter(company=company)
+        branch_id = self.request.query_params.get('branch_id')
+        if branch_id:
+            qs = qs.filter(branch_id=branch_id)
         return qs
 
     @action(detail=False, methods=['get'])
     def summary(self, request):
-        qs = self.get_queryset()
+        qs = self.get_queryset().prefetch_related('assets__category')
         summary_data = []
         for loc in qs:
-            assets = loc.assets.all()
+            all_assets = list(loc.assets.all())
             category_counts = {}
-            for asset in assets:
+            for asset in all_assets:
                 cat_name = asset.category.name if asset.category else 'Uncategorized'
                 category_counts[cat_name] = category_counts.get(cat_name, 0) + 1
             
+            general_assets_count = sum(1 for a in all_assets if a.assigned_to_id is None)
             summary_data.append({
                 "id": loc.id,
                 "name": loc.name,
                 "company": loc.company,
                 "branch_id": loc.branch_id,
                 "asset_counts": category_counts,
-                "total_assets": assets.count()
+                "total_assets": len(all_assets),
+                "general_assets_count": general_assets_count,
             })
         return Response(summary_data)
 
@@ -386,7 +391,9 @@ class AssetListCreateAPI(APIView):
     permission_classes = [HasAssetPermission]
 
     def get(self, request):
-        assets = Asset.objects.all()
+        assets = Asset.objects.all().select_related(
+            'category', 'assigned_to', 'assigned_location', 'assigned_location__branch', 'assigned_location__assigned_to', 'branch'
+        )
         
         if not (has_dynamic_permission(request.user, 'assets:read_any') or 
                 has_dynamic_permission(request.user, 'assets:read_tenant')):
@@ -400,7 +407,11 @@ class AssetListCreateAPI(APIView):
         if assigned_to:
             assets = assets.filter(assigned_to_id=assigned_to)
 
-        location_id = request.GET.get("location_id")
+        general_only = request.GET.get("general_only")
+        if general_only and general_only.lower() in ('true', '1'):
+            assets = assets.filter(assigned_to__isnull=True)
+
+        location_id = request.GET.get("location_id") or request.GET.get("cabin_id")
         if location_id:
             assets = assets.filter(assigned_location_id=location_id)
 
@@ -413,19 +424,18 @@ class AssetListCreateAPI(APIView):
             assets = assets.filter(
                 Q(name__icontains=search) |
                 Q(serial_number__icontains=search) |
-                Q(primary_sim__name__icontains=search) |
-                Q(secondary_sim__name__icontains=search) |
+                Q(category__name__icontains=search) |
                 Q(provider__icontains=search)
             )
 
-        serializer = AssetSerializer(assets, many=True)
+        serializer = AssetSerializer(assets, many=True, context={'request': request})
         return Response({
             "count": assets.count(),
             "results": serializer.data
         })
 
     def post(self, request):
-        serializer = AssetSerializer(data=request.data)
+        serializer = AssetSerializer(data=request.data, context={'request': request})
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -437,7 +447,9 @@ class AssetDetailAPI(APIView):
 
     def get(self, request, pk):
         try:
-            asset = Asset.objects.get(pk=pk)
+            asset = Asset.objects.select_related(
+                'category', 'assigned_to', 'assigned_location', 'assigned_location__branch', 'assigned_location__assigned_to', 'branch'
+            ).get(pk=pk)
         except Asset.DoesNotExist:
             return Response({"error": "Asset not found"}, status=status.HTTP_404_NOT_FOUND)
             
@@ -446,7 +458,7 @@ class AssetDetailAPI(APIView):
             if asset.assigned_to != request.user:
                 return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
                 
-        serializer = AssetSerializer(asset)
+        serializer = AssetSerializer(asset, context={'request': request})
         return Response(serializer.data)
 
     def put(self, request, pk):
@@ -455,7 +467,7 @@ class AssetDetailAPI(APIView):
         except Asset.DoesNotExist:
             return Response({"error": "Asset not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        serializer = AssetSerializer(asset, data=request.data, partial=True)
+        serializer = AssetSerializer(asset, data=request.data, partial=True, context={'request': request})
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data)
