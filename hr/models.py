@@ -442,6 +442,8 @@ class DocumentDetail(models.Model):
 
     company = models.CharField(max_length=20, choices=COMPANY_CHOICES, default='LP', db_index=True)
     
+    amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True, verbose_name="Amount")
+    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
