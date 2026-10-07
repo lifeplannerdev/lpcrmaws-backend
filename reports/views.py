@@ -276,15 +276,7 @@ class AllDailyReportsView(generics.ListAPIView):
                 Q(next_day_agenda__icontains=search)
             )
 
-        qs = qs.annotate(
-            status_order=Case(
-                When(status="pending", then=Value(0)),
-                When(status="rejected", then=Value(1)),
-                When(status="approved", then=Value(2)),
-                default=Value(3),
-                output_field=IntegerField(),
-            )
-        ).order_by("status_order", "-report_date", "-created_at")
+        qs = qs.order_by('-report_date', '-created_at')
 
         return qs
 
