@@ -243,8 +243,7 @@ class EmailAttachmentViewSet(MailPermissionMixin, mixins.CreateModelMixin, mixin
             import base64
             try:
                 client = GmailClient(attachment.message.account)
-                res = client.get_attachment(attachment.message.gmail_message_id, attachment.gmail_attachment_id)
-                data = base64.urlsafe_b64decode(res['data'])
+                data = client.get_attachment(attachment.message.gmail_message_id, attachment.gmail_attachment_id)
                 response = HttpResponse(data, content_type=attachment.content_type or 'application/octet-stream')
                 response['Content-Disposition'] = f'inline; filename="{attachment.filename}"'
                 return response
