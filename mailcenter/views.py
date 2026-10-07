@@ -18,7 +18,12 @@ import mimetypes
 class MailPermissionMixin:
     """Ensure user has mail:use or mail:manage permission."""
     def check_permissions(self, request):
+        if getattr(self, 'action', None) == 'download':
+            return
         super().check_permissions(request)
+        if not request.user or not request.user.is_authenticated:
+            from rest_framework.exceptions import NotAuthenticated
+            raise NotAuthenticated("Authentication credentials were not provided.")
         if not (has_dynamic_permission(request.user, 'mail:use') or has_dynamic_permission(request.user, 'mail:manage')):
             raise PermissionDenied("You do not have permission to access mail features.")
 
@@ -205,21 +210,53 @@ class EmailAttachmentViewSet(MailPermissionMixin, mixins.CreateModelMixin, mixin
         else:
             serializer.save(message=message)
 
-    @action(detail=True, methods=['get'])
+    @action(detail=True, methods=['get'], permission_classes=[], authentication_classes=[])
     def download(self, request, pk=None):
+        token = request.GET.get('token')
+        if not token:
+            token = request.headers.get('Authorization', '').replace('Bearer ', '')
+        if not token:
+            from django.http import HttpResponse
+            return HttpResponse('Unauthorized', status=401)
+            
+        from rest_framework_simplejwt.tokens import AccessToken
+        try:
+            access_token = AccessToken(token)
+            user_id = access_token['user_id']
+            from django.contrib.auth import get_user_model
+            user = get_user_model().objects.get(id=user_id)
+        except Exception:
+            from django.http import HttpResponse
+            return HttpResponse('Unauthorized', status=401)
+            
+        from accounts.permissions import has_dynamic_permission
+        if not (has_dynamic_permission(user, 'mail:use') or has_dynamic_permission(user, 'mail:manage')):
+            from django.http import HttpResponse
+            return HttpResponse('Forbidden', status=403)
+            
         attachment = self.get_object()
+        
+        from django.http import HttpResponse, HttpResponseRedirect
         if attachment.gmail_attachment_id and not attachment.file:
-            # Need to fetch from Gmail API
+            # Proxy from Gmail API
+            from .gmail_client import GmailClient
+            import base64
             try:
-                get_gmail_attachment(attachment)
+                client = GmailClient(attachment.message.account)
+                res = client.get_attachment(attachment.message.gmail_message_id, attachment.gmail_attachment_id)
+                data = base64.urlsafe_b64decode(res['data'])
+                response = HttpResponse(data, content_type=attachment.content_type or 'application/octet-stream')
+                response['Content-Disposition'] = f'inline; filename="{attachment.filename}"'
+                return response
             except Exception as e:
-                return Response({"detail": f"Failed to fetch attachment: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+                return HttpResponse(f"Failed to fetch attachment: {str(e)}", status=400)
                 
         if attachment.file:
-            return Response({"url": attachment.file.url})
+            return HttpResponseRedirect(attachment.file.url)
         elif attachment.student_document and attachment.student_document.document:
-            return Response({"url": attachment.student_document.document.url})
-        return Response({"detail": "Attachment file not found"}, status=status.HTTP_404_NOT_FOUND)
+            return HttpResponseRedirect(attachment.student_document.document.url)
+            
+        return HttpResponse("Attachment file not found", status=404)
 
 from django.conf import settings
 from google_auth_oauthlib.flow import Flow
