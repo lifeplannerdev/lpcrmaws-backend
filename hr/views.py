@@ -1,4 +1,4 @@
-from rest_framework.views import APIView
+﻿from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from django.contrib.auth import get_user_model
@@ -9,9 +9,10 @@ from accounts.permissions import has_dynamic_permission, HasPermission
 from accounts.mixins import CompanyFilterMixin
 from django.utils import timezone
 from datetime import timedelta
-from .models import Penalty, AttendanceDocument, Candidate, Asset, Location, AssetCategory, DocumentDetail
+from .models import Penalty, PenaltyType, AttendanceDocument, Candidate, Asset, Location, AssetCategory, DocumentDetail
 from .serializers import (
     PenaltySerializer, 
+    PenaltyTypeSerializer,
     AttendanceDocumentSerializer, 
     StaffSerializer,
     CandidateSerializer,
@@ -518,5 +519,13 @@ class DocumentDetailViewSet(CompanyFilterMixin, viewsets.ModelViewSet):
         serializer = self.get_serializer(doc)
         return Response(serializer.data)
 
+
+
+
+
+class PenaltyTypeViewSet(viewsets.ModelViewSet):
+    queryset = PenaltyType.objects.all().order_by('name')
+    serializer_class = PenaltyTypeSerializer
+    permission_classes = [HasPenaltyPermission]
 
 

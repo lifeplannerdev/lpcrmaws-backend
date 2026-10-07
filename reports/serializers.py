@@ -30,6 +30,8 @@ class DailyReportAttachmentSerializer(serializers.ModelSerializer):
         return obj.get_download_url()
 
 
+from hr.serializers import PenaltySerializer
+
 class DailyReportSerializer(serializers.ModelSerializer):
     user_name = serializers.CharField(source="user.get_full_name", read_only=True)
     reviewed_by_name = serializers.CharField(
@@ -44,6 +46,9 @@ class DailyReportSerializer(serializers.ModelSerializer):
     is_agenda_late = serializers.ReadOnlyField()
     agenda_late_by = serializers.ReadOnlyField()
     report_late_by = serializers.ReadOnlyField()
+    
+    # We serialize the applied penalties for display
+    applied_penalties_details = PenaltySerializer(source='applied_penalties', many=True, read_only=True)
 
     class Meta:
         model = DailyReport
@@ -56,12 +61,16 @@ class DailyReportSerializer(serializers.ModelSerializer):
             "file_url", "view_url",   
             "attachments",
             "report_date", "status", "review_comment",
+            "agenda_status", "report_status", "agenda_review_comment", "report_review_comment",
+            "applied_penalties", "applied_penalties_details",
             "reviewed_by", "reviewed_by_name",
             "report_type",
             "created_at", "updated_at", "company"
         ]
         read_only_fields = [
             "user", "status", "reviewed_by", "review_comment",
+            "agenda_status", "report_status", "agenda_review_comment", "report_review_comment",
+            "applied_penalties",
             "created_at", "updated_at",
             "report_submitted_at", "agenda_submitted_at"
         ]

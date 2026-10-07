@@ -80,6 +80,8 @@ class DailyReport(models.Model):
         default='pending',
         db_index=True
     )
+    agenda_status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', db_index=True)
+    report_status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', db_index=True)
     reviewed_by = models.ForeignKey(
         User,
         null=True,
@@ -88,6 +90,18 @@ class DailyReport(models.Model):
         related_name='reviewed_reports'
     )
     review_comment = models.TextField(blank=True)
+    agenda_review_comment = models.TextField(blank=True)
+    report_review_comment = models.TextField(blank=True)
+    applied_penalties = models.ManyToManyField('hr.Penalty', blank=True, related_name='daily_reports')
+
+    def save(self, *args, **kwargs):
+        if self.agenda_status == 'rejected' or self.report_status == 'rejected':
+            self.status = 'rejected'
+        elif self.agenda_status == 'pending' or self.report_status == 'pending':
+            self.status = 'pending'
+        else:
+            self.status = 'approved'
+        super().save(*args, **kwargs)
 
     class Meta:
         ordering = ['-report_date', '-created_at']

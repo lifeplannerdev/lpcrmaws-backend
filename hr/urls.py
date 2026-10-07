@@ -15,6 +15,7 @@ from .views import (
     AssetListCreateAPI,
     AssetDetailAPI,
     DocumentDetailViewSet,
+    PenaltyTypeViewSet,
 )
 
 router = DefaultRouter()
@@ -23,6 +24,7 @@ router.register(r'cabins', LocationViewSet, basename='cabin')
 router.register(r'asset-categories', AssetCategoryViewSet, basename='asset-category')
 router.register(r'hr-branches', BranchViewSet, basename='hr-branch')
 router.register(r'documents', DocumentDetailViewSet, basename='document')
+router.register(r'penalty-types', PenaltyTypeViewSet, basename='penalty-type')
 
 urlpatterns = [
     path("", include(router.urls)),

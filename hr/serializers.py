@@ -1,6 +1,6 @@
 from django.db.models import Q
 from rest_framework import serializers
-from .models import Penalty, AttendanceDocument, Candidate, Asset, Location, AssetCategory, Branch, DocumentDetail
+from .models import Penalty, PenaltyType, AttendanceDocument, Candidate, Asset, Location, AssetCategory, Branch, DocumentDetail
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
@@ -269,6 +269,11 @@ class AssetSerializer(serializers.ModelSerializer):
             }
         return None
 
+class PenaltyTypeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PenaltyType
+        fields = ['id', 'name', 'description', 'default_amount']
+
 class PenaltySerializer(serializers.ModelSerializer):
     user_name = serializers.SerializerMethodField(read_only=True)
     user_email = serializers.SerializerMethodField(read_only=True)
@@ -286,7 +291,8 @@ class PenaltySerializer(serializers.ModelSerializer):
             'amount', 
             'month', 
             'date',
-            'company'
+            'company',
+            'source_report_id'
         ]
     
     def get_user_name(self, obj):

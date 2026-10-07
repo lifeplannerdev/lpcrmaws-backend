@@ -26,6 +26,15 @@ class AttendanceDocument(models.Model):
         return f"{self.name} - {self.date}"
 
 
+class PenaltyType(models.Model):
+    name = models.CharField(max_length=200, help_text="e.g., Late Report, Missing Agenda")
+    description = models.TextField(blank=True)
+    default_amount = models.IntegerField(default=0)
+    
+    def __str__(self):
+        return f"{self.name} (₹{self.default_amount})"
+
+
 class Penalty(models.Model):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -37,6 +46,7 @@ class Penalty(models.Model):
     amount = models.IntegerField(default=0, blank=True, verbose_name='Amount')
     month = models.CharField(max_length=100, verbose_name="Month")
     date = models.DateField()
+    source_report_id = models.IntegerField(null=True, blank=True, help_text="ID of the DailyReport that triggered this penalty")
 
     class Meta:
         verbose_name = "Penalty"

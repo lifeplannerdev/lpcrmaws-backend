@@ -156,9 +156,10 @@ class MyDailyReportUpdateView(generics.UpdateAPIView):
 
     def perform_update(self, serializer):
         report = self.get_object()
-        if report.status != "pending":
+        
+        if report.status == "approved" or (report.status != "pending" and report.agenda_status != "rejected" and report.report_status != "rejected"):
             raise PermissionDenied(
-                "Approved or rejected reports cannot be edited."
+                "Approved reports cannot be edited."
             )
         
         # Determine timestamps based on previous state
@@ -172,9 +173,19 @@ class MyDailyReportUpdateView(generics.UpdateAPIView):
         if data.get('next_day_agenda') and not report.agenda_submitted_at:
             agenda_submitted_at = now()
 
+        agenda_status = report.agenda_status
+        report_status = report.report_status
+        
+        if report.agenda_status == 'rejected' and 'next_day_agenda' in data:
+            agenda_status = 'pending'
+        if report.report_status == 'rejected' and 'report_text' in data:
+            report_status = 'pending'
+
         serializer.save(
             report_submitted_at=report_submitted_at,
-            agenda_submitted_at=agenda_submitted_at
+            agenda_submitted_at=agenda_submitted_at,
+            agenda_status=agenda_status,
+            report_status=report_status
         )
 
         # Notify reviewers on report update
@@ -312,6 +323,9 @@ class AllDailyReportsView(generics.ListAPIView):
         return super().list(request, *args, **kwargs)
 
 
+from hr.models import Penalty, PenaltyType
+from django.utils import timezone
+
 class ReviewDailyReportView(APIView):
     permission_classes = [IsReportReviewer]
 
@@ -319,31 +333,51 @@ class ReviewDailyReportView(APIView):
         report = get_object_or_404(DailyReport, pk=pk)
 
         req_user = request.user
-        if not has_dynamic_permission(req_user, 'reports:read_all') and not req_user.db_roles.filter(name__in=REPORT_REVIEWERS).exists():
-            allowed = False
-            if has_dynamic_permission(req_user, 'reports:sales_all') and report.user.db_roles.filter(name__in=SALES_REPORT_ROLES).exists():
-                allowed = True
-            elif has_dynamic_permission(req_user, 'reports:kochi') and (report.user.location or "").upper() == "KOCHI":
-                allowed = True
-            elif has_dynamic_permission(req_user, 'reports:documentation') and report.user.db_roles.filter(name="DOCUMENTATION").exists():
-                allowed = True
-            if not allowed:
-                return Response({"error": "Permission denied"}, status=403)
+        if not has_dynamic_permission(req_user, 'reports:approval'):
+            return Response({"error": "Permission denied. Missing reports:approval permission."}, status=403)
 
-        status_value = request.data.get("status")
-        comment = request.data.get("review_comment", "")
+        agenda_status = request.data.get("agenda_status")
+        report_status = request.data.get("report_status")
+        agenda_comment = request.data.get("agenda_review_comment", "")
+        report_comment = request.data.get("report_review_comment", "")
+        penalty_type_ids = request.data.get("penalty_type_ids", [])
 
-        if status_value not in ["approved", "rejected"]:
-            return Response({"error": "Invalid status"}, status=400)
+        if agenda_status:
+            if agenda_status not in ["pending", "approved", "rejected"]:
+                return Response({"error": "Invalid agenda_status"}, status=400)
+            report.agenda_status = agenda_status
+            report.agenda_review_comment = agenda_comment
 
-        report.status = status_value
-        report.review_comment = comment
+        if report_status:
+            if report_status not in ["pending", "approved", "rejected"]:
+                return Response({"error": "Invalid report_status"}, status=400)
+            report.report_status = report_status
+            report.report_review_comment = report_comment
+
         report.reviewed_by = request.user
         report.save()
 
+        # Handle Penalties
+        if penalty_type_ids:
+            for p_id in penalty_type_ids:
+                try:
+                    ptype = PenaltyType.objects.get(id=p_id)
+                    penalty = Penalty.objects.create(
+                        user=report.user,
+                        company=report.company,
+                        act=ptype.name,
+                        amount=ptype.default_amount,
+                        month=timezone.now().strftime("%B %Y"),
+                        date=timezone.now().date(),
+                        source_report_id=report.id
+                    )
+                    report.applied_penalties.add(penalty)
+                except PenaltyType.DoesNotExist:
+                    pass
+
         # Notify report owner
         by_name = request.user.get_full_name() or request.user.username
-        message = f"Your daily report was {status_value} by {by_name}"
+        message = f"Your daily report was reviewed by {by_name}"
         save_notification.delay(
             user_id=report.user.id,
             type='report',
@@ -356,7 +390,7 @@ class ReviewDailyReportView(APIView):
             event="report.reviewed",
             data={
                 "report_id": report.id,
-                "status": status_value,
+                "status": report.status,
                 "message": message
             }
         )
