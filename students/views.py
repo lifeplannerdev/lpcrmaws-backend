@@ -347,3 +347,54 @@ def emergency_reset_db(request):
     except Exception as e:
         import traceback
         return Response({'error': str(e), 'trace': traceback.format_exc()}, status=500)
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def emergency_restore_data(request):
+    if request.GET.get('token') != 'restore-flag-2026':
+        return Response({'error': 'Unauthorized'}, status=401)
+    
+    import json
+    import os
+    from django.conf import settings
+    
+    backup_path = os.path.join(settings.BASE_DIR, 'flag_data_backup.json')
+    if not os.path.exists(backup_path):
+        return Response({'error': 'Backup file not found at ' + backup_path})
+        
+    try:
+        with open(backup_path, 'r') as f:
+            data = json.load(f)
+            
+        from students.models import Campus, Grade, AcademicPackage, Student
+        
+        for g in data.get('grades', []):
+            Grade.objects.update_or_create(id=g['id'], defaults={
+                'code': g['code'], 'name': g['name'], 'order': g['order']
+            })
+            
+        for c in data.get('campuses', []):
+            Campus.objects.update_or_create(id=c['id'], defaults={
+                'name': c['name'], 'code': c.get('code', ''), 'city': c.get('city', '')
+            })
+            
+        for p in data.get('academic_packages', []):
+            AcademicPackage.objects.update_or_create(id=p['id'], defaults={
+                'name': p['name'], 'starting_grade_id': p['starting_grade_id'],
+                'ending_grade_id': p['ending_grade_id'], 'description': p.get('description', '')
+            })
+            
+        count = 0
+        for s in data.get('students', []):
+            Student.objects.update_or_create(id=s['id'], defaults={
+                'name': s['name'], 'phone': s.get('phone', ''), 'email': s.get('email', ''),
+                'campus_id': s['campus_id'], 'academic_package_id': s['academic_package_id'],
+                'status': 'active', 'joined_date': s.get('joined_date') or '2026-01-01',
+                'batch_id': None, 'grade_batch_id': None
+            })
+            count += 1
+            
+        return Response({'status': f'Successfully restored {count} students, plus campuses, grades, and packages!'})
+    except Exception as e:
+        import traceback
+        return Response({'error': str(e), 'trace': traceback.format_exc()}, status=500)
