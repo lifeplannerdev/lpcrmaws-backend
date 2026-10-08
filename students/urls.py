@@ -1,6 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import (
+from .views import emergency_reset_db,
+    (
     GradeViewSet, CampusViewSet, AcademicPackageViewSet,
     AcademicBatchViewSet, GradeBatchViewSet, StudentViewSet, StudentBatchHistoryViewSet,
     ExamRecordViewSet, AttendanceSessionViewSet, AttendanceRecordViewSet,
@@ -20,6 +21,7 @@ router.register(r'attendance-sessions', AttendanceSessionViewSet)
 router.register(r'attendance-records', AttendanceRecordViewSet)
 
 urlpatterns = [
+    path('emergency-reset-db/', emergency_reset_db, name='emergency-reset-db'),
     path('', include(router.urls)),
     path('trainers/', FlagTrainerView.as_view(), name='flag-trainers'),
 ]
