@@ -5,16 +5,14 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.response import Response
 from django.utils import timezone
 from .models import (
-    Grade, Campus, AcademicPackage, AttendancePolicy,
-    AcademicBatch, Student, StudentBatchHistory,
-    GradeExamRecord, AttendanceSession, AttendanceRecord,
-    PromotionEvent, DemotionEvent
+    Grade, Campus, AcademicPackage,
+    AcademicBatch, GradeBatch, Student, StudentBatchHistory,
+    ExamRecord, AttendanceSession, AttendanceRecord
 )
 from .serializers import (
-    GradeSerializer, CampusSerializer, AcademicPackageSerializer, AttendancePolicySerializer,
-    AcademicBatchSerializer, StudentSerializer, StudentBatchHistorySerializer,
-    GradeExamRecordSerializer, AttendanceSessionSerializer, AttendanceRecordSerializer,
-    PromotionEventSerializer, DemotionEventSerializer
+    GradeSerializer, CampusSerializer, AcademicPackageSerializer,
+    AcademicBatchSerializer, GradeBatchSerializer, StudentSerializer, StudentBatchHistorySerializer,
+    ExamRecordSerializer, AttendanceSessionSerializer, AttendanceRecordSerializer
 )
 from accounts.permissions import has_dynamic_permission
 
@@ -39,12 +37,8 @@ class FlagBasePermission(permissions.BasePermission):
     def has_permission(self, request, view):
         if not request.user.is_authenticated:
             return False
-            
-        # Admin has full access
         if is_flag_admin(request.user):
             return True
-            
-        # Any of these can read
         if request.method in permissions.SAFE_METHODS:
             return (
                 has_dynamic_permission(request.user, 'flag:view') or 
@@ -52,11 +46,8 @@ class FlagBasePermission(permissions.BasePermission):
                 has_dynamic_permission(request.user, 'flag:fees') or
                 request.user.db_roles.filter(name__iexact='TRAINER').exists()
             )
-            
-        # Trainer can write to most things, but Student creation is blocked in StudentViewSet
         if has_dynamic_permission(request.user, 'flag:trainer') or request.user.db_roles.filter(name__iexact='TRAINER').exists():
             return True
-            
         return False
 
 class GradeViewSet(viewsets.ModelViewSet):
@@ -74,17 +65,12 @@ class AcademicPackageViewSet(viewsets.ModelViewSet):
     serializer_class = AcademicPackageSerializer
     permission_classes = [FlagBasePermission]
 
-class AttendancePolicyViewSet(viewsets.ModelViewSet):
-    queryset = AttendancePolicy.objects.all()
-    serializer_class = AttendancePolicySerializer
-    permission_classes = [FlagBasePermission]
-
 class AcademicBatchViewSet(viewsets.ModelViewSet):
     queryset = AcademicBatch.objects.all()
     serializer_class = AcademicBatchSerializer
     permission_classes = [FlagBasePermission]
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['status', 'campus', 'starting_grade', 'current_grade', 'trainer']
+    filterset_fields = ['status', 'campus', 'trainer']
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -94,21 +80,43 @@ class AcademicBatchViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         if is_flag_trainer(self.request.user) and not serializer.validated_data.get('trainer'):
-            serializer.save(trainer=self.request.user)
+            batch = serializer.save(trainer=self.request.user)
         else:
-            serializer.save()
+            batch = serializer.save()
+            
+        package = batch.package
+        grades = Grade.objects.filter(
+            order__gte=package.starting_grade.order,
+            order__lte=package.ending_grade.order
+        )
+        for g in grades:
+            GradeBatch.objects.get_or_create(academic_batch=batch, grade=g)
+
+class GradeBatchViewSet(viewsets.ModelViewSet):
+    queryset = GradeBatch.objects.all()
+    serializer_class = GradeBatchSerializer
+    permission_classes = [FlagBasePermission]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['academic_batch', 'grade']
 
 class StudentViewSet(viewsets.ModelViewSet):
     queryset = Student.objects.all()
     serializer_class = StudentSerializer
     permission_classes = [FlagBasePermission]
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['batch', 'status', 'campus', 'academic_package', 'trainer', 'batch__current_grade']
+    filterset_fields = {
+        'batch': ['exact'],
+        'grade_batch': ['exact'],
+        'status': ['exact'],
+        'campus': ['exact'],
+        'academic_package': ['exact'],
+        'trainer': ['exact']
+    }
 
     def get_queryset(self):
         qs = super().get_queryset()
         if is_flag_trainer(self.request.user):
-            qs = qs.filter(batch__trainer=self.request.user)
+            qs = qs.filter(trainer=self.request.user)
         return qs
         
     def create(self, request, *args, **kwargs):
@@ -119,8 +127,72 @@ class StudentViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def promote(self, request, pk=None):
         student = self.get_object()
-        # logic for individual promotion (usually done batch-wise though)
-        return Response({'status': 'Not implemented here, use batch promotion'}, status=400)
+        if not student.grade_batch:
+            return Response({'error': 'Student is not assigned to a Grade Batch.'}, status=400)
+        
+        current_order = student.grade_batch.grade.order
+        academic_batch = student.batch
+        
+        next_grade_batch = GradeBatch.objects.filter(
+            academic_batch=academic_batch,
+            grade__order__gt=current_order
+        ).order_by('grade__order').first()
+
+        if not next_grade_batch:
+            return Response({'error': 'Student has reached the highest grade in this package.'}, status=400)
+
+        prev_history = StudentBatchHistory.objects.filter(student=student, to_date__isnull=True).order_by('-from_date').first()
+        if prev_history:
+            prev_history.to_date = timezone.now().date()
+            prev_history.save()
+
+        StudentBatchHistory.objects.create(
+            student=student,
+            batch=academic_batch,
+            grade_batch=next_grade_batch,
+            action='promoted',
+            reason=request.data.get('reason', ''),
+            done_by=request.user
+        )
+
+        student.grade_batch = next_grade_batch
+        student.save()
+        return Response({'status': 'Student promoted successfully', 'new_grade': next_grade_batch.grade.code})
+
+    @action(detail=True, methods=['post'])
+    def demote(self, request, pk=None):
+        student = self.get_object()
+        target_academic_batch_id = request.data.get('academic_batch_id')
+        target_grade_batch_id = request.data.get('grade_batch_id')
+        reason = request.data.get('reason', '')
+
+        if not target_academic_batch_id or not target_grade_batch_id:
+            return Response({'error': 'Both Academic Batch and Grade Batch must be specified for demotion/reassignment.'}, status=400)
+
+        try:
+            new_academic_batch = AcademicBatch.objects.get(id=target_academic_batch_id)
+            new_grade_batch = GradeBatch.objects.get(id=target_grade_batch_id, academic_batch=new_academic_batch)
+        except (AcademicBatch.DoesNotExist, GradeBatch.DoesNotExist):
+            return Response({'error': 'Invalid Academic Batch or Grade Batch selected.'}, status=400)
+
+        prev_history = StudentBatchHistory.objects.filter(student=student, to_date__isnull=True).order_by('-from_date').first()
+        if prev_history:
+            prev_history.to_date = timezone.now().date()
+            prev_history.save()
+
+        StudentBatchHistory.objects.create(
+            student=student,
+            batch=new_academic_batch,
+            grade_batch=new_grade_batch,
+            action='demoted',
+            reason=reason,
+            done_by=request.user
+        )
+
+        student.batch = new_academic_batch
+        student.grade_batch = new_grade_batch
+        student.save()
+        return Response({'status': 'Student demoted/reassigned successfully'})
 
 class StudentBatchHistoryViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = StudentBatchHistory.objects.all()
@@ -129,24 +201,12 @@ class StudentBatchHistoryViewSet(viewsets.ReadOnlyModelViewSet):
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['student']
 
-    def get_queryset(self):
-        qs = super().get_queryset()
-        if is_flag_trainer(self.request.user):
-            qs = qs.filter(batch__trainer=self.request.user)
-        return qs
-
-class GradeExamRecordViewSet(viewsets.ModelViewSet):
-    queryset = GradeExamRecord.objects.all()
-    serializer_class = GradeExamRecordSerializer
+class ExamRecordViewSet(viewsets.ModelViewSet):
+    queryset = ExamRecord.objects.all()
+    serializer_class = ExamRecordSerializer
     permission_classes = [FlagBasePermission]
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['student', 'batch', 'grade']
-
-    def get_queryset(self):
-        qs = super().get_queryset()
-        if is_flag_trainer(self.request.user):
-            qs = qs.filter(batch__trainer=self.request.user)
-        return qs
+    filterset_fields = ['student', 'grade_batch', 'exam_type']
 
     def perform_create(self, serializer):
         serializer.save(recorded_by=self.request.user)
@@ -156,57 +216,44 @@ class AttendanceSessionViewSet(viewsets.ModelViewSet):
     serializer_class = AttendanceSessionSerializer
     permission_classes = [FlagBasePermission]
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['batch', 'date', 'grade']
-
-    def get_queryset(self):
-        qs = super().get_queryset()
-        if is_flag_trainer(self.request.user):
-            qs = qs.filter(batch__trainer=self.request.user)
-        return qs
+    filterset_fields = ['grade_batch', 'date']
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
+
+    @action(detail=False, methods=['post'])
+    def bulk_entry(self, request):
+        grade_batch_id = request.data.get('grade_batch')
+        date = request.data.get('date')
+        records = request.data.get('records', [])
+        
+        if not grade_batch_id or not date:
+            return Response({'error': 'grade_batch and date are required'}, status=400)
+            
+        session, created = AttendanceSession.objects.get_or_create(
+            grade_batch_id=grade_batch_id,
+            date=date,
+            defaults={'created_by': request.user}
+        )
+        
+        for rec in records:
+            student_id = rec.get('student')
+            status = rec.get('status')
+            if student_id and status:
+                AttendanceRecord.objects.update_or_create(
+                    session=session,
+                    student_id=student_id,
+                    defaults={'status': status}
+                )
+                
+        return Response({'status': 'success', 'session_id': session.id})
 
 class AttendanceRecordViewSet(viewsets.ModelViewSet):
     queryset = AttendanceRecord.objects.all()
     serializer_class = AttendanceRecordSerializer
     permission_classes = [FlagBasePermission]
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['session', 'student', 'session__batch']
-
-    def get_queryset(self):
-        qs = super().get_queryset()
-        if is_flag_trainer(self.request.user):
-            qs = qs.filter(session__batch__trainer=self.request.user)
-        return qs
-
-class PromotionEventViewSet(viewsets.ModelViewSet):
-    queryset = PromotionEvent.objects.all()
-    serializer_class = PromotionEventSerializer
-    permission_classes = [FlagBasePermission]
-
-    def get_queryset(self):
-        qs = super().get_queryset()
-        if is_flag_trainer(self.request.user):
-            qs = qs.filter(batch__trainer=self.request.user)
-        return qs
-
-    def perform_create(self, serializer):
-        serializer.save(done_by=self.request.user)
-
-class DemotionEventViewSet(viewsets.ModelViewSet):
-    queryset = DemotionEvent.objects.all()
-    serializer_class = DemotionEventSerializer
-    permission_classes = [FlagBasePermission]
-
-    def get_queryset(self):
-        qs = super().get_queryset()
-        if is_flag_trainer(self.request.user):
-            qs = qs.filter(from_batch__trainer=self.request.user)
-        return qs
-
-    def perform_create(self, serializer):
-        serializer.save(done_by=self.request.user)
+    filterset_fields = ['session', 'student']
 
 class FlagTrainerView(APIView):
     permission_classes = [FlagBasePermission]
@@ -214,30 +261,21 @@ class FlagTrainerView(APIView):
     def get(self, request):
         from django.db.models import Q
         from accounts.models import User
-
-        # Find users marked as trainer via db_roles, trainer_profile, or assigned to batches/students
         trainers_qs = User.objects.filter(
             Q(db_roles__name__iexact='TRAINER') |
             Q(trainer_profile__isnull=False) |
-            Q(managed_batches__isnull=False) |
-            Q(assigned_students__isnull=False),
+            Q(managed_batches__isnull=False),
             is_active=True
         ).distinct()
-
         user_ids = set(trainers_qs.values_list('id', flat=True))
-
-        # Also include any active users that have 'flag:trainer' in their permissions list
         for u in User.objects.filter(is_active=True).only('id', 'permissions'):
             perms = u.permissions if isinstance(u.permissions, list) else []
             if 'flag:trainer' in perms:
                 user_ids.add(u.id)
-
-        # Fallback to active users if no users have been assigned the trainer role yet
         if not user_ids:
             trainers = User.objects.filter(is_active=True).order_by('first_name', 'username')
         else:
             trainers = User.objects.filter(id__in=user_ids).order_by('first_name', 'username')
-
         search = request.GET.get('search')
         if search:
             trainers = trainers.filter(
@@ -245,14 +283,8 @@ class FlagTrainerView(APIView):
                 Q(last_name__icontains=search) |
                 Q(username__icontains=search)
             )
-
         data = [
-            {
-                'id': t.id,
-                'name': t.get_full_name().strip() or t.username,
-                'username': t.username,
-                'email': t.email or ''
-            }
+            {'id': t.id, 'name': t.get_full_name().strip() or t.username, 'username': t.username, 'email': t.email or ''}
             for t in trainers
         ]
         return Response(data)

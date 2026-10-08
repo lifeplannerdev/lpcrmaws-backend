@@ -20,7 +20,7 @@ class FeeAccessTests(APITestCase):
             username='trainer-fee',
             password='pass12345',
             company='FLAG',
-            permissions=get_permissions_for_role('TRAINER'),
+            permissions=['students:read_tenant', 'fees:read_tenant', 'attendance:mark'],
         )
         self.trainer = Trainer.objects.create(user=self.trainer_user, branch=self.branch)
 
@@ -28,7 +28,7 @@ class FeeAccessTests(APITestCase):
             username='accounts',
             password='pass12345',
             company='FLAG',
-            permissions=get_permissions_for_role('ACCOUNTS'),
+            permissions=['fees:read_tenant', 'fees:manage', 'fees:restructure', 'fees:partial_payment'],
         )
 
         self.student = Student.objects.create(

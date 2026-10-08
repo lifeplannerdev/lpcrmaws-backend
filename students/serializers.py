@@ -1,18 +1,12 @@
 from rest_framework import serializers
 from .models import (
-    Grade, Campus, AcademicPackage, AttendancePolicy,
-    AcademicBatch, Student, StudentBatchHistory,
-    GradeExamRecord, AttendanceSession, AttendanceRecord,
-    PromotionEvent, DemotionEvent
+    Grade, Campus, AcademicPackage,
+    AcademicBatch, GradeBatch, Student, StudentBatchHistory,
+    ExamRecord, AttendanceSession, AttendanceRecord
 )
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
-
-class UserMinimalSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = User
-        fields = ['id', 'username', 'first_name', 'last_name']
 
 class GradeSerializer(serializers.ModelSerializer):
     class Meta:
@@ -30,17 +24,19 @@ class AcademicPackageSerializer(serializers.ModelSerializer):
         model = AcademicPackage
         fields = '__all__'
 
-class AttendancePolicySerializer(serializers.ModelSerializer):
+class GradeBatchSerializer(serializers.ModelSerializer):
+    grade_code = serializers.CharField(source='grade.code', read_only=True)
+    academic_batch_name = serializers.CharField(source='academic_batch.name', read_only=True)
     class Meta:
-        model = AttendancePolicy
+        model = GradeBatch
         fields = '__all__'
 
 class AcademicBatchSerializer(serializers.ModelSerializer):
     student_count = serializers.ReadOnlyField()
-    grade_progress = serializers.ReadOnlyField()
     campus_name = serializers.CharField(source='campus.name', read_only=True)
     package_name = serializers.CharField(source='package.name', read_only=True)
     trainer_name = serializers.SerializerMethodField()
+    grade_batches = GradeBatchSerializer(many=True, read_only=True)
     
     def get_trainer_name(self, obj):
         if obj.trainer:
@@ -52,12 +48,14 @@ class AcademicBatchSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 class StudentSerializer(serializers.ModelSerializer):
+    campus = serializers.PrimaryKeyRelatedField(read_only=True)
+    academic_package = serializers.PrimaryKeyRelatedField(read_only=True)
     campus_name = serializers.CharField(source='campus.name', read_only=True)
     batch_name = serializers.CharField(source='batch.name', read_only=True)
+    grade_batch_id = serializers.IntegerField(source='grade_batch.id', read_only=True)
+    current_grade = serializers.CharField(source='grade_batch.grade.code', read_only=True)
     package_name = serializers.CharField(source='academic_package.name', read_only=True)
     trainer_name = serializers.SerializerMethodField()
-    current_grade = serializers.CharField(source='current_grade.code', read_only=True)
-    current_grade_id = serializers.IntegerField(source='current_grade.id', read_only=True)
     has_pending_fees = serializers.ReadOnlyField()
     pending_fee_amount = serializers.ReadOnlyField()
     fee_status = serializers.ReadOnlyField()
@@ -75,22 +73,18 @@ class StudentSerializer(serializers.ModelSerializer):
 
 class StudentBatchHistorySerializer(serializers.ModelSerializer):
     batch_name = serializers.CharField(source='batch.name', read_only=True)
-    grade_code = serializers.CharField(source='grade_at_time.code', read_only=True)
+    grade_code = serializers.CharField(source='grade_batch.grade.code', read_only=True)
     class Meta:
         model = StudentBatchHistory
         fields = '__all__'
 
-class GradeExamRecordSerializer(serializers.ModelSerializer):
+class ExamRecordSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source='student.name', read_only=True)
-    grade_code = serializers.CharField(source='grade.code', read_only=True)
-    batch_name = serializers.CharField(source='batch.name', read_only=True)
-    model_exam_percentage = serializers.ReadOnlyField()
-    grade_exam_percentage = serializers.ReadOnlyField()
-    average_percentage = serializers.ReadOnlyField()
-    is_eligible_for_promotion = serializers.ReadOnlyField()
+    grade_code = serializers.CharField(source='grade_batch.grade.code', read_only=True)
+    batch_name = serializers.CharField(source='grade_batch.academic_batch.name', read_only=True)
 
     class Meta:
-        model = GradeExamRecord
+        model = ExamRecord
         fields = '__all__'
 
 class AttendanceSessionSerializer(serializers.ModelSerializer):
@@ -98,8 +92,8 @@ class AttendanceSessionSerializer(serializers.ModelSerializer):
     absent_count = serializers.ReadOnlyField()
     pending_count = serializers.ReadOnlyField()
     total_count = serializers.ReadOnlyField()
-    batch_name = serializers.CharField(source='batch.name', read_only=True)
-    grade_name = serializers.CharField(source='grade.name', read_only=True)
+    batch_name = serializers.CharField(source='grade_batch.academic_batch.name', read_only=True)
+    grade_name = serializers.CharField(source='grade_batch.grade.name', read_only=True)
     
     class Meta:
         model = AttendanceSession
@@ -108,24 +102,7 @@ class AttendanceSessionSerializer(serializers.ModelSerializer):
 class AttendanceRecordSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source='student.name', read_only=True)
     session_date = serializers.DateField(source='session.date', read_only=True)
-    batch_name = serializers.CharField(source='session.batch.name', read_only=True)
-    grade_name = serializers.CharField(source='session.grade.name', read_only=True, default='N/A')
+    grade_batch_name = serializers.CharField(source='session.grade_batch.academic_batch.name', read_only=True)
     class Meta:
         model = AttendanceRecord
-        fields = '__all__'
-
-class PromotionEventSerializer(serializers.ModelSerializer):
-    batch_name = serializers.CharField(source='batch.name', read_only=True)
-    from_grade_code = serializers.CharField(source='from_grade.code', read_only=True)
-    to_grade_code = serializers.CharField(source='to_grade.code', read_only=True)
-    class Meta:
-        model = PromotionEvent
-        fields = '__all__'
-
-class DemotionEventSerializer(serializers.ModelSerializer):
-    student_name = serializers.CharField(source='student.name', read_only=True)
-    from_batch_name = serializers.CharField(source='from_batch.name', read_only=True)
-    from_grade_code = serializers.CharField(source='from_grade.code', read_only=True)
-    class Meta:
-        model = DemotionEvent
         fields = '__all__'
