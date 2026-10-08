@@ -301,21 +301,17 @@ def emergency_reset_db(request):
         return Response({'error': 'Unauthorized'}, status=401)
         
     try:
+        from django.db import connection
+        from django.core.management import call_command
         with connection.cursor() as cursor:
-            cursor.execute("DELETE FROM django_migrations WHERE app = 'students';")
+            cursor.execute("DELETE FROM django_migrations WHERE app NOT IN ('auth', 'contenttypes', 'admin', 'sessions', 'authtoken');")
             
             tables = [
-                'students_attendancerecord',
-                'students_attendancesession',
-                'students_examrecord',
-                'students_gradeexamrecord',
-                'students_studentbatchhistory',
-                'students_student',
-                'students_gradebatch',
-                'students_academicbatch',
-                'students_academicpackage',
-                'students_campus',
-                'students_grade',
+                'students_attendancerecord', 'students_attendancesession',
+                'students_examrecord', 'students_gradeexamrecord',
+                'students_studentbatchhistory', 'students_student',
+                'students_gradebatch', 'students_academicbatch',
+                'students_academicpackage', 'students_campus', 'students_grade',
             ]
             for table in tables:
                 try:
@@ -324,6 +320,8 @@ def emergency_reset_db(request):
                     pass
                     
         call_command('migrate', 'students')
-        return Response({'status': 'Database reset successfully. Old tables dropped and new migrations applied.'})
+        call_command('migrate', fake=True)
+        return Response({'status': 'Database reset successfully. Students schema rebuilt and other apps synced.'})
     except Exception as e:
-        return Response({'error': str(e)}, status=500)
+        import traceback
+        return Response({'error': str(e), 'trace': traceback.format_exc()}, status=500)
