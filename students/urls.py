@@ -1,7 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import emergency_reset_db,
-    (
+from .views import (
+    emergency_reset_db,
     GradeViewSet, CampusViewSet, AcademicPackageViewSet,
     AcademicBatchViewSet, GradeBatchViewSet, StudentViewSet, StudentBatchHistoryViewSet,
     ExamRecordViewSet, AttendanceSessionViewSet, AttendanceRecordViewSet,
