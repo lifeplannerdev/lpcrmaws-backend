@@ -60,6 +60,13 @@ class AcademicBatch(models.Model):
 
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
+        if self.package and getattr(self.package, 'starting_grade', None) and getattr(self.package, 'ending_grade', None):
+            grades = Grade.objects.filter(
+                order__gte=self.package.starting_grade.order,
+                order__lte=self.package.ending_grade.order
+            )
+            for g in grades:
+                GradeBatch.objects.get_or_create(academic_batch=self, grade=g)
         self.students.all().update(trainer=self.trainer)
 
 class GradeBatch(models.Model):

@@ -78,23 +78,36 @@ class AcademicBatchViewSet(viewsets.ModelViewSet):
             qs = qs.filter(trainer=self.request.user)
         return qs
 
+    def ensure_grade_batches(self, batch):
+        if batch.package and getattr(batch.package, 'starting_grade', None) and getattr(batch.package, 'ending_grade', None):
+            grades = Grade.objects.filter(
+                order__gte=batch.package.starting_grade.order,
+                order__lte=batch.package.ending_grade.order
+            )
+            for g in grades:
+                GradeBatch.objects.get_or_create(academic_batch=batch, grade=g)
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        self.ensure_grade_batches(instance)
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
+
     def perform_create(self, serializer):
         if is_flag_trainer(self.request.user) and not serializer.validated_data.get('trainer'):
             batch = serializer.save(trainer=self.request.user)
         else:
             batch = serializer.save()
-            
-        package = batch.package
-        grades = Grade.objects.filter(
-            order__gte=package.starting_grade.order,
-            order__lte=package.ending_grade.order
-        )
-        for g in grades:
-            GradeBatch.objects.get_or_create(academic_batch=batch, grade=g)
+        self.ensure_grade_batches(batch)
+
+    def perform_update(self, serializer):
+        batch = serializer.save()
+        self.ensure_grade_batches(batch)
 
     @action(detail=True, methods=['get'])
     def promotion_preview(self, request, pk=None):
         batch = self.get_object()
+        self.ensure_grade_batches(batch)
         grade_batches = list(batch.grade_batches.select_related('grade').order_by('grade__order'))
         if len(grade_batches) < 2:
             return Response({'error': 'This batch only contains a single grade level; it cannot be promoted further.'}, status=400)
