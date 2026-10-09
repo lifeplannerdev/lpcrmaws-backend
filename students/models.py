@@ -92,7 +92,8 @@ class Student(models.Model):
         if self.batch:
             self.trainer = self.batch.trainer
             self.campus = self.batch.campus
-            self.academic_package = self.batch.package
+            if not getattr(self, 'academic_package_id', None):
+                self.academic_package = self.batch.package
         else:
             self.trainer = None
         super().save(*args, **kwargs)

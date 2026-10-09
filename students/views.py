@@ -92,6 +92,163 @@ class AcademicBatchViewSet(viewsets.ModelViewSet):
         for g in grades:
             GradeBatch.objects.get_or_create(academic_batch=batch, grade=g)
 
+    @action(detail=True, methods=['get'])
+    def promotion_preview(self, request, pk=None):
+        batch = self.get_object()
+        grade_batches = list(batch.grade_batches.select_related('grade').order_by('grade__order'))
+        if len(grade_batches) < 2:
+            return Response({'error': 'This batch only contains a single grade level; it cannot be promoted further.'}, status=400)
+
+        available_levels = []
+        for i in range(len(grade_batches) - 1):
+            available_levels.append({
+                'from_id': grade_batches[i].id,
+                'from_grade': grade_batches[i].grade.code,
+                'from_grade_name': grade_batches[i].grade.name,
+                'to_id': grade_batches[i+1].id,
+                'to_grade': grade_batches[i+1].grade.code,
+                'to_grade_name': grade_batches[i+1].grade.name,
+            })
+
+        from_id = request.query_params.get('from_grade_batch_id')
+        from_gb = None
+        to_gb = None
+
+        if from_id:
+            for pair in available_levels:
+                if str(pair['from_id']) == str(from_id):
+                    from_gb = next((gb for gb in grade_batches if str(gb.id) == str(from_id)), None)
+                    to_gb = next((gb for gb in grade_batches if str(gb.id) == str(pair['to_id'])), None)
+                    break
+        
+        if not from_gb:
+            for pair in available_levels:
+                count = Student.objects.filter(batch=batch, grade_batch_id=pair['from_id'], status='active').count()
+                if count > 0:
+                    from_gb = next((gb for gb in grade_batches if gb.id == pair['from_id']), None)
+                    to_gb = next((gb for gb in grade_batches if gb.id == pair['to_id']), None)
+                    break
+        
+        if not from_gb:
+            from_gb = grade_batches[0]
+            to_gb = grade_batches[1]
+
+        students_qs = Student.objects.filter(
+            batch=batch, 
+            grade_batch=from_gb, 
+            status='active'
+        ).select_related('academic_package', 'academic_package__ending_grade')
+
+        student_list = []
+        eligible_count = 0
+        ineligible_count = 0
+
+        for s in students_qs:
+            exam = ExamRecord.objects.filter(student=s, grade_batch=from_gb).order_by('-exam_date', '-created_at').first()
+            is_passed = (exam is not None and exam.result == 'pass')
+            
+            pkg = s.academic_package
+            package_valid = True
+            package_reason = ""
+            if pkg and to_gb.grade.order > pkg.ending_grade.order:
+                package_valid = False
+                package_reason = f"Fee Package ({pkg.name}) only covers up to {pkg.ending_grade.code}"
+
+            can_promote = is_passed and package_valid
+            
+            if not is_passed:
+                if not exam:
+                    reason = "No exam marks recorded for this level"
+                else:
+                    reason = f"Exam failed: {exam.result.upper()} ({exam.achieved_marks}/{exam.max_marks})"
+            elif not package_valid:
+                reason = package_reason
+            else:
+                reason = f"Passed ({exam.achieved_marks}/{exam.max_marks}) & Package Valid"
+
+            if can_promote:
+                eligible_count += 1
+            else:
+                ineligible_count += 1
+
+            student_list.append({
+                'id': s.id,
+                'name': s.name,
+                'phone': s.phone or '',
+                'current_grade': from_gb.grade.code,
+                'target_grade': to_gb.grade.code,
+                'package_name': pkg.name if pkg else 'None',
+                'exam_type': exam.exam_type if exam else None,
+                'exam_result': exam.result if exam else None,
+                'exam_marks': f"{exam.achieved_marks}/{exam.max_marks}" if exam else None,
+                'can_promote': can_promote,
+                'reason': reason
+            })
+
+        return Response({
+            'batch_id': batch.id,
+            'batch_name': batch.name,
+            'from_grade_batch_id': from_gb.id,
+            'from_grade': from_gb.grade.code,
+            'to_grade_batch_id': to_gb.id,
+            'to_grade': to_gb.grade.code,
+            'available_levels': available_levels,
+            'total_students': len(student_list),
+            'eligible_count': eligible_count,
+            'ineligible_count': ineligible_count,
+            'students': student_list
+        })
+
+    @action(detail=True, methods=['post'])
+    def promote_students(self, request, pk=None):
+        batch = self.get_object()
+        to_grade_batch_id = request.data.get('to_grade_batch_id')
+        if not to_grade_batch_id:
+            return Response({'error': 'Target grade batch ID is required.'}, status=400)
+            
+        try:
+            target_gb = GradeBatch.objects.get(id=to_grade_batch_id, academic_batch=batch)
+        except GradeBatch.DoesNotExist:
+            return Response({'error': 'Target grade batch not found for this batch.'}, status=404)
+
+        student_ids = request.data.get('student_ids', [])
+        if not student_ids:
+            return Response({'error': 'No students selected for promotion.'}, status=400)
+
+        students = Student.objects.filter(id__in=student_ids, batch=batch)
+        promoted_names = []
+
+        for student in students:
+            pkg = student.academic_package
+            if pkg and target_gb.grade.order > pkg.ending_grade.order:
+                continue
+
+            prev_hist = StudentBatchHistory.objects.filter(student=student, to_date__isnull=True).order_by('-from_date').first()
+            if prev_hist:
+                prev_hist.to_date = timezone.now().date()
+                prev_hist.save()
+
+            StudentBatchHistory.objects.create(
+                student=student,
+                batch=batch,
+                grade_batch=target_gb,
+                action='promoted',
+                reason=request.data.get('reason', f'Batch promotion to {target_gb.grade.code}'),
+                done_by=request.user
+            )
+
+            student.grade_batch = target_gb
+            student.save()
+            promoted_names.append(student.name)
+
+        return Response({
+            'status': 'success',
+            'promoted_count': len(promoted_names),
+            'promoted_students': promoted_names,
+            'target_grade': target_gb.grade.code,
+            'message': f"Successfully promoted {len(promoted_names)} student(s) to {target_gb.grade.code}."
+        })
+
 class GradeBatchViewSet(viewsets.ModelViewSet):
     queryset = GradeBatch.objects.all()
     serializer_class = GradeBatchSerializer
