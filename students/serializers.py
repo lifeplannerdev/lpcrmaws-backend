@@ -26,7 +26,14 @@ class AcademicPackageSerializer(serializers.ModelSerializer):
 
 class GradeBatchSerializer(serializers.ModelSerializer):
     grade_code = serializers.CharField(source='grade.code', read_only=True)
+    grade_name = serializers.CharField(source='grade.name', read_only=True)
+    grade_order = serializers.IntegerField(source='grade.order', read_only=True)
     academic_batch_name = serializers.CharField(source='academic_batch.name', read_only=True)
+    student_count = serializers.SerializerMethodField()
+
+    def get_student_count(self, obj):
+        return obj.students.filter(status='active').count()
+
     class Meta:
         model = GradeBatch
         fields = '__all__'
