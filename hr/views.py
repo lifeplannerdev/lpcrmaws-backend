@@ -1,4 +1,4 @@
-﻿from rest_framework.views import APIView
+from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from django.contrib.auth import get_user_model
@@ -502,9 +502,11 @@ class DocumentDetailViewSet(CompanyFilterMixin, viewsets.ModelViewSet):
         today = timezone.now().date()
         thirty_days_from_now = today + timedelta(days=30)
 
-        # Return expired + expiring-soon docs, excluding 'paid' ones
+        # Return expired + overdue + expiring-soon docs, excluding 'paid' ones
         qs = self.get_queryset().filter(
-            expiry_date__lte=thirty_days_from_now
+            Q(expiry_date__lte=thirty_days_from_now) |
+            Q(status__in=['overdue', 'expired']) |
+            Q(next_renewal_date__lte=thirty_days_from_now)
         ).exclude(status='paid').order_by('expiry_date')
 
         serializer = self.get_serializer(qs, many=True)
