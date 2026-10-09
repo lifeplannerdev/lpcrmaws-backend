@@ -48,8 +48,8 @@ class AcademicBatchSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 class StudentSerializer(serializers.ModelSerializer):
-    campus = serializers.PrimaryKeyRelatedField(read_only=True)
-    academic_package = serializers.PrimaryKeyRelatedField(read_only=True)
+    campus = serializers.PrimaryKeyRelatedField(queryset=Campus.objects.all())
+    academic_package = serializers.PrimaryKeyRelatedField(queryset=AcademicPackage.objects.all())
     campus_name = serializers.CharField(source='campus.name', read_only=True)
     batch_name = serializers.CharField(source='batch.name', read_only=True)
     grade_batch_id = serializers.IntegerField(source='grade_batch.id', read_only=True)

@@ -139,7 +139,13 @@ class StudentViewSet(viewsets.ModelViewSet):
         ).order_by('grade__order').first()
 
         if not next_grade_batch:
-            return Response({'error': 'Student has reached the highest grade in this package.'}, status=400)
+            return Response({'error': 'The batch has finished teaching its final grade.'}, status=400)
+            
+        student_package = student.academic_package
+        if student_package and next_grade_batch.grade.order > student_package.ending_grade.order:
+            return Response({
+                'error': f"Cannot promote! This student's personal fee package ({student_package.name}) only covers up to {student_package.ending_grade.name}. You must upgrade their package to allow them into {next_grade_batch.grade.name}."
+            }, status=400)
 
         prev_history = StudentBatchHistory.objects.filter(student=student, to_date__isnull=True).order_by('-from_date').first()
         if prev_history:
