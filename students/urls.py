@@ -17,8 +17,10 @@ router.register(r'grade-batches', GradeBatchViewSet)
 router.register(r'students', StudentViewSet)
 router.register(r'batch-history', StudentBatchHistoryViewSet)
 router.register(r'exam-records', ExamRecordViewSet)
+router.register(r'exams', ExamRecordViewSet, basename='exams-alias')
 router.register(r'attendance-sessions', AttendanceSessionViewSet)
 router.register(r'attendance-records', AttendanceRecordViewSet)
+router.register(r'student-history', StudentBatchHistoryViewSet, basename='student-history-alias')
 
 urlpatterns = [
     path('emergency-reset-db/', emergency_reset_db, name='emergency-reset-db'),

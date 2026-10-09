@@ -81,6 +81,7 @@ class StudentBatchHistorySerializer(serializers.ModelSerializer):
 class ExamRecordSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source='student.name', read_only=True)
     grade_code = serializers.CharField(source='grade_batch.grade.code', read_only=True)
+    grade_batch_name = serializers.CharField(source='grade_batch.grade.name', read_only=True)
     batch_name = serializers.CharField(source='grade_batch.academic_batch.name', read_only=True)
 
     class Meta:
