@@ -43,7 +43,9 @@ class CompanyFilterMixin:
                     return qs
                 else:
                     if hasattr(qs.model, 'company'):
-                        return qs.filter(company=user.company)
+                        user_parent = BRANCH_TO_COMPANY.get(user.company, user.company)
+                        branches = [k for k, v in BRANCH_TO_COMPANY.items() if v == user_parent] + [user_parent]
+                        return qs.filter(company__in=branches)
                     return qs
                     
             # Determine the parent company for branch-level keys
@@ -66,15 +68,18 @@ class CompanyFilterMixin:
             return qs
             
         else:
-            # If no company is explicitly requested, default to the user's native company
+            # If no company is explicitly requested, default to the user's native company (and its branches)
             if hasattr(qs.model, 'company'):
-                # For detail views (retrieve, update, destroy), if the user has cross-company access,
-                # return the unfiltered queryset so they can find the object (avoiding a 404).
+                # For detail views (retrieve, update, destroy, mark_paid) or expiring alert actions,
+                # if the user has cross-company access, return the unfiltered queryset.
                 is_detail_view = getattr(self, 'detail', False) or getattr(self, 'action', '') in ['retrieve', 'update', 'partial_update', 'destroy', 'mark_paid']
+                is_expiring_action = getattr(self, 'action', '') == 'expiring'
                 
-                if self.has_cross_company_access(user) and is_detail_view:
+                if self.has_cross_company_access(user) and (is_detail_view or is_expiring_action):
                     return qs
                     
-                return qs.filter(company=user.company)
+                user_parent = BRANCH_TO_COMPANY.get(user.company, user.company)
+                branches = [k for k, v in BRANCH_TO_COMPANY.items() if v == user_parent] + [user_parent]
+                return qs.filter(company__in=branches)
             return qs
 
