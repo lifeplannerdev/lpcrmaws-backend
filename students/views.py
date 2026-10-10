@@ -228,6 +228,16 @@ class AcademicBatchViewSet(viewsets.ModelViewSet):
         if not student_ids:
             return Response({'error': 'No students selected for promotion.'}, status=400)
 
+        action_date_str = request.data.get('action_date') or request.data.get('date') or request.data.get('effective_date')
+        if action_date_str:
+            try:
+                from datetime import datetime
+                action_date = datetime.strptime(str(action_date_str)[:10], '%Y-%m-%d').date()
+            except (ValueError, TypeError):
+                action_date = timezone.now().date()
+        else:
+            action_date = timezone.now().date()
+
         students = Student.objects.filter(id__in=student_ids, batch=batch)
         promoted_names = []
 
@@ -238,7 +248,7 @@ class AcademicBatchViewSet(viewsets.ModelViewSet):
 
             prev_hist = StudentBatchHistory.objects.filter(student=student, to_date__isnull=True).order_by('-from_date').first()
             if prev_hist:
-                prev_hist.to_date = timezone.now().date()
+                prev_hist.to_date = action_date
                 prev_hist.save()
 
             StudentBatchHistory.objects.create(
@@ -246,7 +256,8 @@ class AcademicBatchViewSet(viewsets.ModelViewSet):
                 batch=batch,
                 grade_batch=target_gb,
                 action='promoted',
-                reason=request.data.get('reason', f'Batch promotion to {target_gb.grade.code}'),
+                from_date=action_date,
+                reason=request.data.get('reason') or f'Batch promotion to {target_gb.grade.code}',
                 done_by=request.user
             )
 
@@ -259,7 +270,8 @@ class AcademicBatchViewSet(viewsets.ModelViewSet):
             'promoted_count': len(promoted_names),
             'promoted_students': promoted_names,
             'target_grade': target_gb.grade.code,
-            'message': f"Successfully promoted {len(promoted_names)} student(s) to {target_gb.grade.code}."
+            'action_date': str(action_date),
+            'message': f"Successfully promoted {len(promoted_names)} student(s) to {target_gb.grade.code} on {action_date}."
         })
 
 class GradeBatchViewSet(viewsets.ModelViewSet):
@@ -294,6 +306,19 @@ class StudentViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'Trainers cannot create new students.'}, status=status.HTTP_403_FORBIDDEN)
         return super().create(request, *args, **kwargs)
 
+    def perform_create(self, serializer):
+        student = serializer.save()
+        if student.batch:
+            StudentBatchHistory.objects.create(
+                student=student,
+                batch=student.batch,
+                grade_batch=student.grade_batch,
+                action='enrolled',
+                from_date=student.joined_date or timezone.now().date(),
+                reason='Initial enrollment',
+                done_by=self.request.user
+            )
+
     @action(detail=True, methods=['post'])
     def promote(self, request, pk=None):
         student = self.get_object()
@@ -317,9 +342,19 @@ class StudentViewSet(viewsets.ModelViewSet):
                 'error': f"Cannot promote! This student's personal fee package ({student_package.name}) only covers up to {student_package.ending_grade.name}. You must upgrade their package to allow them into {next_grade_batch.grade.name}."
             }, status=400)
 
+        action_date_str = request.data.get('action_date') or request.data.get('date') or request.data.get('effective_date')
+        if action_date_str:
+            try:
+                from datetime import datetime
+                action_date = datetime.strptime(str(action_date_str)[:10], '%Y-%m-%d').date()
+            except (ValueError, TypeError):
+                action_date = timezone.now().date()
+        else:
+            action_date = timezone.now().date()
+
         prev_history = StudentBatchHistory.objects.filter(student=student, to_date__isnull=True).order_by('-from_date').first()
         if prev_history:
-            prev_history.to_date = timezone.now().date()
+            prev_history.to_date = action_date
             prev_history.save()
 
         StudentBatchHistory.objects.create(
@@ -327,13 +362,18 @@ class StudentViewSet(viewsets.ModelViewSet):
             batch=academic_batch,
             grade_batch=next_grade_batch,
             action='promoted',
-            reason=request.data.get('reason', ''),
+            from_date=action_date,
+            reason=request.data.get('reason') or f'Promoted to {next_grade_batch.grade.code}',
             done_by=request.user
         )
 
         student.grade_batch = next_grade_batch
         student.save()
-        return Response({'status': 'Student promoted successfully', 'new_grade': next_grade_batch.grade.code})
+        return Response({
+            'status': 'Student promoted successfully', 
+            'new_grade': next_grade_batch.grade.code,
+            'action_date': str(action_date)
+        })
 
     @action(detail=True, methods=['post'])
     def demote(self, request, pk=None):
@@ -351,9 +391,19 @@ class StudentViewSet(viewsets.ModelViewSet):
         except (AcademicBatch.DoesNotExist, GradeBatch.DoesNotExist):
             return Response({'error': 'Invalid Academic Batch or Grade Batch selected.'}, status=400)
 
+        action_date_str = request.data.get('action_date') or request.data.get('date') or request.data.get('effective_date')
+        if action_date_str:
+            try:
+                from datetime import datetime
+                action_date = datetime.strptime(str(action_date_str)[:10], '%Y-%m-%d').date()
+            except (ValueError, TypeError):
+                action_date = timezone.now().date()
+        else:
+            action_date = timezone.now().date()
+
         prev_history = StudentBatchHistory.objects.filter(student=student, to_date__isnull=True).order_by('-from_date').first()
         if prev_history:
-            prev_history.to_date = timezone.now().date()
+            prev_history.to_date = action_date
             prev_history.save()
 
         StudentBatchHistory.objects.create(
@@ -361,21 +411,25 @@ class StudentViewSet(viewsets.ModelViewSet):
             batch=new_academic_batch,
             grade_batch=new_grade_batch,
             action='demoted',
-            reason=reason,
+            from_date=action_date,
+            reason=reason or f'Demoted/reassigned to {new_academic_batch.name} - {new_grade_batch.grade.code}',
             done_by=request.user
         )
 
         student.batch = new_academic_batch
         student.grade_batch = new_grade_batch
         student.save()
-        return Response({'status': 'Student demoted/reassigned successfully'})
+        return Response({
+            'status': 'Student demoted/reassigned successfully',
+            'action_date': str(action_date)
+        })
 
 class StudentBatchHistoryViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = StudentBatchHistory.objects.all()
+    queryset = StudentBatchHistory.objects.all().order_by('-from_date', '-id')
     serializer_class = StudentBatchHistorySerializer
     permission_classes = [FlagBasePermission]
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['student']
+    filterset_fields = ['student', 'batch', 'grade_batch', 'action']
 
 class ExamRecordViewSet(viewsets.ModelViewSet):
     queryset = ExamRecord.objects.all()

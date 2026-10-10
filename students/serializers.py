@@ -80,7 +80,16 @@ class StudentSerializer(serializers.ModelSerializer):
 
 class StudentBatchHistorySerializer(serializers.ModelSerializer):
     batch_name = serializers.CharField(source='batch.name', read_only=True)
+    student_name = serializers.CharField(source='student.name', read_only=True)
     grade_code = serializers.CharField(source='grade_batch.grade.code', read_only=True)
+    grade_name = serializers.CharField(source='grade_batch.grade.name', read_only=True)
+    done_by_name = serializers.SerializerMethodField()
+
+    def get_done_by_name(self, obj):
+        if obj.done_by:
+            return obj.done_by.get_full_name().strip() or obj.done_by.username
+        return None
+
     class Meta:
         model = StudentBatchHistory
         fields = '__all__'
