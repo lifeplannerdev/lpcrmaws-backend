@@ -479,7 +479,7 @@ class AttendanceSessionViewSet(viewsets.ModelViewSet):
         return Response({'status': 'success', 'session_id': session.id})
 
 class AttendanceRecordViewSet(viewsets.ModelViewSet):
-    queryset = AttendanceRecord.objects.all()
+    queryset = AttendanceRecord.objects.all().order_by('-session__date', '-id')
     serializer_class = AttendanceRecordSerializer
     permission_classes = [FlagBasePermission]
     filter_backends = [DjangoFilterBackend]

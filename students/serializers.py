@@ -119,7 +119,16 @@ class AttendanceSessionSerializer(serializers.ModelSerializer):
 class AttendanceRecordSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source='student.name', read_only=True)
     session_date = serializers.DateField(source='session.date', read_only=True)
+    batch_name = serializers.CharField(source='session.grade_batch.academic_batch.name', read_only=True)
+    grade_code = serializers.CharField(source='session.grade_batch.grade.code', read_only=True)
+    grade_name = serializers.CharField(source='session.grade_batch.grade.name', read_only=True)
     grade_batch_name = serializers.CharField(source='session.grade_batch.academic_batch.name', read_only=True)
+    topic = serializers.CharField(source='session.topic', read_only=True)
+    is_present = serializers.SerializerMethodField()
+
+    def get_is_present(self, obj):
+        return obj.status == 'present'
+
     class Meta:
         model = AttendanceRecord
         fields = '__all__'
