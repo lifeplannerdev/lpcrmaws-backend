@@ -306,6 +306,11 @@ class StudentViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'Trainers cannot create new students.'}, status=status.HTTP_403_FORBIDDEN)
         return super().create(request, *args, **kwargs)
 
+    def destroy(self, request, *args, **kwargs):
+        if not is_flag_admin(request.user):
+            return Response({'detail': 'Only administrators can delete students.'}, status=status.HTTP_403_FORBIDDEN)
+        return super().destroy(request, *args, **kwargs)
+
     def perform_create(self, serializer):
         student = serializer.save()
         if student.batch:
