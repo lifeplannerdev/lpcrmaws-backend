@@ -19,7 +19,10 @@ class IsReportReviewer(BasePermission):
             (has_dynamic_permission(request.user, 'reports:read_all') or
              has_dynamic_permission(request.user, 'reports:documentation') or
              has_dynamic_permission(request.user, 'reports:kochi') or
-             has_dynamic_permission(request.user, 'reports:sales_all'))
+             has_dynamic_permission(request.user, 'reports:sales_all') or
+             has_dynamic_permission(request.user, 'reports:approval') or
+             has_dynamic_permission(request.user, 'reports:approval-kochi') or
+             has_dynamic_permission(request.user, 'reports:approval-kottayam'))
         )
 
 

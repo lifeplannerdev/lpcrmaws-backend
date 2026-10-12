@@ -83,6 +83,21 @@ def _extract_recording_url(notes):
     return None
 
 
+def get_staff_analysis_locations(user):
+    """
+    Returns set of locations ('kochi', 'kottayam') the user has permission
+    to view staff analysis for via staff_analysis:kochi / staff_analysis:kottayam.
+    """
+    if not user or not user.is_authenticated:
+        return set()
+    locs = set()
+    if has_dynamic_permission(user, 'staff_analysis:kochi'):
+        locs.add('kochi')
+    if has_dynamic_permission(user, 'staff_analysis:kottayam'):
+        locs.add('kottayam')
+    return locs
+
+
 class StaffAnalysisAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -94,7 +109,8 @@ class StaffAnalysisAPIView(APIView):
             or has_dynamic_permission(user, 'leads:read_any')
             or has_dynamic_permission(user, 'staff_analysis:admin')
         )
-        if not is_admin:
+        sa_locations = get_staff_analysis_locations(user)
+        if not is_admin and not sa_locations:
             return Response({'detail': 'Permission denied.'}, status=403)
 
         start_date, end_date = _get_date_range(request)
@@ -106,6 +122,12 @@ class StaffAnalysisAPIView(APIView):
         employees_qs = User.objects.filter(is_active=True).prefetch_related('db_roles').order_by('first_name', 'username')
         if team_filter and team_filter.lower() != 'all':
             employees_qs = employees_qs.filter(team__iexact=team_filter)
+
+        if not is_admin and sa_locations:
+            loc_q = Q()
+            for loc in sa_locations:
+                loc_q |= Q(location__iexact=loc)
+            employees_qs = employees_qs.filter(loc_q)
 
         # Base queryset with filters
         lead_base = Lead.objects.all()
@@ -429,7 +451,8 @@ class StaffAnalysisLeadsAPIView(generics.ListAPIView):
             or has_dynamic_permission(user, 'leads:read_any')
             or has_dynamic_permission(user, 'staff_analysis:admin')
         )
-        if not is_admin:
+        sa_locations = get_staff_analysis_locations(user)
+        if not is_admin and not sa_locations:
             return Lead.objects.none()
 
         start_date, end_date = _get_date_range(self.request)
@@ -444,6 +467,12 @@ class StaffAnalysisLeadsAPIView(generics.ListAPIView):
         ).prefetch_related(
             Prefetch('followups', queryset=FollowUp.objects.order_by('-follow_up_date', '-created_at'))
         )
+
+        if not is_admin and sa_locations:
+            loc_q = Q()
+            for loc in sa_locations:
+                loc_q |= Q(assigned_to__location__iexact=loc) | Q(sub_assigned_to__location__iexact=loc) | Q(followups__assigned_to__location__iexact=loc)
+            lead_qs = lead_qs.filter(loc_q)
 
         if employee_id and str(employee_id).isdigit():
             emp_id = int(employee_id)
@@ -597,7 +626,8 @@ class StaffAnalysisFollowUpsAPIView(generics.ListAPIView):
             or has_dynamic_permission(user, 'leads:read_any')
             or has_dynamic_permission(user, 'staff_analysis:admin')
         )
-        if not is_admin:
+        sa_locations = get_staff_analysis_locations(user)
+        if not is_admin and not sa_locations:
             return FollowUp.objects.none()
 
         start_date, end_date = _get_date_range(self.request)
@@ -605,6 +635,12 @@ class StaffAnalysisFollowUpsAPIView(generics.ListAPIView):
         status_filter = self.request.query_params.get('status', '')
 
         fu_qs = FollowUp.objects.select_related('lead', 'assigned_to')
+
+        if not is_admin and sa_locations:
+            loc_q = Q()
+            for loc in sa_locations:
+                loc_q |= Q(assigned_to__location__iexact=loc)
+            fu_qs = fu_qs.filter(loc_q)
 
         if employee_id and str(employee_id).isdigit():
             fu_qs = fu_qs.filter(assigned_to_id=int(employee_id))

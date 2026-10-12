@@ -12,7 +12,7 @@ class EmployeeSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['id', 'username', 'first_name', 'last_name', 'is_active', 'role', 'role_names', 'team']
+        fields = ['id', 'username', 'first_name', 'last_name', 'is_active', 'role', 'role_names', 'team', 'location']
         
     def get_role(self, obj):
         return ", ".join(obj.db_roles.values_list('name', flat=True))
@@ -26,6 +26,7 @@ class TaskSerializer(serializers.ModelSerializer):
     assigned_by = serializers.PrimaryKeyRelatedField(read_only=True)
     assigned_by_name = serializers.CharField(source='assigned_by.username', read_only=True)
     assigned_to_name = serializers.CharField(source='assigned_to.username', read_only=True)
+    assigned_to_location = serializers.CharField(source='assigned_to.location', read_only=True)
     
     # Add these computed fields that your frontend expects
     is_overdue = serializers.BooleanField(read_only=True)

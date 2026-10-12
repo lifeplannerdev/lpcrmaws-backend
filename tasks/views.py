@@ -24,6 +24,8 @@ from .permissions import (
     can_manage_all_tasks, can_manage_own_assigned_tasks,
     is_managing_director,
     IsTaskAssigner,
+    get_user_task_locations,
+    can_approve_task,
     TASK_ASSIGNERS,
     TASK_ASSIGNEES,
     TOP_MANAGEMENT,
@@ -51,6 +53,15 @@ def _task_queryset_for_user(user, base_qs=None):
     if can_manage_all_tasks(user):
         return base_qs
 
+    task_locations = get_user_task_locations(user)
+    if task_locations:
+        loc_q = Q()
+        for loc in task_locations:
+            loc_q |= Q(assigned_to__location__iexact=loc)
+        return base_qs.filter(
+            loc_q | Q(assigned_to=user) | Q(assigned_by=user)
+        ).distinct()
+
     if can_manage_own_assigned_tasks(user):
         return base_qs.filter(
             Q(assigned_to=user) | Q(assigned_by=user)
@@ -62,6 +73,7 @@ def _task_queryset_for_user(user, base_qs=None):
     return base_qs.filter(
         Q(assigned_to=user) | Q(assigned_by=user)
     ).distinct()
+
 
 
 def _apply_status_ordering(qs):
@@ -178,6 +190,13 @@ class EmployeeListAPIView(generics.ListAPIView):
 
         if team and team.lower() != 'all':
             qs = qs.filter(team__iexact=team)
+
+        task_locations = get_user_task_locations(user)
+        if task_locations and not (can_manage_all_tasks(user) or has_dynamic_permission(user, 'tasks:edit_any')):
+            loc_q = Q()
+            for loc in task_locations:
+                loc_q |= Q(location__iexact=loc)
+            qs = qs.filter(loc_q)
             
         return qs.order_by('first_name', 'last_name', 'username')
 
@@ -239,6 +258,15 @@ class TaskListCreateAPIView(generics.ListCreateAPIView):
         user = self.request.user
         assigned_to = serializer.validated_data.get('assigned_to')
 
+        # Location permission validation for location-scoped assigners
+        task_locations = get_user_task_locations(user)
+        if task_locations and not (can_manage_all_tasks(user) or has_dynamic_permission(user, 'tasks:edit_any')):
+            target_loc = (assigned_to.location or "").strip().lower() if assigned_to else ""
+            if target_loc not in task_locations:
+                raise ValidationError(
+                    f"You can only assign tasks to staff in your designated location ({', '.join(task_locations).title()})."
+                )
+
         # OPS / CM cannot assign tasks to ADMIN or CEO
         if user.db_roles.filter(name__in=OPERATIONS).exists() and assigned_to:
             if assigned_to.db_roles.filter(name__in=TOP_MANAGEMENT).exists():
@@ -268,6 +296,10 @@ class TaskDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
             return
             
         if task.assigned_by == user:
+            return
+
+        task_locations = get_user_task_locations(user)
+        if task_locations and (task.assigned_to.location or "").strip().lower() in task_locations:
             return
             
         raise PermissionDenied(
@@ -512,9 +544,16 @@ class TaskApproveAPIView(generics.GenericAPIView):
     def post(self, request, pk):
         task = get_object_or_404(Task, pk=pk)
 
-        if not is_managing_director(request.user):
+        # "see approving own task is not possible for them"
+        if task.assigned_to == request.user and not request.user.is_superuser:
             return Response(
-                {"detail": "Only Managing Director can approve task completion."},
+                {"detail": "You cannot approve your own task."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        if not can_approve_task(request.user, task):
+            return Response(
+                {"detail": "You do not have permission to approve this task."},
                 status=status.HTTP_403_FORBIDDEN
             )
 
@@ -524,7 +563,7 @@ class TaskApproveAPIView(generics.GenericAPIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        notes = request.data.get("notes", "").strip() or "Task completion approved by Managing Director."
+        notes = request.data.get("notes", "").strip() or f"Task completion approved by {request.user.get_full_name() or request.user.username}."
         old_status = task.status
 
         try:
@@ -575,9 +614,16 @@ class TaskRejectAPIView(generics.GenericAPIView):
     def post(self, request, pk):
         task = get_object_or_404(Task, pk=pk)
 
-        if not is_managing_director(request.user):
+        # "see approving own task is not possible for them"
+        if task.assigned_to == request.user and not request.user.is_superuser:
             return Response(
-                {"detail": "Only Managing Director can reject task completion."},
+                {"detail": "You cannot reject your own task."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        if not can_approve_task(request.user, task):
+            return Response(
+                {"detail": "You do not have permission to reject this task."},
                 status=status.HTTP_403_FORBIDDEN
             )
 

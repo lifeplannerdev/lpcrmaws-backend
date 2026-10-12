@@ -34,6 +34,7 @@ from hr.serializers import PenaltySerializer
 
 class DailyReportSerializer(serializers.ModelSerializer):
     user_name = serializers.CharField(source="user.get_full_name", read_only=True)
+    user_location = serializers.CharField(source="user.location", read_only=True)
     reviewed_by_name = serializers.CharField(
         source="reviewed_by.get_full_name", read_only=True
     )
@@ -53,7 +54,7 @@ class DailyReportSerializer(serializers.ModelSerializer):
     class Meta:
         model = DailyReport
         fields = [
-            "id", "user", "user_name", "name", 
+            "id", "user", "user_name", "user_location", "name", 
             "report_heading", "report_text", "report_submitted_at",
             "agenda_heading", "next_day_agenda", "agenda_submitted_at",
             "completion_percentage", "is_report_late", "is_agenda_late",

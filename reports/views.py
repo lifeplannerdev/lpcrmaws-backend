@@ -238,8 +238,10 @@ class AllDailyReportsView(generics.ListAPIView):
             scoped_filters = Q()
             if has_dynamic_permission(req_user, 'reports:sales_all'):
                 scoped_filters |= Q(user__db_roles__name__in=SALES_REPORT_ROLES)
-            if has_dynamic_permission(req_user, 'reports:kochi'):
+            if has_dynamic_permission(req_user, 'reports:kochi') or has_dynamic_permission(req_user, 'reports:approval-kochi'):
                 scoped_filters |= Q(user__location__iexact="KOCHI")
+            if has_dynamic_permission(req_user, 'reports:approval-kottayam'):
+                scoped_filters |= Q(user__location__iexact="KOTTAYAM")
             if has_dynamic_permission(req_user, 'reports:documentation'):
                 scoped_filters |= Q(user__db_roles__name="DOCUMENTATION")
             
@@ -325,8 +327,33 @@ class ReviewDailyReportView(APIView):
         report = get_object_or_404(DailyReport, pk=pk)
 
         req_user = request.user
-        if not has_dynamic_permission(req_user, 'reports:approval'):
-            return Response({"error": "Permission denied. Missing reports:approval permission."}, status=403)
+
+        # User cannot approve or reject their own reports
+        if report.user == req_user and not req_user.is_superuser:
+            return Response(
+                {"error": "You cannot approve or reject your own reports."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        has_global = has_dynamic_permission(req_user, 'reports:approval')
+        has_kochi = has_dynamic_permission(req_user, 'reports:approval-kochi')
+        has_kottayam = has_dynamic_permission(req_user, 'reports:approval-kottayam')
+
+        rep_location = (report.user.location or "").strip().lower()
+
+        can_approve = False
+        if has_global:
+            can_approve = True
+        elif has_kochi and rep_location == 'kochi':
+            can_approve = True
+        elif has_kottayam and rep_location == 'kottayam':
+            can_approve = True
+
+        if not can_approve:
+            return Response(
+                {"error": "Permission denied. You do not have permission to review reports for this staff member's location."},
+                status=status.HTTP_403_FORBIDDEN
+            )
 
         agenda_status = request.data.get("agenda_status")
         report_status = request.data.get("report_status")
