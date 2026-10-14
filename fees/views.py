@@ -540,7 +540,7 @@ class FeeStudentsAPIView(APIView):
             
         pending_only = request.GET.get('pending_only', 'false').lower() == 'true'
         if pending_only:
-            qs = qs.filter(fee_account__isnull=True)
+            qs = qs.filter(fee_accounts__isnull=True)
 
         data = []
         for s in qs.order_by('name')[:500]:
