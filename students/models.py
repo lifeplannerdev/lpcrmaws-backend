@@ -133,6 +133,34 @@ class Student(models.Model):
         if account: return account.overdue_amount
         return 0
 
+    @property
+    def company(self):
+        if self.campus:
+            name = (self.campus.name or '').upper()
+            code = (self.campus.code or '').upper()
+            if 'FLAG' in name or 'FLAG' in code:
+                return 'FLAG'
+            if 'FDS' in name or 'FDS' in code:
+                return 'FDS'
+            if 'LP' in name or 'LP' in code:
+                return 'LP'
+        if self.trainer and getattr(self.trainer, 'company', None):
+            from accounts.mixins import BRANCH_TO_COMPANY
+            return BRANCH_TO_COMPANY.get(self.trainer.company, self.trainer.company)
+        return 'FLAG'
+
+    @property
+    def branch(self):
+        return self.campus
+
+    @property
+    def parent_name(self):
+        return getattr(self, '_parent_name', '')
+
+    @property
+    def parent_phone(self):
+        return getattr(self, '_parent_phone', '')
+
 class StudentBatchHistory(models.Model):
     ACTION_CHOICES = [('enrolled', 'Enrolled'), ('promoted', 'Promoted'), ('demoted', 'Demoted'), ('exited', 'Exited'), ('transferred', 'Transferred')]
     student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name='batch_history')

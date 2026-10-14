@@ -145,9 +145,32 @@ class FeeAdjustmentSerializer(serializers.ModelSerializer):
 class StudentFeeAccountSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source='student.name', read_only=True)
     student_status = serializers.CharField(source='student.status', read_only=True)
-    trainer_name = serializers.CharField(source='student.trainer.user.get_full_name', read_only=True)
-    branch_name = serializers.CharField(source='student.branch.name', read_only=True)
+    trainer_name = serializers.SerializerMethodField()
+    branch_name = serializers.SerializerMethodField()
     template_name = serializers.CharField(source='template.name', read_only=True)
+
+    def get_trainer_name(self, obj):
+        student = getattr(obj, 'student', None)
+        if not student:
+            return ""
+        trainer = getattr(student, 'trainer', None)
+        if not trainer:
+            return ""
+        if hasattr(trainer, 'get_full_name'):
+            return trainer.get_full_name() or getattr(trainer, 'username', '')
+        if hasattr(trainer, 'user') and trainer.user:
+            return trainer.user.get_full_name() or getattr(trainer.user, 'username', '')
+        return str(trainer)
+
+    def get_branch_name(self, obj):
+        student = getattr(obj, 'student', None)
+        if not student:
+            return ""
+        if hasattr(student, 'campus') and student.campus:
+            return student.campus.name
+        if hasattr(student, 'branch') and student.branch:
+            return student.branch.name
+        return ""
     grade_name = serializers.CharField(source='grade.code', read_only=True)
     installments = FeeInstallmentSerializer(many=True, read_only=True)
     payments = FeePaymentSerializer(many=True, read_only=True)
@@ -307,8 +330,19 @@ class StudentFeeAccountCreateSerializer(serializers.ModelSerializer):
         template = validated_data.get('template')
         validated_data = self._apply_template_defaults(validated_data, template)
         
+        student_company = getattr(student, 'company', None)
+        if callable(student_company):
+            student_company = student_company()
+        company = (
+            request.data.get('company') or
+            student_company or
+            (template.company if template else None) or
+            getattr(request.user, 'company', None) or
+            'FLAG'
+        )
+
         account, created = StudentFeeAccount.objects.get_or_create(student=student, defaults={
-            'company': student.company,
+            'company': company,
             'created_by': request.user,
             'updated_by': request.user,
             **validated_data,
