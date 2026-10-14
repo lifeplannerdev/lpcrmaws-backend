@@ -341,31 +341,31 @@ class StudentFeeAccountCreateSerializer(serializers.ModelSerializer):
             'FLAG'
         )
 
-        account, created = StudentFeeAccount.objects.get_or_create(student=student, defaults={
-            'company': company,
-            'created_by': request.user,
-            'updated_by': request.user,
+        account = StudentFeeAccount.objects.create(
+            student=student,
+            company=company,
+            created_by=request.user,
+            updated_by=request.user,
             **validated_data,
-        })
+        )
 
-        if not created:
-            validated_data = self._apply_template_defaults(validated_data, template)
-            for key, value in validated_data.items():
-                setattr(account, key, value)
-            account.updated_by = request.user
-            account.version = account.version + 1
-            account.save()
-        else:
-            account.plan_snapshot = account.plan_snapshot or {}
-            if template:
-                account.plan_snapshot.setdefault('template', self._template_snapshot(template))
-            account.save()
-            
-            if template:
-                self._generate_installments(account, template, first_installment_date)
+        account.plan_snapshot = account.plan_snapshot or {}
+        if template:
+            account.plan_snapshot.setdefault('template', self._template_snapshot(template))
+        account.save()
+        
+        if template:
+            self._generate_installments(account, template, first_installment_date)
 
         account.recalculate(save=True)
         return account
+
+    def update(self, instance, validated_data):
+        request = self.context.get('request')
+        if request and hasattr(request, 'user') and request.user.is_authenticated:
+            instance.updated_by = request.user
+        instance.version = (instance.version or 1) + 1
+        return super().update(instance, validated_data)
 
 
 class FeeRestructureSerializer(serializers.Serializer):

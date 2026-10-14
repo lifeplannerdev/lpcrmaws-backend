@@ -114,11 +114,11 @@ class Student(models.Model):
         return self.fee_accounts.order_by('-created_at').first()
     @property
     def has_pending_fees(self):
-        account = self.fee_account
-        if account: return account.overdue_amount > 0
-        return False
+        return self.fee_accounts.filter(overdue_amount__gt=0).exists()
     @property
     def fee_status(self):
+        if self.fee_accounts.filter(status='OVERDUE').exists():
+            return 'OVERDUE'
         account = self.fee_account
         if not account: return 'NO_ACCOUNT'
         return account.status
@@ -129,9 +129,10 @@ class Student(models.Model):
         return None
     @property
     def pending_fee_amount(self):
-        account = self.fee_account
-        if account: return account.overdue_amount
-        return 0
+        from django.db.models import Sum
+        from decimal import Decimal
+        total = self.fee_accounts.aggregate(total=Sum('overdue_amount')).get('total')
+        return total if total is not None else Decimal('0')
 
     @property
     def company(self):
