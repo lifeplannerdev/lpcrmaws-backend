@@ -341,13 +341,10 @@ class StudentFeeAccountCreateSerializer(serializers.ModelSerializer):
             'FLAG'
         )
 
-        account = StudentFeeAccount.objects.create(
-            student=student,
-            company=company,
-            created_by=request.user,
-            updated_by=request.user,
-            **validated_data,
-        )
+        validated_data['company'] = company
+        validated_data['created_by'] = request.user
+        validated_data['updated_by'] = request.user
+        account = StudentFeeAccount.objects.create(**validated_data)
 
         account.plan_snapshot = account.plan_snapshot or {}
         if template:
