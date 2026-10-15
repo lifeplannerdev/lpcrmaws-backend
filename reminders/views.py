@@ -1,3 +1,5 @@
+from datetime import timedelta
+import logging
 from rest_framework import generics, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -9,12 +11,13 @@ from django.db.models import Q, Case, When, IntegerField, Count
 from django.db.models.functions import Coalesce
 from django.contrib.auth import get_user_model
 
-from .models import Reminder, ReminderUpdate
+from .models import Reminder, ReminderUpdate, ReminderNotificationSetting
 from .serializers import (
     ReminderSerializer,
     ReminderDetailSerializer,
     ReminderUpdateSerializer,
     ReminderUserBriefSerializer,
+    ReminderNotificationSettingSerializer,
 )
 from .permissions import (
     is_reminders_admin,
@@ -645,7 +648,7 @@ class ReminderAlertsAPIView(APIView):
             combined_qs = my_qs
 
         # Order with nearest / overdue deadline at top
-        alerts_qs = combined_qs.select_related('user', 'student').order_by('effective_deadline', '-created_at')[:25]
+        alerts_qs = combined_qs.select_related('user', 'student', 'notification_setting').order_by('effective_deadline', '-created_at')[:40]
 
         alerts_data = []
         overdue_count = 0
@@ -658,6 +661,23 @@ class ReminderAlertsAPIView(APIView):
             is_today = eff_date == today
             is_pending_approval = (r.status == 'PENDING_APPROVAL')
             is_needs_revision = (r.status == 'IN_PROGRESS' and bool(r.rejection_reason))
+
+            # Per-reminder notification settings check
+            setting = getattr(r, 'notification_setting', None)
+            if setting:
+                # If master toggle is disabled, suppress alert (unless admin pending approval)
+                if not setting.is_enabled and not is_pending_approval:
+                    continue
+
+                # Start date check
+                if setting.notify_start_date and today < setting.notify_start_date and not is_pending_approval:
+                    continue
+
+                # Lead days window check
+                if setting.lead_days > 0 and not is_pending_approval:
+                    start_window = eff_date - timedelta(days=setting.lead_days)
+                    if today < start_window:
+                        continue
 
             if is_overdue:
                 overdue_count += 1
@@ -683,6 +703,13 @@ class ReminderAlertsAPIView(APIView):
                 "user_name": f"{r.user.first_name} {r.user.last_name}".strip() or r.user.username,
                 "student_name": r.student.name if r.student else None,
                 "updated_at": r.updated_at.isoformat(),
+                # Notification settings flags
+                "enable_in_app": setting.enable_in_app if setting else True,
+                "enable_desktop": setting.enable_desktop if setting else True,
+                "enable_sound": setting.enable_sound if setting else True,
+                "interval_minutes": setting.interval_minutes if setting else 30,
+                "notify_start_date": str(setting.notify_start_date) if (setting and setting.notify_start_date) else None,
+                "lead_days": setting.lead_days if setting else 0,
             })
 
         return Response({
@@ -692,5 +719,106 @@ class ReminderAlertsAPIView(APIView):
             "pending_approval_count": pending_approval_count,
             "has_critical": overdue_count > 0 or today_count > 0,
             "alerts": alerts_data,
+        })
+
+
+class ReminderNotificationSettingAPIView(APIView):
+    """
+    Get or update notification settings for a specific reminder.
+    """
+    permission_classes = [IsAuthenticated, HasRemindersAccess]
+
+    def get_reminder(self, request, pk):
+        return get_object_or_404(_get_reminder_queryset(request.user), pk=pk)
+
+    def get(self, request, pk):
+        reminder = self.get_reminder(request, pk)
+        setting, _ = ReminderNotificationSetting.objects.get_or_create(
+            reminder=reminder,
+            defaults={
+                'is_enabled': True,
+                'interval_minutes': 30,
+                'notify_start_date': reminder.reminder_date,
+            }
+        )
+        serializer = ReminderNotificationSettingSerializer(setting)
+        return Response(serializer.data)
+
+    def put(self, request, pk):
+        return self.patch(request, pk)
+
+    def patch(self, request, pk):
+        reminder = self.get_reminder(request, pk)
+        setting, _ = ReminderNotificationSetting.objects.get_or_create(
+            reminder=reminder,
+            defaults={
+                'is_enabled': True,
+                'interval_minutes': 30,
+                'notify_start_date': reminder.reminder_date,
+            }
+        )
+        serializer = ReminderNotificationSettingSerializer(setting, data=request.data, partial=True)
+        if serializer.is_valid():
+            instance = serializer.save()
+            return Response(ReminderNotificationSettingSerializer(instance).data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ReminderNotificationTestAPIView(APIView):
+    """
+    Triggers an immediate test alert via Pusher and in-app notification for this reminder
+    so the user can verify Windows desktop notifications, floating popup, and sound chime.
+    """
+    permission_classes = [IsAuthenticated, HasRemindersAccess]
+
+    def post(self, request, pk):
+        reminder = get_object_or_404(_get_reminder_queryset(request.user), pk=pk)
+        setting, _ = ReminderNotificationSetting.objects.get_or_create(
+            reminder=reminder,
+            defaults={
+                'is_enabled': True,
+                'interval_minutes': 30,
+                'notify_start_date': reminder.reminder_date,
+            }
+        )
+
+        eff_deadline = str(reminder.deadline or reminder.reminder_date)
+        test_msg = f"[TEST ALERT] Notification check for reminder: \"{reminder.title}\" (Due: {eff_deadline}). Channels are successfully configured!"
+
+        try:
+            from utils.pusher import save_notification, trigger_pusher
+            save_notification.delay(
+                user_id=request.user.id,
+                type='reminder',
+                message=test_msg,
+                by="System (Test)",
+                related_id=reminder.id,
+                title="Reminder Test Alert"
+            )
+
+            trigger_pusher.delay(
+                channel=f"private-user-{request.user.id}",
+                event="reminder.alert",
+                data={
+                    "reminder_id": reminder.id,
+                    "title": f"🔔 TEST: {reminder.title}",
+                    "priority": reminder.priority,
+                    "deadline": eff_deadline,
+                    "is_overdue": reminder.is_overdue,
+                    "is_test": True,
+                    "enable_sound": setting.enable_sound,
+                    "enable_desktop": setting.enable_desktop,
+                    "interval_minutes": setting.interval_minutes,
+                    "message": test_msg,
+                }
+            )
+        except Exception as e:
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error dispatching test notification: {e}")
+
+        return Response({
+            "success": True,
+            "message": "Test alert dispatched! You should see the in-CRM popup, hear the chime, and receive a desktop notification.",
+            "setting": ReminderNotificationSettingSerializer(setting).data
         })
 

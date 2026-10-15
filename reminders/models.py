@@ -1,6 +1,9 @@
+from datetime import timedelta
 from django.db import models
 from django.conf import settings
 from django.utils import timezone
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 
 
 class Reminder(models.Model):
@@ -220,3 +223,127 @@ class ReminderUpdate(models.Model):
 
     def __str__(self):
         return f"Update on '{self.reminder.title}' by {self.author.username} at {self.created_at}"
+
+
+class ReminderNotificationSetting(models.Model):
+    """
+    Per-reminder notification configuration.
+    Controls start date, intervals, delivery channels, and tracks dispatch timestamps.
+    """
+    INTERVAL_CHOICES = [
+        (15, 'Every 15 minutes'),
+        (30, 'Every 30 minutes'),
+        (60, 'Every 1 hour'),
+        (120, 'Every 2 hours'),
+        (240, 'Every 4 hours'),
+        (720, 'Every 12 hours'),
+        (1440, 'Once daily (24 hours)'),
+    ]
+
+    reminder = models.OneToOneField(
+        Reminder,
+        on_delete=models.CASCADE,
+        related_name='notification_setting'
+    )
+    is_enabled = models.BooleanField(
+        default=True,
+        help_text="Master toggle: whether notifications are enabled for this reminder."
+    )
+    notify_start_date = models.DateField(
+        null=True,
+        blank=True,
+        help_text="Specific date from which notifications should start arriving. If null, starts based on lead_days or immediately."
+    )
+    lead_days = models.PositiveIntegerField(
+        default=0,
+        help_text="Start alerting N days before deadline or reminder date (e.g. 1, 2, 3, 7 days before)."
+    )
+    interval_minutes = models.PositiveIntegerField(
+        default=30,
+        choices=INTERVAL_CHOICES,
+        help_text="Interval between alert notifications in minutes."
+    )
+    last_notified_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Timestamp when notification was last sent for this reminder."
+    )
+    enable_in_app = models.BooleanField(
+        default=True,
+        help_text="Show floating alert card inside the CRM."
+    )
+    enable_desktop = models.BooleanField(
+        default=True,
+        help_text="Trigger native Windows / desktop notification."
+    )
+    enable_sound = models.BooleanField(
+        default=True,
+        help_text="Play synthesized harmonic audio chime."
+    )
+    notify_overdue_repeatedly = models.BooleanField(
+        default=True,
+        help_text="Continue alerting repeatedly if overdue until marked completed."
+    )
+    notes = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text="Optional custom note or instruction displayed with the alert."
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        status_str = "Enabled" if self.is_enabled else "Disabled"
+        return f"Notification Setting for '{self.reminder.title}' ({status_str}, Every {self.interval_minutes}m)"
+
+    def should_notify(self, now=None):
+        """
+        Determines whether an alert should be dispatched right now.
+        Returns (bool, str reason).
+        """
+        if not self.is_enabled:
+            return False, "Notifications are disabled for this reminder."
+
+        if self.reminder.status in ['COMPLETED', 'CANCELLED']:
+            return False, f"Reminder status is {self.reminder.status}."
+
+        now = now or timezone.now()
+        today = now.date()
+
+        eff_date = self.reminder.deadline or self.reminder.reminder_date
+        if not eff_date:
+            return False, "No reminder date or deadline configured."
+
+        # Check start date condition
+        if self.notify_start_date:
+            if today < self.notify_start_date:
+                return False, f"Start date ({self.notify_start_date}) has not yet arrived."
+        elif self.lead_days > 0:
+            start_window = eff_date - timedelta(days=self.lead_days)
+            if today < start_window:
+                return False, f"Lead window ({self.lead_days} days before {eff_date}) starts on {start_window}."
+
+        # Check elapsed interval condition
+        if self.last_notified_at:
+            elapsed_minutes = (now - self.last_notified_at).total_seconds() / 60
+            if elapsed_minutes < self.interval_minutes:
+                return False, f"Interval not yet met: {int(elapsed_minutes)}m of {self.interval_minutes}m elapsed."
+
+        return True, "Eligible for notification."
+
+
+@receiver(post_save, sender=Reminder)
+def create_default_reminder_notification_setting(sender, instance, created, **kwargs):
+    if created:
+        ReminderNotificationSetting.objects.get_or_create(
+            reminder=instance,
+            defaults={
+                'is_enabled': True,
+                'interval_minutes': 30,
+                'notify_start_date': instance.reminder_date,
+            }
+        )

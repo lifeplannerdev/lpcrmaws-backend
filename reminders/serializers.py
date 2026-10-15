@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models import Reminder, ReminderUpdate
+from .models import Reminder, ReminderUpdate, ReminderNotificationSetting
 
 User = get_user_model()
 
@@ -56,6 +56,31 @@ class ReminderProcessingStudentBriefSerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'mobile_number', 'email', 'university', 'intake', 'program_applied']
 
 
+class ReminderNotificationSettingSerializer(serializers.ModelSerializer):
+    interval_display = serializers.CharField(source='get_interval_minutes_display', read_only=True)
+
+    class Meta:
+        model = ReminderNotificationSetting
+        fields = [
+            'id',
+            'reminder',
+            'is_enabled',
+            'notify_start_date',
+            'lead_days',
+            'interval_minutes',
+            'interval_display',
+            'last_notified_at',
+            'enable_in_app',
+            'enable_desktop',
+            'enable_sound',
+            'notify_overdue_repeatedly',
+            'notes',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'reminder', 'last_notified_at', 'created_at', 'updated_at']
+
+
 class ReminderSerializer(serializers.ModelSerializer):
     user = serializers.PrimaryKeyRelatedField(queryset=User.objects.all(), required=False)
     user_name = serializers.SerializerMethodField()
@@ -68,6 +93,7 @@ class ReminderSerializer(serializers.ModelSerializer):
     is_backdated = serializers.BooleanField(read_only=True)
     is_overdue = serializers.BooleanField(read_only=True)
     updates_count = serializers.SerializerMethodField()
+    notification_setting = serializers.SerializerMethodField()
 
     class Meta:
         model = Reminder
@@ -105,6 +131,7 @@ class ReminderSerializer(serializers.ModelSerializer):
             'is_backdated',
             'is_overdue',
             'updates_count',
+            'notification_setting',
             'created_at',
             'updated_at',
         ]
@@ -169,6 +196,22 @@ class ReminderSerializer(serializers.ModelSerializer):
 
     def get_updates_count(self, obj):
         return obj.updates.count()
+
+    def get_notification_setting(self, obj):
+        setting = getattr(obj, 'notification_setting', None)
+        if not setting:
+            try:
+                setting, _ = ReminderNotificationSetting.objects.get_or_create(
+                    reminder=obj,
+                    defaults={
+                        'is_enabled': True,
+                        'interval_minutes': 30,
+                        'notify_start_date': obj.reminder_date,
+                    }
+                )
+            except Exception:
+                return None
+        return ReminderNotificationSettingSerializer(setting).data
 
     def validate_checklist(self, value):
         if not isinstance(value, list):

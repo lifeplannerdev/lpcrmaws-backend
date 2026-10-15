@@ -12,6 +12,8 @@ from .views import (
     ReminderAlertsAPIView,
     ReminderStaffListAPIView,
     ReminderStudentsListAPIView,
+    ReminderNotificationSettingAPIView,
+    ReminderNotificationTestAPIView,
 )
 
 urlpatterns = [
@@ -21,6 +23,8 @@ urlpatterns = [
     path('staff/', ReminderStaffListAPIView.as_view(), name='reminder_staff_list'),
     path('students/', ReminderStudentsListAPIView.as_view(), name='reminder_students_list'),
     path('<int:pk>/', ReminderDetailAPIView.as_view(), name='reminder_detail'),
+    path('<int:pk>/notification-settings/', ReminderNotificationSettingAPIView.as_view(), name='reminder_notification_settings'),
+    path('<int:pk>/notification-settings/test/', ReminderNotificationTestAPIView.as_view(), name='reminder_notification_test'),
     path('<int:pk>/submit-completion/', ReminderSubmitCompletionAPIView.as_view(), name='reminder_submit_completion'),
     path('<int:pk>/approve/', ReminderApproveAPIView.as_view(), name='reminder_approve'),
     path('<int:pk>/reject/', ReminderRejectAPIView.as_view(), name='reminder_reject'),
