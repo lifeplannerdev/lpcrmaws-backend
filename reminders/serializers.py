@@ -7,14 +7,21 @@ User = get_user_model()
 
 class ReminderUserBriefSerializer(serializers.ModelSerializer):
     full_name = serializers.SerializerMethodField()
+    role_names = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ['id', 'username', 'first_name', 'last_name', 'email', 'full_name', 'company', 'location']
+        fields = ['id', 'username', 'first_name', 'last_name', 'email', 'full_name', 'company', 'location', 'role_names']
 
     def get_full_name(self, obj):
         name = f"{obj.first_name} {obj.last_name}".strip()
         return name if name else obj.username
+
+    def get_role_names(self, obj):
+        names = list(obj.db_roles.values_list('name', flat=True))
+        if getattr(obj, 'role', None) and obj.role not in names:
+            names.append(obj.role)
+        return names
 
 
 class ReminderUpdateSerializer(serializers.ModelSerializer):

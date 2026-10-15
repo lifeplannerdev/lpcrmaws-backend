@@ -247,3 +247,26 @@ class RemindersAPITestCase(TestCase):
         admin_titles = [r['title'] for r in data_admin]
         self.assertIn("John Private Reminder", admin_titles)
         self.assertIn("Jane Private Reminder", admin_titles)
+
+    def test_staff_list_only_returns_documentation_and_operation(self):
+        doc_role = Role.objects.create(name='DOCUMENTATION')
+        ops_role = Role.objects.create(name='OPERATION')
+        trainer_role = Role.objects.create(name='TRAINER')
+
+        doc_user = User.objects.create_user(username='doc_emp', password='password123')
+        doc_user.db_roles.add(doc_role)
+
+        ops_user = User.objects.create_user(username='ops_emp', password='password123')
+        ops_user.db_roles.add(ops_role)
+
+        other_user = User.objects.create_user(username='trainer_emp', password='password123')
+        other_user.db_roles.add(trainer_role)
+
+        self.client.force_authenticate(user=self.admin_user)
+        res = self.client.get('/api/reminders/staff/')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        usernames = [u['username'] for u in res.data]
+        self.assertIn('doc_emp', usernames)
+        self.assertIn('ops_emp', usernames)
+        self.assertNotIn('trainer_emp', usernames)

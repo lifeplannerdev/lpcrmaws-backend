@@ -444,11 +444,16 @@ class ReminderStatsAPIView(APIView):
 
 class ReminderStaffListAPIView(APIView):
     """
-    List of active staff members for admin user filter dropdown.
+    List of active staff members with roles DOCUMENTATION and OPERATION for assigning reminders.
     """
     permission_classes = [IsAuthenticated, HasRemindersAdminAccess]
 
     def get(self, request):
-        users = User.objects.filter(is_active=True).order_by('first_name', 'last_name', 'username')
+        doc_ops_roles = ['DOCUMENTATION', 'OPERATION', 'OPERATIONS', 'OPS']
+        users = User.objects.filter(
+            db_roles__name__in=doc_ops_roles,
+            is_active=True
+        ).distinct().order_by('first_name', 'last_name', 'username')
+
         serializer = ReminderUserBriefSerializer(users, many=True)
         return Response(serializer.data)
