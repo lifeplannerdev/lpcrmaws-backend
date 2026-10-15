@@ -66,8 +66,16 @@ class ReminderListCreateAPIView(generics.ListCreateAPIView):
         if student_param:
             qs = qs.filter(student_id=student_param)
 
-        if status_param and status_param != 'ALL':
-            qs = qs.filter(status=status_param)
+        if status_param:
+            if status_param.upper() == 'ACTIVE':
+                qs = qs.exclude(status__in=['COMPLETED', 'CANCELLED'])
+            elif status_param.upper() == 'ALL':
+                pass  # Keep all statuses
+            else:
+                qs = qs.filter(status=status_param)
+        else:
+            # Default view returns active reminders
+            qs = qs.exclude(status__in=['COMPLETED', 'CANCELLED'])
 
         if priority_param and priority_param != 'ALL':
             qs = qs.filter(priority=priority_param)
@@ -494,19 +502,23 @@ class ReminderStatsAPIView(APIView):
         today_date = timezone.now().date()
         is_admin = is_reminders_admin(user)
 
+        active_qs = qs.exclude(status__in=['COMPLETED', 'CANCELLED'])
+
         stats = {
-            "total": qs.count(),
-            "today": qs.filter(reminder_date=today_date).count(),
+            "total": active_qs.count(),
+            "total_active": active_qs.count(),
+            "all_total": qs.count(),
+            "today": active_qs.filter(reminder_date=today_date).count(),
             "pending_approval": qs.filter(status='PENDING_APPROVAL').count(),
             "completed": qs.filter(status='COMPLETED').count(),
             "in_progress": qs.filter(status='IN_PROGRESS').count(),
             "pending": qs.filter(status='PENDING').count(),
-            "backdated": qs.filter(reminder_date__lt=today_date).count(),
+            "backdated": active_qs.filter(reminder_date__lt=today_date).count(),
             "overdue": qs.filter(
                 Q(deadline__lt=today_date) | (Q(deadline__isnull=True) & Q(reminder_date__lt=today_date))
             ).exclude(status__in=['COMPLETED', 'CANCELLED', 'PENDING_APPROVAL']).count(),
             "is_admin": is_admin,
-            "my_total": Reminder.objects.filter(user=user).count(),
+            "my_total": Reminder.objects.filter(user=user).exclude(status__in=['COMPLETED', 'CANCELLED']).count(),
             "my_pending_approval": Reminder.objects.filter(user=user, status='PENDING_APPROVAL').count(),
         }
 
