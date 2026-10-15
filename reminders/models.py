@@ -42,6 +42,16 @@ class Reminder(models.Model):
         help_text="The user who created this reminder."
     )
 
+    # Optional Processing Student Link
+    student = models.ForeignKey(
+        'trainers.ProcessingStudent',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='reminders',
+        help_text="Optional linked student from processing registry."
+    )
+
     company = models.CharField(
         max_length=10,
         choices=COMPANY_CHOICES,

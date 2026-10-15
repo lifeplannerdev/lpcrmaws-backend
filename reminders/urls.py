@@ -9,12 +9,14 @@ from .views import (
     ReminderChecklistToggleAPIView,
     ReminderStatsAPIView,
     ReminderStaffListAPIView,
+    ReminderStudentsListAPIView,
 )
 
 urlpatterns = [
     path('', ReminderListCreateAPIView.as_view(), name='reminder_list_create'),
     path('stats/', ReminderStatsAPIView.as_view(), name='reminder_stats'),
     path('staff/', ReminderStaffListAPIView.as_view(), name='reminder_staff_list'),
+    path('students/', ReminderStudentsListAPIView.as_view(), name='reminder_students_list'),
     path('<int:pk>/', ReminderDetailAPIView.as_view(), name='reminder_detail'),
     path('<int:pk>/submit-completion/', ReminderSubmitCompletionAPIView.as_view(), name='reminder_submit_completion'),
     path('<int:pk>/approve/', ReminderApproveAPIView.as_view(), name='reminder_approve'),

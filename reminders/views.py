@@ -27,7 +27,7 @@ User = get_user_model()
 
 def _get_reminder_queryset(user, base_qs=None):
     if base_qs is None:
-        base_qs = Reminder.objects.select_related('user', 'created_by', 'approved_by')
+        base_qs = Reminder.objects.select_related('user', 'created_by', 'approved_by', 'student')
 
     if is_reminders_admin(user):
         return base_qs
@@ -49,6 +49,7 @@ class ReminderListCreateAPIView(generics.ListCreateAPIView):
         category_param = self.request.query_params.get('category')
         company_param = self.request.query_params.get('company')
         user_param = self.request.query_params.get('user')
+        student_param = self.request.query_params.get('student')
         is_mine_param = self.request.query_params.get('is_mine')
         date_from = self.request.query_params.get('date_from')
         date_to = self.request.query_params.get('date_to')
@@ -61,6 +62,9 @@ class ReminderListCreateAPIView(generics.ListCreateAPIView):
             qs = qs.filter(user=user)
         elif user_param and is_reminders_admin(user):
             qs = qs.filter(user_id=user_param)
+
+        if student_param:
+            qs = qs.filter(student_id=student_param)
 
         if status_param and status_param != 'ALL':
             qs = qs.filter(status=status_param)
@@ -97,7 +101,9 @@ class ReminderListCreateAPIView(generics.ListCreateAPIView):
                 Q(description__icontains=search_query) |
                 Q(user__first_name__icontains=search_query) |
                 Q(user__last_name__icontains=search_query) |
-                Q(user__username__icontains=search_query)
+                Q(user__username__icontains=search_query) |
+                Q(student__name__icontains=search_query) |
+                Q(student__mobile_number__icontains=search_query)
             )
 
         # Smart ordering:
@@ -456,4 +462,26 @@ class ReminderStaffListAPIView(APIView):
         ).distinct().order_by('first_name', 'last_name', 'username')
 
         serializer = ReminderUserBriefSerializer(users, many=True)
+        return Response(serializer.data)
+
+
+class ReminderStudentsListAPIView(APIView):
+    """
+    List of active processing students for optional linking in reminders.
+    """
+    permission_classes = [IsAuthenticated, HasRemindersAccess]
+
+    def get(self, request):
+        from trainers.models import ProcessingStudent
+        from .serializers import ReminderProcessingStudentBriefSerializer
+        q = (request.query_params.get('q') or '').strip()
+        qs = ProcessingStudent.objects.all().order_by('-id')
+        if q:
+            qs = qs.filter(
+                Q(name__icontains=q) |
+                Q(mobile_number__icontains=q) |
+                Q(email__icontains=q)
+            )
+        qs = qs[:100]
+        serializer = ReminderProcessingStudentBriefSerializer(qs, many=True)
         return Response(serializer.data)
