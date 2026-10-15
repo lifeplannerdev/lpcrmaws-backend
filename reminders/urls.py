@@ -7,6 +7,7 @@ from .views import (
     ReminderRejectAPIView,
     ReminderUpdateListCreateAPIView,
     ReminderChecklistToggleAPIView,
+    ReminderBriefingToggleAPIView,
     ReminderStatsAPIView,
     ReminderStaffListAPIView,
     ReminderStudentsListAPIView,
@@ -23,4 +24,5 @@ urlpatterns = [
     path('<int:pk>/reject/', ReminderRejectAPIView.as_view(), name='reminder_reject'),
     path('<int:pk>/updates/', ReminderUpdateListCreateAPIView.as_view(), name='reminder_updates'),
     path('<int:pk>/checklist/toggle/', ReminderChecklistToggleAPIView.as_view(), name='reminder_checklist_toggle'),
+    path('<int:pk>/briefing/toggle/', ReminderBriefingToggleAPIView.as_view(), name='reminder_briefing_toggle'),
 ]

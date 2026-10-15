@@ -370,7 +370,7 @@ class ReminderUpdateListCreateAPIView(generics.ListCreateAPIView):
 
 class ReminderChecklistToggleAPIView(APIView):
     """
-    Quick API to toggle a single checklist item on a reminder.
+    Quick API to toggle a single checklist item on a reminder, optionally saving remarks.
     """
     permission_classes = [IsAuthenticated, HasRemindersAccess]
 
@@ -378,6 +378,7 @@ class ReminderChecklistToggleAPIView(APIView):
         reminder = get_object_or_404(_get_reminder_queryset(request.user), pk=pk)
         item_id = str(request.data.get('item_id', ''))
         completed = bool(request.data.get('completed', False))
+        remarks = (request.data.get('remarks') or '').strip()
 
         checklist = reminder.checklist or []
         updated = False
@@ -387,6 +388,14 @@ class ReminderChecklistToggleAPIView(APIView):
             if str(item.get('id')) == item_id:
                 item['completed'] = completed
                 item['completed_at'] = timezone.now().isoformat() if completed else None
+                if completed:
+                    item['remarks'] = remarks
+                    item['completed_by'] = request.user.id
+                    item['completed_by_name'] = request.user.get_full_name() or request.user.username
+                else:
+                    item['remarks'] = ''
+                    item['completed_by'] = None
+                    item['completed_by_name'] = None
                 item_text = item.get('text', '')
                 updated = True
                 break
@@ -400,19 +409,68 @@ class ReminderChecklistToggleAPIView(APIView):
             reminder.status = 'IN_PROGRESS'
         reminder.save()
 
-        # Record brief activity note
-        action_verb = "checked" if completed else "unchecked"
+        # Record activity note with remarks if present
+        action_verb = "completed" if completed else "unmarked"
+        if completed and remarks:
+            update_notes = f"Checklist item '{item_text}' was completed.\nRemark: {remarks}"
+        else:
+            update_notes = f"Checklist item '{item_text}' was {action_verb}."
+
         ReminderUpdate.objects.create(
             reminder=reminder,
             author=request.user,
-            notes=f"Checklist item '{item_text}' was {action_verb}.",
+            notes=update_notes,
             is_system_event=True
         )
 
         return Response({
             "detail": f"Item {action_verb} successfully.",
             "checklist": reminder.checklist,
-            "status": reminder.status
+            "status": reminder.status,
+            "reminder": ReminderSerializer(reminder).data
+        })
+
+
+class ReminderBriefingToggleAPIView(APIView):
+    """
+    Toggle completion of the main briefing task itself, with optional remarks.
+    """
+    permission_classes = [IsAuthenticated, HasRemindersAccess]
+
+    def post(self, request, pk):
+        reminder = get_object_or_404(_get_reminder_queryset(request.user), pk=pk)
+        completed = bool(request.data.get('completed', False))
+        remarks = (request.data.get('remarks') or '').strip()
+
+        reminder.briefing_completed = completed
+        reminder.briefing_completed_at = timezone.now() if completed else None
+        reminder.briefing_remarks = remarks if completed else ''
+        reminder.briefing_completed_by = request.user if completed else None
+
+        if reminder.status == 'PENDING' and completed:
+            reminder.status = 'IN_PROGRESS'
+        reminder.save()
+
+        if completed and remarks:
+            update_notes = f"Main task (Briefing) was marked completed.\nRemark: {remarks}"
+        elif completed:
+            update_notes = "Main task (Briefing) was marked completed."
+        else:
+            update_notes = "Main task (Briefing) was unmarked."
+
+        ReminderUpdate.objects.create(
+            reminder=reminder,
+            author=request.user,
+            notes=update_notes,
+            is_system_event=True
+        )
+
+        return Response({
+            "detail": "Main task / Briefing updated successfully.",
+            "briefing_completed": reminder.briefing_completed,
+            "briefing_remarks": reminder.briefing_remarks,
+            "status": reminder.status,
+            "reminder": ReminderSerializer(reminder).data
         })
 
 

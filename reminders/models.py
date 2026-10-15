@@ -90,6 +90,27 @@ class Reminder(models.Model):
         db_index=True
     )
 
+    # Main Task / Briefing completion
+    briefing_completed = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="Whether the main briefing/task itself is marked completed."
+    )
+    briefing_completed_at = models.DateTimeField(null=True, blank=True)
+    briefing_remarks = models.TextField(
+        blank=True,
+        default='',
+        help_text="Optional remarks for what was done for the main briefing task."
+    )
+    briefing_completed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='completed_briefing_reminders',
+        help_text="User who marked the briefing task as done."
+    )
+
     # Checklist storage: list of dicts [{ "id": 1, "text": "Task A", "completed": False, "completed_at": None }]
     checklist = models.JSONField(
         default=list,

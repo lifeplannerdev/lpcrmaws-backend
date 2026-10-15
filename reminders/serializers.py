@@ -63,6 +63,7 @@ class ReminderSerializer(serializers.ModelSerializer):
     approved_by_name = serializers.SerializerMethodField()
     student_name = serializers.SerializerMethodField()
     student_phone = serializers.SerializerMethodField()
+    briefing_completed_by_name = serializers.SerializerMethodField()
     is_backdated = serializers.BooleanField(read_only=True)
     is_overdue = serializers.BooleanField(read_only=True)
     updates_count = serializers.SerializerMethodField()
@@ -73,6 +74,11 @@ class ReminderSerializer(serializers.ModelSerializer):
             'id',
             'title',
             'description',
+            'briefing_completed',
+            'briefing_completed_at',
+            'briefing_remarks',
+            'briefing_completed_by',
+            'briefing_completed_by_name',
             'user',
             'user_name',
             'created_by',
@@ -106,6 +112,9 @@ class ReminderSerializer(serializers.ModelSerializer):
             'user_name',
             'student_name',
             'student_phone',
+            'briefing_completed_at',
+            'briefing_completed_by',
+            'briefing_completed_by_name',
             'approved_by',
             'approved_by_name',
             'approved_at',
@@ -140,6 +149,12 @@ class ReminderSerializer(serializers.ModelSerializer):
         if not obj.student:
             return None
         return obj.student.mobile_number
+
+    def get_briefing_completed_by_name(self, obj):
+        if not obj.briefing_completed_by:
+            return None
+        name = f"{obj.briefing_completed_by.first_name} {obj.briefing_completed_by.last_name}".strip()
+        return name if name else obj.briefing_completed_by.username
 
     def get_updates_count(self, obj):
         return obj.updates.count()

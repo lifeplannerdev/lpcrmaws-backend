@@ -270,3 +270,53 @@ class RemindersAPITestCase(TestCase):
         self.assertIn('doc_emp', usernames)
         self.assertIn('ops_emp', usernames)
         self.assertNotIn('trainer_emp', usernames)
+
+    def test_briefing_toggle_and_remarks(self):
+        reminder = Reminder.objects.create(
+            user=self.employee1,
+            created_by=self.employee1,
+            title="Submit blocked account letter",
+            description="Transfer confirmation needed for German embassy",
+            reminder_date=timezone.now().date(),
+            status='PENDING'
+        )
+        self.client.force_authenticate(user=self.employee1)
+
+        # Mark briefing completed with remark
+        res = self.client.post(f'/api/reminders/{reminder.id}/briefing/toggle/', {
+            "completed": True,
+            "remarks": "Downloaded receipt from Expatrio portal and verified."
+        }, format='json')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertTrue(res.data['briefing_completed'])
+        self.assertEqual(res.data['briefing_remarks'], "Downloaded receipt from Expatrio portal and verified.")
+        self.assertEqual(res.data['status'], 'IN_PROGRESS')
+
+        reminder.refresh_from_db()
+        self.assertTrue(reminder.briefing_completed)
+        self.assertEqual(reminder.briefing_completed_by, self.employee1)
+
+    def test_checklist_toggle_with_remarks(self):
+        reminder = Reminder.objects.create(
+            user=self.employee1,
+            created_by=self.employee1,
+            title="Embassy Dossier",
+            reminder_date=timezone.now().date(),
+            checklist=[
+                {"id": 1, "text": "Print appointment slip", "completed": False}
+            ],
+            status='PENDING'
+        )
+        self.client.force_authenticate(user=self.employee1)
+
+        res = self.client.post(f'/api/reminders/{reminder.id}/checklist/toggle/', {
+            "item_id": "1",
+            "completed": True,
+            "remarks": "Color printed 2 copies from front desk."
+        }, format='json')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        item = res.data['checklist'][0]
+        self.assertTrue(item['completed'])
+        self.assertEqual(item['remarks'], "Color printed 2 copies from front desk.")
+        self.assertEqual(item['completed_by'], self.employee1.id)
+
