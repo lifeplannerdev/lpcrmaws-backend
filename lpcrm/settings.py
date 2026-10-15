@@ -53,6 +53,7 @@ INSTALLED_APPS = [
     'students',
     'fds',
     'mailcenter',
+    'reminders.apps.RemindersConfig',
 ]
 
 MIDDLEWARE = [

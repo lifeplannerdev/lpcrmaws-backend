@@ -41,6 +41,7 @@ urlpatterns = [
     path('api/students/', include('students.urls')),
     path('api/fds/', include('fds.urls')),
     path('api/mail/', include('mailcenter.urls')),
+    path('api/reminders/', include('reminders.urls')),
 ]
 
 if settings.DEBUG:
