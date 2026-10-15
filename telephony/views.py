@@ -100,35 +100,15 @@ def process_voxbay_call_log(obj, agent_user=None):
     if not agent_user and agent_phone:
         ag_clean = re.sub(r'\D', '', str(agent_phone))
         ag_10 = ag_clean[-10:] if len(ag_clean) >= 10 else ag_clean
+        # Strictly match active users configured on the Voxbay Agent Settings page
         agent_user = User.objects.filter(is_active=True).filter(
-            Q(voxbay_number=str(agent_phone)) |
-            Q(voxbay_extension=str(agent_phone)) |
-            Q(voxbay_number=ag_clean) |
-            Q(voxbay_extension=ag_clean) |
+            Q(voxbay_number__iexact=str(agent_phone)) |
+            Q(voxbay_number__iexact=ag_clean) |
             Q(voxbay_number__endswith=ag_10) |
-            Q(voxbay_extension__endswith=ag_10) |
-            Q(phone=ag_clean) |
-            Q(phone__endswith=ag_10)
+            Q(voxbay_extension__iexact=str(agent_phone)) |
+            Q(voxbay_extension__iexact=ag_clean) |
+            Q(voxbay_extension__endswith=ag_10)
         ).first()
-
-        if not agent_user:
-            from telephony.models import VoxbayAgent
-            v_agent = VoxbayAgent.objects.filter(is_active=True).filter(
-                Q(extension=str(agent_phone)) |
-                Q(phone_number=str(agent_phone)) |
-                Q(phone_number=ag_clean) |
-                Q(phone_number__endswith=ag_10)
-            ).first()
-            if v_agent:
-                v_clean = re.sub(r'\D', '', str(v_agent.phone_number))
-                v_10 = v_clean[-10:] if len(v_clean) >= 10 else v_clean
-                agent_user = User.objects.filter(is_active=True).filter(
-                    Q(phone=v_agent.phone_number) |
-                    Q(phone=v_clean) |
-                    Q(phone__endswith=v_10) |
-                    Q(first_name__iexact=v_agent.name) |
-                    Q(username__iexact=v_agent.name)
-                ).first()
 
     import re
     clean_digits = re.sub(r'\D', '', str(lead_number))
@@ -691,41 +671,15 @@ class VoxbayWebhookView(APIView):
                 else:
                     # Full 10+ digit DID or phone number
                     agent_10 = agent_clean[-10:]
+                    # Strictly match active users configured on the Voxbay Agent Settings page (voxbay_number / voxbay_extension)
                     agent_user = User.objects.filter(is_active=True).filter(
-                        Q(voxbay_number=agent_str) |
-                        Q(voxbay_number=agent_clean) |
+                        Q(voxbay_number__iexact=agent_str) |
+                        Q(voxbay_number__iexact=agent_clean) |
                         Q(voxbay_number__endswith=agent_10) |
-                        Q(voxbay_extension=agent_str) |
-                        Q(voxbay_extension=agent_clean) |
-                        Q(voxbay_extension__endswith=agent_10) |
-                        Q(phone=agent_clean) |
-                        Q(phone__endswith=agent_10)
+                        Q(voxbay_extension__iexact=agent_str) |
+                        Q(voxbay_extension__iexact=agent_clean) |
+                        Q(voxbay_extension__endswith=agent_10)
                     ).first()
-
-                # Fallback resolution via VoxbayAgent directory
-                if not agent_user:
-                    from telephony.models import VoxbayAgent
-                    if len(agent_clean) < 10:
-                        v_agent = VoxbayAgent.objects.filter(is_active=True).filter(
-                            Q(extension=agent_str) |
-                            Q(extension=agent_clean)
-                        ).first()
-                    else:
-                        v_agent = VoxbayAgent.objects.filter(is_active=True).filter(
-                            Q(phone_number=agent_str) |
-                            Q(phone_number=agent_clean) |
-                            Q(phone_number__endswith=agent_clean[-10:])
-                        ).first()
-                    if v_agent and v_agent.phone_number:
-                        v_clean = re.sub(r'\D', '', str(v_agent.phone_number))
-                        v_10 = v_clean[-10:] if len(v_clean) >= 10 else v_clean
-                        agent_user = User.objects.filter(is_active=True).filter(
-                            Q(phone=v_agent.phone_number) |
-                            Q(phone=v_clean) |
-                            Q(phone__endswith=v_10) |
-                            Q(first_name__iexact=v_agent.name) |
-                            Q(username__iexact=v_agent.name)
-                        ).first()
             
             if call_type == "outgoing":
                 lead_num = (
