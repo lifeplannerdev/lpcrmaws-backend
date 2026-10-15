@@ -567,9 +567,11 @@ class VoxbayWebhookView(APIView):
         direction_payload = data.get("direction") or data.get("callType") or data.get("type") or data.get("calltype")
         if direction_payload and isinstance(direction_payload, str) and direction_payload.lower() in ["incoming", "outgoing", "inbound", "outbound"]:
             call_type = "incoming" if direction_payload.lower() in ["incoming", "inbound"] else "outgoing"
-        elif data.get("destination") or data.get("calledNumber"):
+        elif data.get("callerNumber") or data.get("caller_number") or data.get("callernumber"):
+            call_type = "incoming"
+        elif data.get("destination"):
             call_type = "outgoing"
-        elif data.get("callerNumber") or data.get("caller_number") or data.get("callernumber") or (data.get("callerid") and not data.get("destination")):
+        elif data.get("calledNumber") and not (data.get("callerNumber") or data.get("caller_number")):
             call_type = "incoming"
         else:
             call_type = "incoming"
@@ -679,10 +681,12 @@ class VoxbayWebhookView(APIView):
                 agent_clean = re.sub(r'\D', '', agent_str)
                 if len(agent_clean) < 10:
                     # It's an internal PBX extension (e.g. '100', '103', '114', '259')
-                    # Match STRICTLY by extension! NEVER match phone__endswith with short extension digits!
+                    # Check both voxbay_extension and voxbay_number in case admin saved it in either field
                     agent_user = User.objects.filter(is_active=True).filter(
                         Q(voxbay_extension__iexact=agent_str) |
-                        Q(voxbay_extension__iexact=agent_clean)
+                        Q(voxbay_extension__iexact=agent_clean) |
+                        Q(voxbay_number__iexact=agent_str) |
+                        Q(voxbay_number__iexact=agent_clean)
                     ).first()
                 else:
                     # Full 10+ digit DID or phone number
@@ -691,6 +695,9 @@ class VoxbayWebhookView(APIView):
                         Q(voxbay_number=agent_str) |
                         Q(voxbay_number=agent_clean) |
                         Q(voxbay_number__endswith=agent_10) |
+                        Q(voxbay_extension=agent_str) |
+                        Q(voxbay_extension=agent_clean) |
+                        Q(voxbay_extension__endswith=agent_10) |
                         Q(phone=agent_clean) |
                         Q(phone__endswith=agent_10)
                     ).first()
