@@ -405,3 +405,156 @@ def notify_new_conversation(user_id, conversation_id, conversation_type, name=No
         event="new-conversation",
         data=data
     )
+
+
+# ── Reminder helpers ──────────────────────────────────
+
+def notify_reminder_assigned(reminder, assigned_by):
+    by_name = assigned_by.get_full_name() or assigned_by.username
+    message = f"New reminder assigned to you: \"{reminder.title}\" (Due: {reminder.deadline or reminder.reminder_date}) by {by_name}"
+
+    save_notification.delay(
+        user_id=reminder.user.id,
+        type='reminder',
+        message=message,
+        by=by_name,
+        related_id=reminder.id,
+        title="New Reminder Assigned"
+    )
+
+    trigger_pusher.delay(
+        channel=f"private-user-{reminder.user.id}",
+        event="reminder.assigned",
+        data={
+            "reminder_id": reminder.id,
+            "title": reminder.title,
+            "priority": reminder.priority,
+            "reminder_date": str(reminder.reminder_date),
+            "deadline": str(reminder.deadline) if reminder.deadline else None,
+            "assigned_by_id": assigned_by.id,
+            "assigned_by_name": by_name,
+            "message": message,
+        }
+    )
+
+def notify_reminder_submitted(reminder, submitted_by):
+    from accounts.models import User
+    by_name = submitted_by.get_full_name() or submitted_by.username
+    message = f"Reminder work submitted for verification: \"{reminder.title}\" by {by_name}"
+
+    # Notify all reminder admins or the creator
+    recipients = set()
+    if reminder.created_by and reminder.created_by.id != submitted_by.id:
+        recipients.add(reminder.created_by.id)
+
+    admin_ids = list(User.objects.filter(
+        db_roles__permissions__name='processing:reminders_admin',
+        is_active=True
+    ).values_list('id', flat=True))
+    for aid in admin_ids:
+        if aid != submitted_by.id:
+            recipients.add(aid)
+
+    for uid in recipients:
+        save_notification.delay(
+            user_id=uid,
+            type='reminder',
+            message=message,
+            by=by_name,
+            related_id=reminder.id,
+            title="Reminder Submitted For Approval"
+        )
+        trigger_pusher.delay(
+            channel=f"private-user-{uid}",
+            event="reminder.status_updated",
+            data={
+                "reminder_id": reminder.id,
+                "title": reminder.title,
+                "status": "PENDING_APPROVAL",
+                "submitted_by_name": by_name,
+                "message": message,
+            }
+        )
+
+def notify_reminder_approved(reminder, approved_by):
+    by_name = approved_by.get_full_name() or approved_by.username
+    message = f"Reminder approved and completed: \"{reminder.title}\" by {by_name}"
+
+    save_notification.delay(
+        user_id=reminder.user.id,
+        type='reminder',
+        message=message,
+        by=by_name,
+        related_id=reminder.id,
+        title="Reminder Approved"
+    )
+
+    trigger_pusher.delay(
+        channel=f"private-user-{reminder.user.id}",
+        event="reminder.status_updated",
+        data={
+            "reminder_id": reminder.id,
+            "title": reminder.title,
+            "status": "COMPLETED",
+            "approved_by_name": by_name,
+            "message": message,
+        }
+    )
+
+def notify_reminder_rejected(reminder, rejected_by, reason):
+    by_name = rejected_by.get_full_name() or rejected_by.username
+    message = f"Reminder returned to In Progress by {by_name}. Revision needed: {reason}"
+
+    save_notification.delay(
+        user_id=reminder.user.id,
+        type='reminder',
+        message=message,
+        by=by_name,
+        related_id=reminder.id,
+        title="Reminder Needs Revision"
+    )
+
+    trigger_pusher.delay(
+        channel=f"private-user-{reminder.user.id}",
+        event="reminder.status_updated",
+        data={
+            "reminder_id": reminder.id,
+            "title": reminder.title,
+            "status": "IN_PROGRESS",
+            "rejection_reason": reason,
+            "rejected_by_name": by_name,
+            "message": message,
+        }
+    )
+
+def notify_reminder_comment(reminder, author, notes):
+    by_name = author.get_full_name() or author.username
+    message = f"New remark on reminder \"{reminder.title}\" from {by_name}: {notes[:80]}"
+
+    # Send to the other party (assignee or creator)
+    target_ids = set()
+    if reminder.user.id != author.id:
+        target_ids.add(reminder.user.id)
+    if reminder.created_by.id != author.id:
+        target_ids.add(reminder.created_by.id)
+
+    for uid in target_ids:
+        save_notification.delay(
+            user_id=uid,
+            type='reminder',
+            message=message,
+            by=by_name,
+            related_id=reminder.id,
+            title="Reminder Update"
+        )
+        trigger_pusher.delay(
+            channel=f"private-user-{uid}",
+            event="reminder.remark_added",
+            data={
+                "reminder_id": reminder.id,
+                "title": reminder.title,
+                "author_name": by_name,
+                "notes": notes,
+                "message": message,
+            }
+        )

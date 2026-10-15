@@ -338,6 +338,10 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'mailcenter.tasks.sync_all_mail_accounts_task',
         'schedule': crontab(minute='*/15'),
     },
+    'check_due_reminders_periodic': {
+        'task': 'reminders.tasks.check_due_reminders_and_notify',
+        'schedule': crontab(minute='*/30'),
+    },
 }
 
 # Default primary key field type

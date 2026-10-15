@@ -6,6 +6,7 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.db.models import Q, Case, When, IntegerField, Count
+from django.db.models.functions import Coalesce
 from django.contrib.auth import get_user_model
 
 from .models import Reminder, ReminderUpdate
@@ -115,12 +116,14 @@ class ReminderListCreateAPIView(generics.ListCreateAPIView):
             )
 
         # Smart ordering:
-        # 1. PENDING_APPROVAL
-        # 2. IN_PROGRESS
-        # 3. PENDING
-        # 4. COMPLETED
-        # 5. CANCELLED
-        return qs.annotate(
+        # User requested: "display with the latest and nearest deadline at top, that is the sorted view we need"
+        # 1. PENDING_APPROVAL first (highest action priority)
+        # 2. Nearest deadline first (overdue, due today, then upcoming nearest deadlines)
+        # 3. Priority (Urgent -> High -> Medium -> Low)
+        # 4. -created_at
+        # For completed tab: sort by -completed_at, -updated_at
+        qs = qs.annotate(
+            effective_deadline=Coalesce('deadline', 'reminder_date'),
             status_order=Case(
                 When(status='PENDING_APPROVAL', then=1),
                 When(status='IN_PROGRESS', then=2),
@@ -129,8 +132,21 @@ class ReminderListCreateAPIView(generics.ListCreateAPIView):
                 When(status='CANCELLED', then=5),
                 default=6,
                 output_field=IntegerField(),
-            )
-        ).order_by('status_order', '-reminder_date', '-created_at')
+            ),
+            priority_order=Case(
+                When(priority='URGENT', then=1),
+                When(priority='HIGH', then=2),
+                When(priority='MEDIUM', then=3),
+                When(priority='LOW', then=4),
+                default=5,
+                output_field=IntegerField(),
+            ),
+        )
+
+        if status_param and status_param.upper() == 'COMPLETED':
+            return qs.order_by('-completed_at', '-updated_at', '-created_at')
+        else:
+            return qs.order_by('status_order', 'effective_deadline', 'priority_order', '-created_at')
 
     def perform_create(self, serializer):
         user = self.request.user
@@ -161,6 +177,14 @@ class ReminderListCreateAPIView(generics.ListCreateAPIView):
             new_status=reminder.status,
             is_system_event=True,
         )
+
+        # Dispatch real-time Pusher + notification to assignee if assigned by another staff
+        if target_user.id != user.id:
+            try:
+                from utils.pusher import notify_reminder_assigned
+                notify_reminder_assigned(reminder, assigned_by=user)
+            except Exception as e:
+                print(f"[Reminder] notify_reminder_assigned error: {e}")
 
 
 class ReminderDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
@@ -254,6 +278,13 @@ class ReminderSubmitCompletionAPIView(APIView):
                 is_system_event=True,
             )
 
+            # Notify admins of submitted work
+            try:
+                from utils.pusher import notify_reminder_submitted
+                notify_reminder_submitted(reminder, submitted_by=request.user)
+            except Exception as e:
+                print(f"[Reminder] notify_reminder_submitted error: {e}")
+
             return Response({
                 "detail": "Reminder marked as complete and submitted for admin approval.",
                 "status": "PENDING_APPROVAL",
@@ -294,6 +325,12 @@ class ReminderApproveAPIView(APIView):
             new_status='COMPLETED',
             is_system_event=True,
         )
+
+        try:
+            from utils.pusher import notify_reminder_approved
+            notify_reminder_approved(reminder, approved_by=request.user)
+        except Exception as e:
+            print(f"[Reminder] notify_reminder_approved error: {e}")
 
         return Response({
             "detail": "Reminder completion approved successfully.",
@@ -347,6 +384,12 @@ class ReminderRejectAPIView(APIView):
             is_system_event=True,
         )
 
+        try:
+            from utils.pusher import notify_reminder_rejected
+            notify_reminder_rejected(reminder, rejected_by=request.user, reason=reason)
+        except Exception as e:
+            print(f"[Reminder] notify_reminder_rejected error: {e}")
+
         return Response({
             "detail": "Reminder completion rejected and reverted to In Progress.",
             "status": "IN_PROGRESS",
@@ -376,6 +419,12 @@ class ReminderUpdateListCreateAPIView(generics.ListCreateAPIView):
             author=self.request.user,
             is_system_event=False
         )
+
+        try:
+            from utils.pusher import notify_reminder_comment
+            notify_reminder_comment(reminder, author=self.request.user, notes=notes)
+        except Exception as e:
+            print(f"[Reminder] notify_reminder_comment error: {e}")
 
 
 class ReminderChecklistToggleAPIView(APIView):
@@ -562,3 +611,86 @@ class ReminderStudentsListAPIView(APIView):
         qs = qs[:100]
         serializer = ReminderProcessingStudentBriefSerializer(qs, many=True)
         return Response(serializer.data)
+
+
+class ReminderAlertsAPIView(APIView):
+    """
+    Active alerts endpoint for global CRM popup and Windows/desktop notifications.
+    Returns imminent due, overdue, and pending approval reminders.
+    """
+    permission_classes = [IsAuthenticated, HasRemindersAccess]
+
+    def get(self, request):
+        user = request.user
+        today = timezone.now().date()
+        is_admin = is_reminders_admin(user)
+
+        # Base query: Active reminders assigned to user
+        my_qs = Reminder.objects.filter(
+            user=user,
+            status__in=['PENDING', 'IN_PROGRESS', 'PENDING_APPROVAL']
+        ).annotate(
+            effective_deadline=Coalesce('deadline', 'reminder_date')
+        )
+
+        # For admin, also include other users' reminders that are pending approval
+        if is_admin:
+            approval_qs = Reminder.objects.filter(
+                status='PENDING_APPROVAL'
+            ).exclude(user=user).annotate(
+                effective_deadline=Coalesce('deadline', 'reminder_date')
+            )
+            combined_qs = (my_qs | approval_qs).distinct()
+        else:
+            combined_qs = my_qs
+
+        # Order with nearest / overdue deadline at top
+        alerts_qs = combined_qs.select_related('user', 'student').order_by('effective_deadline', '-created_at')[:25]
+
+        alerts_data = []
+        overdue_count = 0
+        today_count = 0
+        pending_approval_count = 0
+
+        for r in alerts_qs:
+            eff_date = r.effective_deadline
+            is_overdue = eff_date < today
+            is_today = eff_date == today
+            is_pending_approval = (r.status == 'PENDING_APPROVAL')
+            is_needs_revision = (r.status == 'IN_PROGRESS' and bool(r.rejection_reason))
+
+            if is_overdue:
+                overdue_count += 1
+            if is_today:
+                today_count += 1
+            if is_pending_approval:
+                pending_approval_count += 1
+
+            alerts_data.append({
+                "id": r.id,
+                "title": r.title,
+                "description": r.description[:150] if r.description else "",
+                "priority": r.priority,
+                "status": r.status,
+                "reminder_date": str(r.reminder_date),
+                "deadline": str(r.deadline) if r.deadline else None,
+                "effective_deadline": str(eff_date),
+                "is_overdue": is_overdue,
+                "is_today": is_today,
+                "is_needs_revision": is_needs_revision,
+                "is_pending_approval": is_pending_approval,
+                "rejection_reason": r.rejection_reason if is_needs_revision else "",
+                "user_name": f"{r.user.first_name} {r.user.last_name}".strip() or r.user.username,
+                "student_name": r.student.name if r.student else None,
+                "updated_at": r.updated_at.isoformat(),
+            })
+
+        return Response({
+            "total_alerts": len(alerts_data),
+            "overdue_count": overdue_count,
+            "today_count": today_count,
+            "pending_approval_count": pending_approval_count,
+            "has_critical": overdue_count > 0 or today_count > 0,
+            "alerts": alerts_data,
+        })
+
