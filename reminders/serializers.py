@@ -61,6 +61,7 @@ class ReminderSerializer(serializers.ModelSerializer):
     user_name = serializers.SerializerMethodField()
     created_by_name = serializers.SerializerMethodField()
     approved_by_name = serializers.SerializerMethodField()
+    completed_by_name = serializers.SerializerMethodField()
     student_name = serializers.SerializerMethodField()
     student_phone = serializers.SerializerMethodField()
     briefing_completed_by_name = serializers.SerializerMethodField()
@@ -94,6 +95,8 @@ class ReminderSerializer(serializers.ModelSerializer):
             'status',
             'checklist',
             'completion_remarks',
+            'completed_by',
+            'completed_by_name',
             'completed_at',
             'approved_by',
             'approved_by_name',
@@ -115,6 +118,8 @@ class ReminderSerializer(serializers.ModelSerializer):
             'briefing_completed_at',
             'briefing_completed_by',
             'briefing_completed_by_name',
+            'completed_by',
+            'completed_by_name',
             'approved_by',
             'approved_by_name',
             'approved_at',
@@ -133,6 +138,12 @@ class ReminderSerializer(serializers.ModelSerializer):
     def get_created_by_name(self, obj):
         name = f"{obj.created_by.first_name} {obj.created_by.last_name}".strip()
         return name if name else obj.created_by.username
+
+    def get_completed_by_name(self, obj):
+        if not obj.completed_by:
+            return None
+        name = f"{obj.completed_by.first_name} {obj.completed_by.last_name}".strip()
+        return name if name else obj.completed_by.username
 
     def get_approved_by_name(self, obj):
         if not obj.approved_by:

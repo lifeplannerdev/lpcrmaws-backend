@@ -205,20 +205,23 @@ class ReminderSubmitCompletionAPIView(APIView):
 
         old_status = reminder.status
         is_admin = is_reminders_admin(request.user)
+        user_name = f"{request.user.first_name} {request.user.last_name}".strip() or request.user.username
+
+        reminder.completed_by = request.user
+        reminder.completed_at = timezone.now()
+        reminder.completion_remarks = remarks
 
         if is_admin:
             # Admin completion does not need approval
             reminder.status = 'COMPLETED'
-            reminder.completed_at = timezone.now()
             reminder.approved_by = request.user
             reminder.approved_at = timezone.now()
-            reminder.completion_remarks = remarks
             reminder.save()
 
             ReminderUpdate.objects.create(
                 reminder=reminder,
                 author=request.user,
-                notes=f"Reminder marked complete by admin (Auto-approved).\nCompletion remarks: {remarks}",
+                notes=f"Reminder marked completed by {user_name} (Admin Auto-approval).\nCompletion remarks: {remarks}",
                 previous_status=old_status,
                 new_status='COMPLETED',
                 is_system_event=True,
@@ -232,13 +235,12 @@ class ReminderSubmitCompletionAPIView(APIView):
         else:
             # Regular user completion requires admin approval
             reminder.status = 'PENDING_APPROVAL'
-            reminder.completion_remarks = remarks
             reminder.save()
 
             ReminderUpdate.objects.create(
                 reminder=reminder,
                 author=request.user,
-                notes=f"Work completed and submitted for admin approval.\nCompletion remarks: {remarks}",
+                notes=f"Work completed by {user_name} and submitted for admin approval.\nCompletion remarks: {remarks}",
                 previous_status=old_status,
                 new_status='PENDING_APPROVAL',
                 is_system_event=True,
@@ -267,12 +269,11 @@ class ReminderApproveAPIView(APIView):
             )
 
         notes = (request.data.get('notes') or '').strip()
-        admin_name = request.user.get_full_name() or request.user.username
+        admin_name = f"{request.user.first_name} {request.user.last_name}".strip() or request.user.username
         approval_note = notes if notes else f"Approved by {admin_name}."
 
         old_status = reminder.status
         reminder.status = 'COMPLETED'
-        reminder.completed_at = timezone.now()
         reminder.approved_by = request.user
         reminder.approved_at = timezone.now()
         reminder.save()
@@ -280,7 +281,7 @@ class ReminderApproveAPIView(APIView):
         ReminderUpdate.objects.create(
             reminder=reminder,
             author=request.user,
-            notes=f"Completion Approved.\n{approval_note}",
+            notes=f"Completion Approved by {admin_name}.\n{approval_note}",
             previous_status=old_status,
             new_status='COMPLETED',
             is_system_event=True,
@@ -316,6 +317,7 @@ class ReminderRejectAPIView(APIView):
             )
 
         new_deadline = request.data.get('new_deadline')
+        admin_name = f"{request.user.first_name} {request.user.last_name}".strip() or request.user.username
 
         old_status = reminder.status
         reminder.status = 'IN_PROGRESS'
@@ -324,7 +326,7 @@ class ReminderRejectAPIView(APIView):
             reminder.deadline = new_deadline
         reminder.save()
 
-        notes_content = f"Completion Rejected: Returned to In Progress.\nFeedback: {reason}"
+        notes_content = f"Completion Rejected by {admin_name}: Returned to In Progress.\nFeedback: {reason}"
         if new_deadline:
             notes_content += f"\nNew Deadline: {new_deadline}"
 
@@ -384,6 +386,8 @@ class ReminderChecklistToggleAPIView(APIView):
         updated = False
         item_text = ""
 
+        user_name = f"{request.user.first_name} {request.user.last_name}".strip() or request.user.username
+
         for item in checklist:
             if str(item.get('id')) == item_id:
                 item['completed'] = completed
@@ -391,7 +395,7 @@ class ReminderChecklistToggleAPIView(APIView):
                 if completed:
                     item['remarks'] = remarks
                     item['completed_by'] = request.user.id
-                    item['completed_by_name'] = request.user.get_full_name() or request.user.username
+                    item['completed_by_name'] = user_name
                 else:
                     item['remarks'] = ''
                     item['completed_by'] = None
@@ -412,9 +416,11 @@ class ReminderChecklistToggleAPIView(APIView):
         # Record activity note with remarks if present
         action_verb = "completed" if completed else "unmarked"
         if completed and remarks:
-            update_notes = f"Checklist item '{item_text}' was completed.\nRemark: {remarks}"
+            update_notes = f"Checklist item '{item_text}' was completed by {user_name}.\nRemark: {remarks}"
+        elif completed:
+            update_notes = f"Checklist item '{item_text}' was completed by {user_name}."
         else:
-            update_notes = f"Checklist item '{item_text}' was {action_verb}."
+            update_notes = f"Checklist item '{item_text}' was unmarked by {user_name}."
 
         ReminderUpdate.objects.create(
             reminder=reminder,
@@ -441,6 +447,7 @@ class ReminderBriefingToggleAPIView(APIView):
         reminder = get_object_or_404(_get_reminder_queryset(request.user), pk=pk)
         completed = bool(request.data.get('completed', False))
         remarks = (request.data.get('remarks') or '').strip()
+        user_name = f"{request.user.first_name} {request.user.last_name}".strip() or request.user.username
 
         reminder.briefing_completed = completed
         reminder.briefing_completed_at = timezone.now() if completed else None
@@ -452,11 +459,11 @@ class ReminderBriefingToggleAPIView(APIView):
         reminder.save()
 
         if completed and remarks:
-            update_notes = f"Main task (Briefing) was marked completed.\nRemark: {remarks}"
+            update_notes = f"Main task (Briefing) was marked completed by {user_name}.\nRemark: {remarks}"
         elif completed:
-            update_notes = "Main task (Briefing) was marked completed."
+            update_notes = f"Main task (Briefing) was marked completed by {user_name}."
         else:
-            update_notes = "Main task (Briefing) was unmarked."
+            update_notes = f"Main task (Briefing) was unmarked by {user_name}."
 
         ReminderUpdate.objects.create(
             reminder=reminder,

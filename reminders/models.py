@@ -124,6 +124,14 @@ class Reminder(models.Model):
         default='',
         help_text="Mandatory remarks entered by user or admin when marking completed."
     )
+    completed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='completed_reminders',
+        help_text="User who submitted or completed this reminder."
+    )
     completed_at = models.DateTimeField(null=True, blank=True)
     
     approved_by = models.ForeignKey(
