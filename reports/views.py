@@ -231,7 +231,7 @@ class AllDailyReportsView(generics.ListAPIView):
     def get_queryset(self):
         qs = DailyReport.objects.select_related(
             "user", "reviewed_by"
-        ).prefetch_related("attachments")
+        ).prefetch_related("attachments", "user__db_roles")
 
         req_user = self.request.user
         if not has_dynamic_permission(req_user, 'reports:read_all') and not req_user.db_roles.filter(name__in=REPORT_REVIEWERS).exists():
@@ -338,8 +338,10 @@ class ReviewDailyReportView(APIView):
         has_global = has_dynamic_permission(req_user, 'reports:approval')
         has_kochi = has_dynamic_permission(req_user, 'reports:approval-kochi')
         has_kottayam = has_dynamic_permission(req_user, 'reports:approval-kottayam')
+        has_documentation = has_dynamic_permission(req_user, 'reports:documentation')
 
         rep_location = (report.user.location or "").strip().lower()
+        is_doc_staff = report.user.db_roles.filter(name="DOCUMENTATION").exists()
 
         can_approve = False
         if has_global:
@@ -348,18 +350,32 @@ class ReviewDailyReportView(APIView):
             can_approve = True
         elif has_kottayam and rep_location == 'kottayam':
             can_approve = True
+        elif has_documentation and is_doc_staff:
+            can_approve = True
 
         if not can_approve:
             return Response(
-                {"error": "Permission denied. You do not have permission to review reports for this staff member's location."},
+                {"error": "Permission denied. You do not have permission to review reports for this staff member."},
                 status=status.HTTP_403_FORBIDDEN
             )
 
         agenda_status = request.data.get("agenda_status")
         report_status = request.data.get("report_status")
+        overall_status = request.data.get("status")
         agenda_comment = request.data.get("agenda_review_comment", "")
         report_comment = request.data.get("report_review_comment", "")
+        overall_comment = request.data.get("review_comment", "")
         penalty_type_ids = request.data.get("penalty_type_ids", [])
+
+        if overall_status and not agenda_status and not report_status:
+            if overall_status not in ["pending", "approved", "rejected"]:
+                return Response({"error": "Invalid status"}, status=400)
+            agenda_status = overall_status
+            report_status = overall_status
+            if overall_comment:
+                agenda_comment = agenda_comment or overall_comment
+                report_comment = report_comment or overall_comment
+                report.review_comment = overall_comment
 
         if agenda_status:
             if agenda_status not in ["pending", "approved", "rejected"]:
@@ -445,8 +461,10 @@ class MissingReportsView(APIView):
             scoped_filters = Q()
             if has_dynamic_permission(req_user, 'reports:sales_all'):
                 scoped_filters |= Q(db_roles__name__in=SALES_REPORT_ROLES)
-            if has_dynamic_permission(req_user, 'reports:kochi'):
+            if has_dynamic_permission(req_user, 'reports:kochi') or has_dynamic_permission(req_user, 'reports:approval-kochi'):
                 scoped_filters |= Q(location__iexact="KOCHI")
+            if has_dynamic_permission(req_user, 'reports:approval-kottayam'):
+                scoped_filters |= Q(location__iexact="KOTTAYAM")
             if has_dynamic_permission(req_user, 'reports:documentation'):
                 scoped_filters |= Q(db_roles__name="DOCUMENTATION")
             if scoped_filters:
@@ -480,8 +498,10 @@ class AdminReportStatsView(APIView):
             scoped_filters = Q()
             if has_dynamic_permission(req_user, 'reports:sales_all'):
                 scoped_filters |= Q(user__db_roles__name__in=SALES_REPORT_ROLES)
-            if has_dynamic_permission(req_user, 'reports:kochi'):
+            if has_dynamic_permission(req_user, 'reports:kochi') or has_dynamic_permission(req_user, 'reports:approval-kochi'):
                 scoped_filters |= Q(user__location__iexact="KOCHI")
+            if has_dynamic_permission(req_user, 'reports:approval-kottayam'):
+                scoped_filters |= Q(user__location__iexact="KOTTAYAM")
             if has_dynamic_permission(req_user, 'reports:documentation'):
                 scoped_filters |= Q(user__db_roles__name="DOCUMENTATION")
             if scoped_filters:
@@ -534,15 +554,16 @@ class DailyReportDetailView(APIView):
 
     def get(self, request, pk):
         report = get_object_or_404(
-            DailyReport.objects.select_related("user", "reviewed_by").prefetch_related("attachments"), pk=pk
+            DailyReport.objects.select_related("user", "reviewed_by").prefetch_related("attachments", "user__db_roles"), pk=pk
         )
 
-        is_reviewer = has_dynamic_permission(request.user, 'reports:read_all') or request.user.db_roles.filter(name__in=REPORT_REVIEWERS).exists()
+        is_reviewer = has_dynamic_permission(request.user, 'reports:read_all') or has_dynamic_permission(request.user, 'reports:approval') or request.user.db_roles.filter(name__in=REPORT_REVIEWERS).exists()
         is_sales_reviewer = has_dynamic_permission(request.user, 'reports:sales_all') and report.user.db_roles.filter(name__in=SALES_REPORT_ROLES).exists()
-        is_kochi_reviewer = has_dynamic_permission(request.user, 'reports:kochi') and (report.user.location or "").upper() == "KOCHI"
+        is_kochi_reviewer = (has_dynamic_permission(request.user, 'reports:kochi') or has_dynamic_permission(request.user, 'reports:approval-kochi')) and (report.user.location or "").upper() == "KOCHI"
+        is_kottayam_reviewer = has_dynamic_permission(request.user, 'reports:approval-kottayam') and (report.user.location or "").upper() == "KOTTAYAM"
         is_doc_reviewer = has_dynamic_permission(request.user, 'reports:documentation') and report.user.db_roles.filter(name="DOCUMENTATION").exists()
 
-        if report.user != request.user and not (is_reviewer or is_sales_reviewer or is_kochi_reviewer or is_doc_reviewer):
+        if report.user != request.user and not (is_reviewer or is_sales_reviewer or is_kochi_reviewer or is_kottayam_reviewer or is_doc_reviewer):
             return Response({"error": "Permission denied"}, status=403)
 
         serializer = DailyReportSerializer(
@@ -559,12 +580,13 @@ class ViewReportFileView(APIView):
             DailyReport.objects.prefetch_related("attachments"), pk=pk
         )
 
-        is_reviewer = has_dynamic_permission(request.user, 'reports:read_all') or request.user.db_roles.filter(name__in=REPORT_REVIEWERS).exists()
+        is_reviewer = has_dynamic_permission(request.user, 'reports:read_all') or has_dynamic_permission(request.user, 'reports:approval') or request.user.db_roles.filter(name__in=REPORT_REVIEWERS).exists()
         is_sales_reviewer = has_dynamic_permission(request.user, 'reports:sales_all') and report.user.db_roles.filter(name__in=SALES_REPORT_ROLES).exists()
-        is_kochi_reviewer = has_dynamic_permission(request.user, 'reports:kochi') and (report.user.location or "").upper() == "KOCHI"
+        is_kochi_reviewer = (has_dynamic_permission(request.user, 'reports:kochi') or has_dynamic_permission(request.user, 'reports:approval-kochi')) and (report.user.location or "").upper() == "KOCHI"
+        is_kottayam_reviewer = has_dynamic_permission(request.user, 'reports:approval-kottayam') and (report.user.location or "").upper() == "KOTTAYAM"
         is_doc_reviewer = has_dynamic_permission(request.user, 'reports:documentation') and report.user.db_roles.filter(name="DOCUMENTATION").exists()
 
-        if report.user != request.user and not (is_reviewer or is_sales_reviewer or is_kochi_reviewer or is_doc_reviewer):
+        if report.user != request.user and not (is_reviewer or is_sales_reviewer or is_kochi_reviewer or is_kottayam_reviewer or is_doc_reviewer):
             return Response({"error": "Permission denied"}, status=403)
 
         attachments = report.attachments.all()
@@ -611,12 +633,13 @@ class DownloadAttachmentView(APIView):
         )
 
         is_owner    = attachment.report.user == request.user
-        is_reviewer = has_dynamic_permission(request.user, 'reports:read_all') or request.user.db_roles.filter(name__in=REPORT_REVIEWERS).exists()
+        is_reviewer = has_dynamic_permission(request.user, 'reports:read_all') or has_dynamic_permission(request.user, 'reports:approval') or request.user.db_roles.filter(name__in=REPORT_REVIEWERS).exists()
         is_sales_reviewer = has_dynamic_permission(request.user, 'reports:sales_all') and attachment.report.user.db_roles.filter(name__in=SALES_REPORT_ROLES).exists()
-        is_kochi_reviewer = has_dynamic_permission(request.user, 'reports:kochi') and (attachment.report.user.location or "").upper() == "KOCHI"
+        is_kochi_reviewer = (has_dynamic_permission(request.user, 'reports:kochi') or has_dynamic_permission(request.user, 'reports:approval-kochi')) and (attachment.report.user.location or "").upper() == "KOCHI"
+        is_kottayam_reviewer = has_dynamic_permission(request.user, 'reports:approval-kottayam') and (attachment.report.user.location or "").upper() == "KOTTAYAM"
         is_doc_reviewer = has_dynamic_permission(request.user, 'reports:documentation') and attachment.report.user.db_roles.filter(name="DOCUMENTATION").exists()
         
-        if not (is_owner or is_reviewer or is_sales_reviewer or is_kochi_reviewer or is_doc_reviewer):
+        if not (is_owner or is_reviewer or is_sales_reviewer or is_kochi_reviewer or is_kottayam_reviewer or is_doc_reviewer):
             return Response({"error": "Permission denied"}, status=403)
 
         if not attachment.attached_file:

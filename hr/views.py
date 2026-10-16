@@ -274,8 +274,12 @@ class StaffListAPI(APIView):
             scoped_staff = Q()
             if has_dynamic_permission(request.user, 'reports:sales_all'):
                 scoped_staff |= Q(db_roles__name__in=['ADM_COUNSELLOR', 'ADM_MANAGER', 'BMCO', 'FLAG COORDINATOR', 'FLAG_COORDINATOR'])
-            if has_dynamic_permission(request.user, 'reports:kochi'):
+            if has_dynamic_permission(request.user, 'reports:kochi') or has_dynamic_permission(request.user, 'reports:approval-kochi'):
                 scoped_staff |= Q(location__iexact="KOCHI")
+            if has_dynamic_permission(request.user, 'reports:approval-kottayam'):
+                scoped_staff |= Q(location__iexact="KOTTAYAM")
+            if has_dynamic_permission(request.user, 'reports:documentation'):
+                scoped_staff |= Q(db_roles__name="DOCUMENTATION")
             if scoped_staff:
                 users = users.filter(scoped_staff).distinct()
             else:
