@@ -42,6 +42,7 @@ def is_full_access(user):
         user.is_superuser or
         has_dynamic_permission(user, 'leads:read_any') or
         has_dynamic_permission(user, 'leads:read_tenant') or
+        has_dynamic_permission(user, 'staff_analysis:admin') or
         user.db_roles.filter(name__in=FULL_ACCESS_ROLES).exists()
     )
 
@@ -83,7 +84,8 @@ class CanViewAllLeads(BasePermission):
         return (
             request.user.is_authenticated and
             (has_dynamic_permission(request.user, 'leads:read_tenant') or
-             has_dynamic_permission(request.user, 'leads:read_any'))
+             has_dynamic_permission(request.user, 'leads:read_any') or
+             has_dynamic_permission(request.user, 'staff_analysis:admin'))
         )
 
 
