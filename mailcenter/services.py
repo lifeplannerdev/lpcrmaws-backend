@@ -81,8 +81,8 @@ def last_thread_message(student, account=None):
 
 def default_account():
     return (
-        MailAccount.objects.filter(is_active=True, status=MailAccount.STATUS_CONNECTED, is_default=True).first()
-        or MailAccount.objects.filter(is_active=True, status=MailAccount.STATUS_CONNECTED).first()
+        MailAccount.objects.filter(is_active=True, status=MailAccount.STATUS_CONNECTED, module_scope=MailAccount.SCOPE_PROCESSING, is_default=True).first()
+        or MailAccount.objects.filter(is_active=True, status=MailAccount.STATUS_CONNECTED, module_scope=MailAccount.SCOPE_PROCESSING).first()
     )
 
 
@@ -419,9 +419,13 @@ def _import_thread(student, account, thread):
 
 
 def sync_student(student):
-    """Pull replies / messages for one student from every connected mailbox."""
+    """Pull replies / messages for one student from processing-scoped connected mailboxes."""
     result = {'imported': 0, 'accounts_checked': 0, 'errors': []}
-    accounts = MailAccount.objects.filter(is_active=True, status=MailAccount.STATUS_CONNECTED)
+    accounts = MailAccount.objects.filter(
+        is_active=True,
+        status=MailAccount.STATUS_CONNECTED,
+        module_scope=MailAccount.SCOPE_PROCESSING,
+    )
     for account in accounts:
         client = GmailClient(account)
         thread_ids = set(

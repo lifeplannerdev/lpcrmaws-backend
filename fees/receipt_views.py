@@ -643,22 +643,94 @@ class FeeReceiptSendEmailAPIView(APIView):
 
         sent_ok = False
         error_detail = ''
-        try:
-            msg = EmailMultiAlternatives(
-                subject=subject,
-                body=text_body,
-                to=[to_email],
+        delivery_channel = 'DJANGO_SMTP'
+        gmail_message_id = ''
+        gmail_thread_id = ''
+
+        from mailcenter.models import MailAccount
+        fee_account = (
+            MailAccount.objects.filter(
+                is_active=True,
+                status=MailAccount.STATUS_CONNECTED,
+                module_scope=MailAccount.SCOPE_FEES,
             )
-            msg.attach_alternative(html_body, "text/html")
+            .filter(Q(company=receipt.company) | Q(company='FLAG'))
+            .first()
+        )
+        if not fee_account:
+            # Fall back to any connected account explicitly designated for fees/accounts
+            fee_account = (
+                MailAccount.objects.filter(
+                    is_active=True,
+                    status=MailAccount.STATUS_CONNECTED,
+                )
+                .filter(
+                    Q(module_scope=MailAccount.SCOPE_FEES)
+                    | Q(email__icontains='account')
+                    | Q(send_as_email__icontains='account')
+                    | Q(email__icontains='jayesh')
+                )
+                .first()
+            )
 
-            if pdf_bytes is not None:
-                safe_num = receipt.receipt_number.replace('/', '_')
-                msg.attach(f"Receipt_{safe_num}.pdf", pdf_bytes, "application/pdf")
+        if fee_account:
+            try:
+                from mailcenter.gmail_client import GmailClient
+                from mailcenter.services import build_mime
+                from email.utils import formataddr
 
-            msg.send(fail_silently=False)
-            sent_ok = True
-        except Exception as exc:
-            error_detail = str(exc)
+                # Sender resolution: prefer send_as_email (e.g. accounts@lifeplanneruniversal.com), then fee_account.email
+                from_email = fee_account.send_as_email or fee_account.email
+                display_name = fee_account.display_name or raw_org_name
+                from_header = formataddr((display_name, from_email))
+
+                attachments = []
+                if pdf_bytes is not None:
+                    safe_num = receipt.receipt_number.replace('/', '_')
+                    attachments.append((f"Receipt_{safe_num}.pdf", "application/pdf", pdf_bytes))
+
+                raw_mime = build_mime(
+                    from_header=from_header,
+                    to=[to_email],
+                    cc=[],
+                    bcc=[],
+                    subject=subject,
+                    html=html_body,
+                    text=text_body,
+                    attachments=attachments,
+                )
+
+                client = GmailClient(fee_account)
+                gmail_resp = client.send_raw(raw_mime)
+                gmail_message_id = gmail_resp.get('id', '')
+                gmail_thread_id = gmail_resp.get('threadId', '')
+                delivery_channel = f"GMAIL_API ({from_email})"
+                sent_ok = True
+            except Exception as exc:
+                import logging
+                logging.getLogger(__name__).warning("Gmail API send failed, falling back to SMTP: %s", exc)
+                error_detail = f"Gmail API error: {exc}"
+
+        # 2. If no fee_account or Gmail API failed, fall back to Django SMTP
+        if not sent_ok:
+            try:
+                msg = EmailMultiAlternatives(
+                    subject=subject,
+                    body=text_body,
+                    to=[to_email],
+                )
+                msg.attach_alternative(html_body, "text/html")
+
+                if pdf_bytes is not None:
+                    safe_num = receipt.receipt_number.replace('/', '_')
+                    msg.attach(f"Receipt_{safe_num}.pdf", pdf_bytes, "application/pdf")
+
+                msg.send(fail_silently=False)
+                delivery_channel = 'DJANGO_SMTP'
+                sent_ok = True
+                error_detail = ''
+            except Exception as exc:
+                error_detail = str(exc)
 
         snap = dict(receipt.snapshot_data or {})
         email_logs = list(snap.get('email_dispatches') or [])
@@ -667,7 +739,11 @@ class FeeReceiptSendEmailAPIView(APIView):
             'subject': subject,
             'timestamp': timezone.now().isoformat(),
             'sent_by': request.user.get_full_name() or request.user.username,
-            'delivered_via_smtp': sent_ok,
+            'delivery_channel': delivery_channel,
+            'gmail_message_id': gmail_message_id,
+            'gmail_thread_id': gmail_thread_id,
+            'delivered_via_smtp': (delivery_channel == 'DJANGO_SMTP'),
+            'success': sent_ok,
         })
         snap['email_dispatches'] = email_logs
         receipt.snapshot_data = snap
@@ -682,14 +758,20 @@ class FeeReceiptSendEmailAPIView(APIView):
             entity_type='FeeReceipt',
             entity_id=receipt.id,
             entity_name=receipt.recipient_name,
-            description=f"Receipt {receipt.receipt_number} emailed to {to_email}",
-            metadata={'to_email': to_email, 'sent_ok': sent_ok, 'error': error_detail},
+            description=f"Receipt {receipt.receipt_number} emailed to {to_email} via {delivery_channel}",
+            metadata={
+                'to_email': to_email,
+                'sent_ok': sent_ok,
+                'delivery_channel': delivery_channel,
+                'gmail_message_id': gmail_message_id,
+                'error': error_detail,
+            },
         )
 
         if not sent_ok:
             return Response(
                 {
-                    'error': 'Failed to send email via SMTP server.',
+                    'error': 'Failed to send receipt email via Gmail API or SMTP server.',
                     'detail': error_detail,
                 },
                 status=status.HTTP_502_BAD_GATEWAY,
@@ -698,8 +780,9 @@ class FeeReceiptSendEmailAPIView(APIView):
         return Response({
             'status': 'sent',
             'to_email': to_email,
+            'delivery_channel': delivery_channel,
             'receipt_number': receipt.receipt_number,
-            'detail': 'Receipt email dispatched successfully.',
+            'detail': f'Receipt email dispatched successfully via {delivery_channel}.',
         })
 
 

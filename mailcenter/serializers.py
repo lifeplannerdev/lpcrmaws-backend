@@ -4,7 +4,10 @@ from .models import MailAccount, EmailSignature, EmailTemplate, EmailMessage, Em
 class MailAccountSerializer(serializers.ModelSerializer):
     class Meta:
         model = MailAccount
-        fields = ['id', 'email', 'display_name', 'status', 'status_message', 'is_default', 'is_active', 'last_sync_at']
+        fields = [
+            'id', 'email', 'display_name', 'send_as_email', 'module_scope', 'company',
+            'status', 'status_message', 'is_default', 'is_active', 'last_sync_at'
+        ]
         read_only_fields = ['status', 'status_message', 'last_sync_at']
 
 

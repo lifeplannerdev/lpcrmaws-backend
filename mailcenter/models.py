@@ -16,8 +16,20 @@ class MailAccount(models.Model):
         (STATUS_NEEDS_RECONNECT, 'Needs reconnect'),
     ]
 
+    SCOPE_PROCESSING = 'PROCESSING'
+    SCOPE_FEES = 'FEES'
+    SCOPE_GLOBAL = 'GLOBAL'
+    SCOPE_CHOICES = [
+        (SCOPE_PROCESSING, 'Processing & Admissions'),
+        (SCOPE_FEES, 'Fees & Accounts'),
+        (SCOPE_GLOBAL, 'Global / All Modules'),
+    ]
+
     email = models.EmailField(unique=True)
-    display_name = models.CharField(max_length=150, blank=True, help_text="Shown as the sender name, e.g. 'Life Planner Admissions'")
+    display_name = models.CharField(max_length=150, blank=True, help_text="Shown as the sender name, e.g. 'FLAG Accounts & Finance'")
+    send_as_email = models.EmailField(blank=True, help_text="Optional custom alias/webmail (e.g. accounts@lifeplanneruniversal.com) configured in Gmail 'Send As'")
+    module_scope = models.CharField(max_length=20, choices=SCOPE_CHOICES, default=SCOPE_PROCESSING, db_index=True)
+    company = models.CharField(max_length=20, default='FLAG', db_index=True)
     credentials = models.JSONField(default=dict, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_CONNECTED)
     status_message = models.CharField(max_length=255, blank=True)
