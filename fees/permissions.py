@@ -41,3 +41,49 @@ class CanIssueFeeNotice(BasePermission):
     def has_permission(self, request, view):
         return _has_perm(request.user, 'fees:issue_notice') or _has_perm(request.user, 'fees:manage')
 
+
+def _can_manage_receipt_admin_actions(user):
+    if not user or not getattr(user, 'is_authenticated', False):
+        return False
+    if getattr(user, 'is_superuser', False):
+        return True
+    return (
+        _has_perm(user, 'fees:manage') or
+        _has_perm(user, 'flag:admin') or
+        _has_perm(user, 'flag:fees')
+    )
+
+
+def _can_view_fee_account(user, account):
+    if not user or not getattr(user, 'is_authenticated', False):
+        return False
+    if (
+        getattr(user, 'is_superuser', False) or
+        _has_perm(user, 'fees:read_tenant') or
+        _has_perm(user, 'fees:view_reports') or
+        _has_perm(user, 'fees:manage') or
+        _has_perm(user, 'flag:admin') or
+        _has_perm(user, 'flag:fees')
+    ):
+        return True
+    if not account:
+        return False
+    student = getattr(account, 'student', None)
+    if not student:
+        return False
+    if getattr(student, 'trainer_id', None) == user.id:
+        return True
+    batch = getattr(student, 'batch', None)
+    if batch and getattr(batch, 'trainer_id', None) == user.id:
+        return True
+    return hasattr(user, 'trainer_profile') and student.trainer_id == user.trainer_profile.id
+
+
+class CanManageReceipts(BasePermission):
+    def has_permission(self, request, view):
+        if request.method in ('GET', 'HEAD', 'OPTIONS'):
+            return CanViewFees().has_permission(request, view)
+        return (
+            _can_manage_receipt_admin_actions(request.user) or
+            _has_perm(request.user, 'fees:partial_payment')
+        )

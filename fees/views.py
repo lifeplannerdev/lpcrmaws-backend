@@ -42,10 +42,7 @@ def _finance_recipients(company=None):
     return [user for user in qs if has_dynamic_permission(user, 'fees:manage')]
 
 
-def _can_view_fee_account(user, account):
-    if has_dynamic_permission(user, 'fees:read_tenant') or has_dynamic_permission(user, 'fees:view_reports') or has_dynamic_permission(user, 'fees:manage'):
-        return True
-    return hasattr(user, 'trainer_profile') and account.student.trainer_id == user.trainer_profile.id
+from .permissions import _can_view_fee_account
 
 
 class FeePlanTemplateListCreateAPIView(APIView):
@@ -95,7 +92,7 @@ class FeeAccountListCreateAPIView(APIView):
     permission_classes = [IsAuthenticated, CanViewFees]
 
     def get(self, request):
-        qs = StudentFeeAccount.objects.select_related('student', 'student__academic_package', 'student__batch', 'template').prefetch_related('installments', 'payments', 'adjustments')
+        qs = StudentFeeAccount.objects.select_related('student', 'student__academic_package', 'student__batch', 'template').prefetch_related('installments', 'payments', 'payments__receipts', 'adjustments')
         company = request.GET.get('company')
         status_filter = request.GET.get('status')
         student_id = request.GET.get('student')

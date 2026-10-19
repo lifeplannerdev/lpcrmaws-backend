@@ -1,6 +1,16 @@
 from django.urls import path
 
 from .grid_views import FeeGridListAPIView, FeeGridExportAPIView
+from .receipt_views import (
+    ReceiptSettingsAPIView,
+    FeeReceiptListCreateAPIView,
+    FeeReceiptDetailAPIView,
+    FeeReceiptFromPaymentAPIView,
+    FeeReceiptVoidAPIView,
+    FeeReceiptCalculatePreviewAPIView,
+    FeeReceiptSendEmailAPIView,
+    PublicReceiptVerifyAPIView,
+)
 from .views import (
     FeeAnalyticsOverviewAPIView,
     FeeStudent360APIView,
@@ -43,4 +53,15 @@ urlpatterns = [
 
     path('fees/grid/', FeeGridListAPIView.as_view(), name='fee-grid-list'),
     path('fees/grid/export/', FeeGridExportAPIView.as_view(), name='fee-grid-export'),
+
+    # Digital Receipt & Invoice Studio Endpoints
+    path('fees/receipt-settings/', ReceiptSettingsAPIView.as_view(), name='fee-receipt-settings'),
+    path('fees/receipts/', FeeReceiptListCreateAPIView.as_view(), name='fee-receipt-list-create'),
+    path('fees/receipts/calculate-preview/', FeeReceiptCalculatePreviewAPIView.as_view(), name='fee-receipt-calculate-preview'),
+    path('fees/receipts/from-payment/<int:payment_id>/', FeeReceiptFromPaymentAPIView.as_view(), name='fee-receipt-from-payment'),
+    path('fees/receipts/verify/<str:verification_token>/', PublicReceiptVerifyAPIView.as_view(), name='fee-receipt-verify'),
+    path('fees/receipts/<int:pk>/', FeeReceiptDetailAPIView.as_view(), name='fee-receipt-detail'),
+    path('fees/receipts/<int:pk>/void/', FeeReceiptVoidAPIView.as_view(), name='fee-receipt-void'),
+    path('fees/receipts/<int:pk>/send-email/', FeeReceiptSendEmailAPIView.as_view(), name='fee-receipt-send-email'),
 ]
+

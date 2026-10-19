@@ -69,6 +69,8 @@ def get_grid_data(request):
         payments_list = []
         for p in acc.payments.all():
             payments_list.append({
+                "id": p.id,
+                "receipt_number": p.receipt_number,
                 "amount": float(p.amount),
                 "method": p.get_payment_method_display(),
                 "date": p.payment_date.strftime('%Y-%m-%d') if p.payment_date else ""

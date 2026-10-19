@@ -1,6 +1,14 @@
 from django.contrib import admin
 
-from .models import FeePlanTemplate, StudentFeeAccount, FeeInstallment, FeePayment, FeeAdjustment
+from .models import (
+    FeePlanTemplate,
+    StudentFeeAccount,
+    FeeInstallment,
+    FeePayment,
+    FeeAdjustment,
+    ReceiptSettings,
+    FeeReceipt,
+)
 
 
 @admin.register(FeePlanTemplate)
@@ -34,3 +42,17 @@ class FeePaymentAdmin(admin.ModelAdmin):
 class FeeAdjustmentAdmin(admin.ModelAdmin):
     list_display = ('account', 'adjustment_type', 'amount_delta', 'created_at')
     list_filter = ('adjustment_type',)
+
+
+@admin.register(ReceiptSettings)
+class ReceiptSettingsAdmin(admin.ModelAdmin):
+    list_display = ('company', 'campus', 'organization_name', 'receipt_prefix', 'next_sequence_number', 'default_gst_mode')
+    list_filter = ('company', 'default_gst_mode', 'default_template')
+
+
+@admin.register(FeeReceipt)
+class FeeReceiptAdmin(admin.ModelAdmin):
+    list_display = ('receipt_number', 'recipient_name', 'company', 'document_type', 'status', 'total_amount', 'issue_date', 'version')
+    list_filter = ('company', 'document_type', 'status', 'tax_mode', 'payment_method')
+    search_fields = ('receipt_number', 'recipient_name', 'recipient_phone', 'payment_reference', 'verification_token')
+
