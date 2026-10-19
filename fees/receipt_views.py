@@ -295,7 +295,7 @@ class FeeReceiptFromPaymentAPIView(APIView):
     def post(self, request, payment_id):
         with transaction.atomic():
             payment = get_object_or_404(
-                FeePayment.objects.select_for_update().select_related('account', 'account__student', 'installment'),
+                FeePayment.objects.select_for_update().select_related('account', 'account__student'),
                 pk=payment_id,
             )
             if payment.account and not _can_view_fee_account(request.user, payment.account):
