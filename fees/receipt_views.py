@@ -326,8 +326,10 @@ class FeeReceiptFromPaymentAPIView(APIView):
             payload['payment'] = payment.id
             payload['account'] = payment.account_id
             payload['student'] = payment.account.student_id
-            if 'issue_date' not in payload and payment.payment_date:
-                payload['issue_date'] = payment.payment_date
+            if 'payment_date' not in payload and payment.payment_date:
+                payload['payment_date'] = payment.payment_date
+            if 'issue_date' not in payload:
+                payload['issue_date'] = timezone.now()
 
             serializer = FeeReceiptSerializer(data=payload, context={'request': request})
             serializer.is_valid(raise_exception=True)
