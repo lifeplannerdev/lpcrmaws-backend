@@ -908,6 +908,127 @@ class DigitalReceiptSystemTests(APITestCase):
         self.assertEqual(put_res.data['document_type'], 'PROFORMA')
         self.assertEqual(put_res.data['payment_status_badge'], 'PROFORMA')
 
+    def test_trainer_role_locked_to_view_generated_receipts_only(self):
+        """
+        Verify that users with role TRAINER (flag trainers) are strictly locked to
+        view generated receipts only and cannot create, edit, update, delete, or void receipts.
+        """
+        from decimal import Decimal
+        from accounts.models import Role
+        from students.models import AcademicBatch, Campus, Student as FlagStudent
+        from fees.models import FeePayment, FeeReceipt, ReceiptSettings, StudentFeeAccount
 
+        trainer_user = User.objects.create_user(
+            username='flag_trainer_user',
+            password='pass12345',
+            email='flagtrainer@example.com',
+            first_name='Flag',
+            last_name='Trainer',
+            permissions=['flag:trainer', 'flag:view', 'dashboard:read'],
+        )
+        trainer_role, _ = Role.objects.get_or_create(name='TRAINER', defaults={'description': 'Trainer role'})
+        trainer_user.db_roles.add(trainer_role)
 
+        campus = Campus.objects.create(name='Kottayam', code='KTM')
+        batch = AcademicBatch.objects.create(
+            name='KTM-Batch-1',
+            campus=campus,
+            package=self.package,
+            trainer=trainer_user,
+        )
+        student = FlagStudent.objects.create(
+            name='Trainer Test Student',
+            campus=campus,
+            academic_package=self.package,
+            batch=batch,
+        )
+        account = StudentFeeAccount.objects.create(
+            student=student,
+            company='FLAG',
+            total_due=Decimal('10000.00'),
+        )
+        payment = FeePayment.objects.create(
+            account=account,
+            company='FLAG',
+            amount=Decimal('5000.00'),
+            payment_method='UPI',
+            created_by=self.accounts_user,
+        )
+
+        self.client.force_authenticate(user=self.accounts_user)
+        gen_res = self.client.post(
+            reverse('fee-receipt-from-payment', kwargs={'payment_id': payment.id}),
+            {},
+            format='json',
+        )
+        self.assertEqual(gen_res.status_code, 201)
+        receipt_id = gen_res.data['id']
+
+        self.client.force_authenticate(user=trainer_user)
+
+        # 1. Trainer CAN VIEW generated receipt
+        detail_res = self.client.get(reverse('fee-receipt-detail', kwargs={'pk': receipt_id}))
+        self.assertEqual(detail_res.status_code, 200)
+        self.assertEqual(detail_res.data['recipient_name'], 'Trainer Test Student')
+
+        # 2. Trainer CAN GET generated receipt via from-payment
+        from_pay_res = self.client.get(reverse('fee-receipt-from-payment', kwargs={'payment_id': payment.id}))
+        self.assertEqual(from_pay_res.status_code, 200)
+        self.assertEqual(from_pay_res.data['id'], receipt_id)
+
+        # 3. Trainer CANNOT create a new receipt
+        create_res = self.client.post(
+            reverse('fee-receipt-list-create'),
+            {
+                'company': 'FLAG',
+                'recipient_name': 'Unauthorized Creation',
+                'subtotal_amount': '1000.00',
+            },
+            format='json',
+        )
+        self.assertEqual(create_res.status_code, 403)
+
+        # 4. Trainer CANNOT create or update from-payment via POST
+        post_from_pay = self.client.post(
+            reverse('fee-receipt-from-payment', kwargs={'payment_id': payment.id}),
+            {'notes': 'Unauthorized update'},
+            format='json',
+        )
+        self.assertEqual(post_from_pay.status_code, 403)
+
+        # 5. Trainer CANNOT edit or update receipt via PATCH
+        patch_res = self.client.patch(
+            reverse('fee-receipt-detail', kwargs={'pk': receipt_id}),
+            {'recipient_name': 'Hacked Name'},
+            format='json',
+        )
+        self.assertEqual(patch_res.status_code, 403)
+
+        # 6. Trainer CANNOT edit or update receipt via PUT
+        put_res = self.client.put(
+            reverse('fee-receipt-detail', kwargs={'pk': receipt_id}),
+            {'document_type': 'PROFORMA'},
+            format='json',
+        )
+        self.assertEqual(put_res.status_code, 403)
+
+        # 7. Trainer CANNOT void receipt
+        void_res = self.client.post(
+            reverse('fee-receipt-void', kwargs={'pk': receipt_id}),
+            {'void_reason': 'Trainer trying to void'},
+            format='json',
+        )
+        self.assertEqual(void_res.status_code, 403)
+
+        # 8. Trainer CANNOT delete receipt
+        delete_res = self.client.delete(reverse('fee-receipt-detail', kwargs={'pk': receipt_id}))
+        self.assertEqual(delete_res.status_code, 403)
+
+        # 9. Trainer CANNOT update receipt settings
+        settings_res = self.client.post(
+            reverse('fee-receipt-settings'),
+            {'company': 'FLAG', 'receipt_prefix': 'HACK'},
+            format='json',
+        )
+        self.assertEqual(settings_res.status_code, 403)
 

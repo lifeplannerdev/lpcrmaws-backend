@@ -24,6 +24,7 @@ from .permissions import (
     CanViewFees,
     _can_manage_receipt_admin_actions,
     _can_view_fee_account,
+    is_trainer_user,
 )
 from .receipt_engine import (
     DEFAULT_DISPLAY_OPTIONS,
@@ -91,7 +92,7 @@ class ReceiptSettingsAPIView(APIView):
         return Response(data)
 
     def _upsert(self, request):
-        if not _can_manage_receipt_admin_actions(request.user):
+        if is_trainer_user(request.user) or not _can_manage_receipt_admin_actions(request.user):
             return Response({'detail': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
 
         company = (request.data.get('company') or getattr(request.user, 'company', None) or 'FLAG').upper()
@@ -232,6 +233,8 @@ class FeeReceiptListCreateAPIView(APIView):
         return Response(FeeReceiptSerializer(receipts, many=True).data)
 
     def post(self, request):
+        if is_trainer_user(request.user):
+            return Response({'detail': 'Forbidden: Trainers cannot create receipts.'}, status=status.HTTP_403_FORBIDDEN)
         serializer = FeeReceiptSerializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
         receipt = serializer.save()
@@ -250,6 +253,7 @@ class FeeReceiptDetailAPIView(APIView):
             can_access = (
                 receipt.created_by_id == request.user.id
                 or getattr(receipt.student, 'trainer_id', None) == request.user.id
+                or (getattr(receipt.student, 'batch', None) and getattr(receipt.student.batch, 'trainer_id', None) == request.user.id)
                 or (receipt.account and _can_view_fee_account(request.user, receipt.account))
             )
             if not can_access:
@@ -266,6 +270,8 @@ class FeeReceiptDetailAPIView(APIView):
         return self.patch(request, pk)
 
     def patch(self, request, pk):
+        if is_trainer_user(request.user):
+            return Response({'detail': 'Forbidden: Trainers cannot edit or update receipts.'}, status=status.HTTP_403_FORBIDDEN)
         receipt = self.get_object(request, pk)
         if not receipt:
             return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
@@ -275,7 +281,7 @@ class FeeReceiptDetailAPIView(APIView):
         return Response(FeeReceiptSerializer(updated).data)
 
     def delete(self, request, pk):
-        if not _can_manage_receipt_admin_actions(request.user):
+        if is_trainer_user(request.user) or not _can_manage_receipt_admin_actions(request.user):
             return Response({'detail': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
         receipt = self.get_object(request, pk)
         if not receipt:
@@ -292,7 +298,28 @@ class FeeReceiptDetailAPIView(APIView):
 class FeeReceiptFromPaymentAPIView(APIView):
     permission_classes = [IsAuthenticated, CanManageReceipts]
 
+    def get(self, request, payment_id):
+        payment = get_object_or_404(
+            FeePayment.objects.select_related('account', 'account__student'),
+            pk=payment_id,
+        )
+        if payment.account and not _can_view_fee_account(request.user, payment.account):
+            return Response({'detail': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
+
+        existing = (
+            payment.receipts.exclude(status='VOID')
+            .order_by('-created_at')
+            .first()
+        ) or payment.receipts.order_by('-created_at').first()
+
+        if not existing:
+            return Response({'detail': 'No receipt has been generated yet for this payment.'}, status=status.HTTP_404_NOT_FOUND)
+
+        return Response(FeeReceiptSerializer(existing).data, status=status.HTTP_200_OK)
+
     def post(self, request, payment_id):
+        if is_trainer_user(request.user):
+            return Response({'detail': 'Forbidden: Trainers cannot create or modify receipts.'}, status=status.HTTP_403_FORBIDDEN)
         with transaction.atomic():
             payment = get_object_or_404(
                 FeePayment.objects.select_for_update().select_related('account', 'account__student'),
@@ -341,7 +368,7 @@ class FeeReceiptVoidAPIView(APIView):
     permission_classes = [IsAuthenticated, CanManageReceipts]
 
     def post(self, request, pk):
-        if not _can_manage_receipt_admin_actions(request.user):
+        if is_trainer_user(request.user) or not _can_manage_receipt_admin_actions(request.user):
             return Response({'detail': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
 
         receipt = get_object_or_404(FeeReceipt.objects.select_related('account', 'account__student'), pk=pk)

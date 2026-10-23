@@ -6,6 +6,25 @@ def _has_perm(user, perm):
     return user.is_authenticated and has_dynamic_permission(user, perm)
 
 
+def is_trainer_user(user):
+    """
+    Returns True if user has the TRAINER role (or flag:trainer permission)
+    and does NOT possess administrative / finance override permissions
+    (flag:admin, fees:manage, or superuser).
+    """
+    if not user or not getattr(user, 'is_authenticated', False):
+        return False
+    if getattr(user, 'is_superuser', False):
+        return False
+    if _has_perm(user, 'flag:admin') or _has_perm(user, 'fees:manage'):
+        return False
+    if hasattr(user, 'db_roles') and user.db_roles.filter(name__iexact='TRAINER').exists():
+        return True
+    if _has_perm(user, 'flag:trainer'):
+        return True
+    return False
+
+
 class CanViewFees(BasePermission):
     def has_permission(self, request, view):
         return (
@@ -16,7 +35,7 @@ class CanViewFees(BasePermission):
             _has_perm(request.user, 'flag:admin') or
             _has_perm(request.user, 'flag:fees') or
             _has_perm(request.user, 'flag:view') or
-            request.user.db_roles.filter(name__iexact='TRAINER').exists()
+            (hasattr(request.user, 'db_roles') and request.user.db_roles.filter(name__iexact='TRAINER').exists())
         )
 
 
@@ -47,6 +66,8 @@ def _can_manage_receipt_admin_actions(user):
         return False
     if getattr(user, 'is_superuser', False):
         return True
+    if is_trainer_user(user):
+        return False
     return (
         _has_perm(user, 'fees:manage') or
         _has_perm(user, 'flag:admin') or
@@ -83,6 +104,11 @@ class CanManageReceipts(BasePermission):
     def has_permission(self, request, view):
         if request.method in ('GET', 'HEAD', 'OPTIONS'):
             return CanViewFees().has_permission(request, view)
+
+        # WRITE actions (create, edit, update, delete, void) are strictly denied for trainers
+        if is_trainer_user(request.user):
+            return False
+
         return (
             _can_manage_receipt_admin_actions(request.user) or
             _has_perm(request.user, 'fees:partial_payment')
