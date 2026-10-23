@@ -1,11 +1,12 @@
 from rest_framework import serializers
-from django.utils import timezone
 from .models import Task, TaskUpdate
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 
 User = get_user_model()
 
-#  Employee Serializer
+
+#  Employee Serializer 
 class EmployeeSerializer(serializers.ModelSerializer):
     role = serializers.SerializerMethodField()
     role_names = serializers.SerializerMethodField()
@@ -27,6 +28,7 @@ class TaskSerializer(serializers.ModelSerializer):
     assigned_by_name = serializers.CharField(source='assigned_by.username', read_only=True)
     assigned_to_name = serializers.CharField(source='assigned_to.username', read_only=True)
     assigned_to_location = serializers.CharField(source='assigned_to.location', read_only=True)
+    assigned_to_roles = serializers.SerializerMethodField()
     
     # Add these computed fields that your frontend expects
     is_overdue = serializers.BooleanField(read_only=True)
@@ -38,6 +40,11 @@ class TaskSerializer(serializers.ModelSerializer):
     class Meta:
         model = Task
         fields = "__all__"
+
+    def get_assigned_to_roles(self, obj):
+        if obj.assigned_to:
+            return list(obj.assigned_to.db_roles.values_list('name', flat=True))
+        return []
     
     def get_overdue_days(self, obj):
         if obj.status in ['COMPLETED', 'CANCELLED']:

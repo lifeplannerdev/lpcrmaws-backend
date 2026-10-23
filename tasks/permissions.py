@@ -77,6 +77,8 @@ def can_approve_task(user, task):
     - Managing Director / Superuser: can approve/reject.
     - Users with tasks:kochi / tasks:kottayam: can approve/reject tasks
       assigned to staff in their location, BUT cannot approve/reject their own task.
+    - Users with tasks:documentation: can approve/reject tasks assigned to staff with
+      DOCUMENTATION role, BUT cannot approve/reject their own task.
     """
     if not user or not user.is_authenticated:
         return False
@@ -91,6 +93,9 @@ def can_approve_task(user, task):
     if task_locations:
         assignee_loc = (task.assigned_to.location or "").strip().lower()
         if assignee_loc in task_locations:
+            return True
+    if has_dynamic_permission(user, 'tasks:documentation'):
+        if task.assigned_to and task.assigned_to.db_roles.filter(name='DOCUMENTATION').exists():
             return True
     return False
 
@@ -118,6 +123,7 @@ class IsTaskAssigner(BasePermission):
                 has_dynamic_permission(request.user, 'tasks:edit_any')
                 or has_dynamic_permission(request.user, 'tasks:kochi')
                 or has_dynamic_permission(request.user, 'tasks:kottayam')
+                or has_dynamic_permission(request.user, 'tasks:documentation')
             )
         )
 
@@ -144,6 +150,8 @@ class IsAssigneeOrTaskAssigner(BasePermission):
             if assignee_loc in task_locations:
                 return True
 
+        if has_dynamic_permission(request.user, 'tasks:documentation'):
+            if obj.assigned_to and obj.assigned_to.db_roles.filter(name='DOCUMENTATION').exists():
+                return True
+
         return False
-
-

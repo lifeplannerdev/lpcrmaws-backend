@@ -54,12 +54,16 @@ def _task_queryset_for_user(user, base_qs=None):
         return base_qs
 
     task_locations = get_user_task_locations(user)
-    if task_locations:
-        loc_q = Q()
+    has_doc_perm = has_dynamic_permission(user, 'tasks:documentation')
+
+    if task_locations or has_doc_perm:
+        scoped_q = Q()
         for loc in task_locations:
-            loc_q |= Q(assigned_to__location__iexact=loc)
+            scoped_q |= Q(assigned_to__location__iexact=loc)
+        if has_doc_perm:
+            scoped_q |= Q(assigned_to__db_roles__name='DOCUMENTATION')
         return base_qs.filter(
-            loc_q | Q(assigned_to=user) | Q(assigned_by=user)
+            scoped_q | Q(assigned_to=user) | Q(assigned_by=user)
         ).distinct()
 
     if can_manage_own_assigned_tasks(user):
@@ -192,11 +196,16 @@ class EmployeeListAPIView(generics.ListAPIView):
             qs = qs.filter(team__iexact=team)
 
         task_locations = get_user_task_locations(user)
-        if task_locations and not (can_manage_all_tasks(user) or has_dynamic_permission(user, 'tasks:edit_any')):
-            loc_q = Q()
+        has_doc_perm = has_dynamic_permission(user, 'tasks:documentation')
+        is_global_manager = can_manage_all_tasks(user) or has_dynamic_permission(user, 'tasks:edit_any')
+
+        if not is_global_manager and (task_locations or has_doc_perm):
+            scoped_q = Q()
             for loc in task_locations:
-                loc_q |= Q(location__iexact=loc)
-            qs = qs.filter(loc_q)
+                scoped_q |= Q(location__iexact=loc)
+            if has_doc_perm:
+                scoped_q |= Q(db_roles__name='DOCUMENTATION')
+            qs = qs.filter(scoped_q).distinct()
             
         return qs.order_by('first_name', 'last_name', 'username')
 
@@ -258,13 +267,27 @@ class TaskListCreateAPIView(generics.ListCreateAPIView):
         user = self.request.user
         assigned_to = serializer.validated_data.get('assigned_to')
 
-        # Location permission validation for location-scoped assigners
+        # Location & Role permission validation for scoped assigners
         task_locations = get_user_task_locations(user)
-        if task_locations and not (can_manage_all_tasks(user) or has_dynamic_permission(user, 'tasks:edit_any')):
+        has_doc_perm = has_dynamic_permission(user, 'tasks:documentation')
+        is_global_manager = can_manage_all_tasks(user) or has_dynamic_permission(user, 'tasks:edit_any')
+
+        if not is_global_manager and (task_locations or has_doc_perm):
             target_loc = (assigned_to.location or "").strip().lower() if assigned_to else ""
-            if target_loc not in task_locations:
+            is_valid_target = False
+            if task_locations and target_loc in task_locations:
+                is_valid_target = True
+            if has_doc_perm and assigned_to and assigned_to.db_roles.filter(name='DOCUMENTATION').exists():
+                is_valid_target = True
+
+            if not is_valid_target:
+                allowed_desc = []
+                if task_locations:
+                    allowed_desc.append(f"location ({', '.join(task_locations).title()})")
+                if has_doc_perm:
+                    allowed_desc.append("DOCUMENTATION role")
                 raise ValidationError(
-                    f"You can only assign tasks to staff in your designated location ({', '.join(task_locations).title()})."
+                    f"You can only assign tasks to staff in your designated {' or '.join(allowed_desc)}."
                 )
 
         # OPS / CM cannot assign tasks to ADMIN or CEO
@@ -300,6 +323,9 @@ class TaskDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
 
         task_locations = get_user_task_locations(user)
         if task_locations and (task.assigned_to.location or "").strip().lower() in task_locations:
+            return
+
+        if has_dynamic_permission(user, 'tasks:documentation') and task.assigned_to and task.assigned_to.db_roles.filter(name='DOCUMENTATION').exists():
             return
             
         raise PermissionDenied(
@@ -536,7 +562,7 @@ class TaskStatusUpdateAPIView(generics.GenericAPIView):
             })
 
 
-# ── Task Approval & Rejection (Managing Director) ────────────────────────────
+# ── Task Approval & Rejection ─────────────────────────────────────────────────
 
 class TaskApproveAPIView(generics.GenericAPIView):
     permission_classes = [IsAuthenticated]
