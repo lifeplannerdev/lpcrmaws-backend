@@ -45,3 +45,39 @@ def HasPermission(required_permission):
 
     return _HasPermission
 
+
+def HasAnyPermission(*required_permissions):
+    """
+    Factory function returning a BasePermission class that checks
+    if the user possesses at least one of the listed permissions.
+    """
+    class _HasAnyPermission(BasePermission):
+        def has_permission(self, request, view):
+            if not request.user or not request.user.is_authenticated:
+                return False
+            if request.user.is_superuser:
+                return True
+            return any(has_dynamic_permission(request.user, p) for p in required_permissions)
+
+    return _HasAnyPermission
+
+
+class CanAccessCompanyFees(BasePermission):
+    """
+    Checks company-scoped fee authority across FLAG, FDS, and LP.
+    """
+    def has_permission(self, request, view):
+        user = request.user
+        if not user or not user.is_authenticated:
+            return False
+        if user.is_superuser or has_dynamic_permission(user, 'fees:accounts'):
+            return True
+        return any(
+            has_dynamic_permission(user, p)
+            for p in (
+                'fees:fds', 'fees:flag', 'fees:lp', 'fees:manage',
+                'fds_fees:manage', 'processing_students:manage_fees'
+            )
+        )
+
+

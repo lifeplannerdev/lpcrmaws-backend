@@ -354,7 +354,13 @@ class FdsStudent(models.Model):
 
     @property
     def class_category(self):
-        return self.batch.class_category if self.batch else None
+        if self.batch and self.batch.class_category:
+            return self.batch.class_category
+        if self.fee_structure and self.fee_structure.category:
+            return self.fee_structure.category
+        if hasattr(self, 'fee_account') and self.fee_account and self.fee_account.active_package and self.fee_account.active_package.category:
+            return self.fee_account.active_package.category
+        return None
 
     def save(self, *args, **kwargs):
         if not self.student_id:

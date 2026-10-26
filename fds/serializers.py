@@ -260,11 +260,40 @@ class FdsFeesCollectionSerializer(serializers.ModelSerializer):
     wedding_group_name = serializers.SerializerMethodField()
     collected_by_name = serializers.SerializerMethodField()
     fee_month_display = serializers.SerializerMethodField()
+    latest_receipt_id = serializers.SerializerMethodField()
+    latest_receipt_number = serializers.SerializerMethodField()
+    latest_receipt_token = serializers.SerializerMethodField()
+    latest_receipt_status = serializers.SerializerMethodField()
 
     class Meta:
         model = FdsFeesCollection
         fields = '__all__'
         read_only_fields = ['payment_id', 'created_at', 'balance']
+
+    def _get_latest_receipt(self, obj):
+        if not hasattr(obj, '_cached_latest_receipt'):
+            # Only check if fee_receipts relation exists (i.e. fees app installed)
+            if hasattr(obj, 'fee_receipts'):
+                obj._cached_latest_receipt = obj.fee_receipts.order_by('-id').first()
+            else:
+                obj._cached_latest_receipt = None
+        return obj._cached_latest_receipt
+
+    def get_latest_receipt_id(self, obj):
+        receipt = self._get_latest_receipt(obj)
+        return receipt.id if receipt else None
+
+    def get_latest_receipt_number(self, obj):
+        receipt = self._get_latest_receipt(obj)
+        return receipt.receipt_number if receipt else None
+
+    def get_latest_receipt_token(self, obj):
+        receipt = self._get_latest_receipt(obj)
+        return str(receipt.verification_token) if receipt and receipt.verification_token else None
+
+    def get_latest_receipt_status(self, obj):
+        receipt = self._get_latest_receipt(obj)
+        return receipt.status if receipt else None
 
     def get_student_name(self, obj):
         return obj.student.name if obj.student else None
@@ -281,7 +310,7 @@ class FdsFeesCollectionSerializer(serializers.ModelSerializer):
         return None
 
     def get_fee_month_display(self, obj):
-        if obj.fee_month and obj.fee_year:
+        if obj.fee_month and obj.fee_year and 1 <= obj.fee_month <= 12:
             import calendar
             return f"{calendar.month_name[obj.fee_month]} {obj.fee_year}"
         return None
@@ -290,12 +319,13 @@ class FdsStudentFeeAccountSerializer(serializers.ModelSerializer):
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     plan_type_display = serializers.CharField(source='get_plan_type_display', read_only=True)
     active_package_detail = FdsFeeStructureMinSerializer(source='active_package', read_only=True)
-    student_name = serializers.CharField(source='student.name', read_only=True)
-    student_id_code = serializers.CharField(source='student.student_id', read_only=True)
-    class_category = serializers.CharField(source='student.class_category', read_only=True)
-    contact_no = serializers.CharField(source='student.contact_no', read_only=True)
-    whatsapp_no = serializers.CharField(source='student.whatsapp_no', read_only=True)
-    batch_name = serializers.CharField(source='student.batch.name', read_only=True)
+    student_name = serializers.CharField(source='student.name', read_only=True, default=None)
+    student_id_code = serializers.CharField(source='student.student_id', read_only=True, default=None)
+    branch = serializers.CharField(source='student.branch', read_only=True, default=None)
+    class_category = serializers.CharField(source='student.class_category', read_only=True, default=None)
+    contact_no = serializers.CharField(source='student.contact_no', read_only=True, default=None)
+    whatsapp_no = serializers.CharField(source='student.whatsapp_no', read_only=True, default=None)
+    batch_name = serializers.CharField(source='student.batch.name', read_only=True, default=None)
     trainer_name = serializers.SerializerMethodField()
     coordinator_name = serializers.SerializerMethodField()
     installments = FdsFeeInstallmentSerializer(many=True, read_only=True)

@@ -2,7 +2,7 @@ from accounts.permissions import has_dynamic_permission
 from rest_framework import serializers
 from .models import (
     Trainer, Student, Attendance, AcademicBatch, AcademicPackage, Branch,
-    ExamResult, ProcessingStudent, ProcessingDynamicField, ProcessingStudentDocument,
+    ExamResult, ProcessingStudent, ProcessingFeePayment, ProcessingDynamicField, ProcessingStudentDocument,
     StudentTimeline, CourseLevel, CourseModule, StudentModuleProgress,
     StudentPackageEnrollment, StudentAcademicPlacement, IntakeOption, CategoryOption
 )
@@ -518,34 +518,135 @@ class ProcessingDynamicFieldSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 
+class ProcessingFeePaymentSerializer(serializers.ModelSerializer):
+    fee_head_display = serializers.CharField(source='get_fee_head_display', read_only=True)
+    created_by_name = serializers.SerializerMethodField()
+    latest_receipt_id = serializers.SerializerMethodField()
+    latest_receipt_number = serializers.SerializerMethodField()
+    latest_receipt_token = serializers.SerializerMethodField()
+    latest_receipt_status = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProcessingFeePayment
+        fields = [
+            'id', 'student', 'fee_head', 'fee_head_display', 'amount',
+            'payment_method', 'payment_date', 'reference', 'notes',
+            'created_by', 'created_by_name', 'created_at',
+            'latest_receipt_id', 'latest_receipt_number', 'latest_receipt_token', 'latest_receipt_status'
+        ]
+        read_only_fields = ['created_by', 'created_at']
+
+    def _get_latest_receipt(self, obj):
+        if not hasattr(obj, '_cached_latest_receipt'):
+            if hasattr(obj, 'fee_receipts'):
+                obj._cached_latest_receipt = obj.fee_receipts.order_by('-id').first()
+            else:
+                obj._cached_latest_receipt = None
+        return obj._cached_latest_receipt
+
+    def get_created_by_name(self, obj):
+        if obj.created_by:
+            return obj.created_by.get_full_name() or obj.created_by.username
+        return None
+
+    def get_latest_receipt_id(self, obj):
+        receipt = self._get_latest_receipt(obj)
+        return receipt.id if receipt else None
+
+    def get_latest_receipt_number(self, obj):
+        receipt = self._get_latest_receipt(obj)
+        return receipt.receipt_number if receipt else None
+
+    def get_latest_receipt_token(self, obj):
+        receipt = self._get_latest_receipt(obj)
+        return str(receipt.verification_token) if receipt and receipt.verification_token else None
+
+    def get_latest_receipt_status(self, obj):
+        receipt = self._get_latest_receipt(obj)
+        return receipt.status if receipt else None
+
+    def create(self, validated_data):
+        request = self.context.get('request')
+        if request and hasattr(request, 'user') and request.user.is_authenticated:
+            validated_data['created_by'] = request.user
+        return super().create(validated_data)
+
+
 class ProcessingStudentSerializer(serializers.ModelSerializer):
     assigned_to_name = serializers.CharField(source='assigned_to.get_full_name', read_only=True)
     source_name = serializers.CharField(source='source.get_full_name', read_only=True)
+    fee_payments = ProcessingFeePaymentSerializer(many=True, read_only=True)
     
     class Meta:
         model = ProcessingStudent
         fields = '__all__'
 
-    def update(self, instance, validated_data):
+    def create(self, validated_data):
+        request = self.context.get('request')
+        user = getattr(request, 'user', None) if request else None
+
         fee_fields = [
+            'registration_fee_applicable', 'registration_fee_amount', 'registration_fee_paid',
+            'registration_fee_status', 'registration_fee_receipt_status',
             'processing_fee_applicable', 'processing_fee_amount', 'processing_fee_paid', 'processing_fee_status',
             'fee_admission_applicable', 'fee_admission_amount', 'fee_admission_paid', 'fee_admission_status',
             'fee_language_applicable', 'fee_language_amount', 'fee_language_paid', 'fee_language_status',
             'fee_visa_applicable', 'fee_visa_amount', 'fee_visa_paid', 'fee_visa_status',
-            'fee_ministry_applicable', 'fee_ministry_amount', 'fee_ministry_paid', 'fee_ministry_status'
+            'fee_ministry_applicable', 'fee_ministry_amount', 'fee_ministry_paid', 'fee_ministry_status',
+        ]
+        from fees.permissions import has_global_fee_access
+        can_manage_fees = bool(
+            user and (
+                user.is_superuser
+                or has_global_fee_access(user)
+                or has_dynamic_permission(user, 'processing_students:manage_fees')
+                or has_dynamic_permission(user, 'fees:accounts')
+                or has_dynamic_permission(user, 'fees:lp')
+                or has_dynamic_permission(user, 'fees:manage')
+            )
+        )
+        if any(field in validated_data for field in fee_fields) and not can_manage_fees:
+            raise serializers.ValidationError({
+                'fee_fields': 'Permission denied: You do not have permission to set or modify student fee fields.'
+            })
+
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        fee_fields = [
+            'registration_fee_applicable', 'registration_fee_amount', 'registration_fee_paid',
+            'registration_fee_status', 'registration_fee_receipt_status',
+            'processing_fee_applicable', 'processing_fee_amount', 'processing_fee_paid', 'processing_fee_status',
+            'fee_admission_applicable', 'fee_admission_amount', 'fee_admission_paid', 'fee_admission_status',
+            'fee_language_applicable', 'fee_language_amount', 'fee_language_paid', 'fee_language_status',
+            'fee_visa_applicable', 'fee_visa_amount', 'fee_visa_paid', 'fee_visa_status',
+            'fee_ministry_applicable', 'fee_ministry_amount', 'fee_ministry_paid', 'fee_ministry_status',
         ]
         request = self.context.get('request')
+        user = getattr(request, 'user', None) if request else None
         
-        if request and request.user:
-            is_operation = request.user.db_roles.filter(name__in=['OPERATION', 'MANAGING_DIRECTOR']).exists()
+        if user:
+            is_operation = user.is_superuser or user.db_roles.filter(name__in=['OPERATION', 'MANAGING_DIRECTOR']).exists()
             if not is_operation and 'assigned_to' in validated_data:
                 validated_data.pop('assigned_to', None)
         
         updating_fees = any(field in validated_data for field in fee_fields)
         if updating_fees:
-            if not (request and getattr(request, 'user', None) and has_dynamic_permission(request.user, 'processing_students:manage_fees')):
-                for field in fee_fields:
-                    validated_data.pop(field, None)
+            from fees.permissions import has_global_fee_access
+            can_manage_fees = bool(
+                user and (
+                    user.is_superuser
+                    or has_global_fee_access(user)
+                    or has_dynamic_permission(user, 'processing_students:manage_fees')
+                    or has_dynamic_permission(user, 'fees:accounts')
+                    or has_dynamic_permission(user, 'fees:lp')
+                    or has_dynamic_permission(user, 'fees:manage')
+                )
+            )
+            if not can_manage_fees:
+                raise serializers.ValidationError({
+                    'fee_fields': 'Permission denied: You do not have permission to set or modify student fee fields.'
+                })
                     
         return super().update(instance, validated_data)
 

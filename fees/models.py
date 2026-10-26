@@ -410,6 +410,52 @@ class FeeReceipt(models.Model):
         related_name='receipts',
     )
 
+    # FDS Relations
+    fds_student = models.ForeignKey(
+        'fds.FdsStudent',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='fee_receipts',
+    )
+    fds_account = models.ForeignKey(
+        'fds.FdsStudentFeeAccount',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='receipts',
+    )
+    fds_payment = models.ForeignKey(
+        'fds.FdsFeesCollection',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='receipts',
+    )
+    fds_wedding_group = models.ForeignKey(
+        'fds.FdsWeddingGroup',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='fee_receipts',
+    )
+
+    # LP Processing Student Relations
+    processing_student = models.ForeignKey(
+        'trainers.ProcessingStudent',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='fee_receipts',
+    )
+    processing_payment = models.ForeignKey(
+        'trainers.ProcessingFeePayment',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='receipts',
+    )
+
     receipt_number = models.CharField(max_length=80, unique=True, db_index=True)
     financial_year = models.CharField(max_length=20, blank=True, db_index=True)
     sequence_number = models.PositiveIntegerField(null=True, blank=True)

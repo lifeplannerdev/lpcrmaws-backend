@@ -426,6 +426,11 @@ from .receipt_engine import (
     calculate_receipt_financials,
     extract_account_ledger_snapshot,
     extract_student_metadata,
+    extract_fds_student_metadata,
+    extract_fds_wedding_metadata,
+    extract_processing_student_metadata,
+    extract_fds_ledger_snapshot,
+    extract_processing_student_ledger_snapshot,
     get_indian_financial_year,
     get_or_create_receipt_settings,
     to_decimal,
@@ -470,11 +475,32 @@ class ReceiptSettingsSerializer(serializers.ModelSerializer):
         return value
 
 
+class FlexibleDateTimeField(serializers.DateTimeField):
+    def to_internal_value(self, value):
+        import datetime as dt_mod
+        from django.utils import timezone
+        if isinstance(value, dt_mod.date) and not isinstance(value, dt_mod.datetime):
+            value = timezone.make_aware(dt_mod.datetime.combine(value, dt_mod.time.min))
+        elif isinstance(value, str):
+            cleaned = value.strip()
+            if len(cleaned) == 10 and cleaned.count('-') == 2:
+                try:
+                    parsed_d = dt_mod.datetime.strptime(cleaned, '%Y-%m-%d').date()
+                    value = timezone.make_aware(dt_mod.datetime.combine(parsed_d, dt_mod.time.min))
+                except Exception:
+                    pass
+        return super().to_internal_value(value)
+
+
 class FeeReceiptSerializer(serializers.ModelSerializer):
+    payment_date = FlexibleDateTimeField(required=False, allow_null=True)
     created_by_name = serializers.SerializerMethodField()
     updated_by_name = serializers.SerializerMethodField()
     voided_by_name = serializers.SerializerMethodField()
     student_display_name = serializers.CharField(source='student.name', read_only=True)
+    fds_student_name = serializers.CharField(source='fds_student.name', read_only=True)
+    wedding_group_name = serializers.CharField(source='fds_wedding_group.event_name', read_only=True)
+    processing_student_name = serializers.CharField(source='processing_student.name', read_only=True)
     is_signature_valid = serializers.SerializerMethodField()
     signature_prefix = serializers.SerializerMethodField()
 
@@ -487,7 +513,10 @@ class FeeReceiptSerializer(serializers.ModelSerializer):
     class Meta:
         model = FeeReceipt
         fields = [
-            'id', 'company', 'student', 'student_display_name', 'account', 'payment',
+            'id', 'company',
+            'student', 'student_display_name', 'account', 'payment',
+            'fds_student', 'fds_student_name', 'fds_account', 'fds_payment', 'fds_wedding_group', 'wedding_group_name',
+            'processing_student', 'processing_student_name', 'processing_payment',
             'receipt_number', 'financial_year', 'sequence_number',
             'document_type', 'status', 'issue_date',
             'verification_token', 'signature_hash', 'signature_prefix', 'is_signature_valid',
@@ -552,6 +581,7 @@ class FeeReceiptSerializer(serializers.ModelSerializer):
         request = self.context.get('request')
         user = request.user if (request and hasattr(request, 'user') and request.user.is_authenticated) else None
 
+
         if instance:
             new_status = attrs.get('status', instance.status)
             if instance.status in ('ISSUED', 'VOID', 'REFUNDED', 'PARTIALLY_PAID') and new_status == 'DRAFT':
@@ -569,6 +599,61 @@ class FeeReceiptSerializer(serializers.ModelSerializer):
 
         if instance and instance.status == 'VOID':
             raise serializers.ValidationError({'detail': 'Voided receipts are locked and cannot be edited.'})
+
+        if instance and instance.status == 'ISSUED':
+            is_payment_receipt = bool(
+                getattr(instance, 'payment_id', None)
+                or getattr(instance, 'fds_payment_id', None)
+                or getattr(instance, 'processing_payment_id', None)
+            )
+            # For receipts backed by actual recorded payments, lock core financial and identity fields
+            # Once ISSUED, corrections must be performed by voiding the receipt and issuing a replacement.
+            if is_payment_receipt:
+                immutable_core_fields = [
+                    'total_amount', 'subtotal_amount', 'discount_amount', 'taxable_amount',
+                    'total_tax_amount', 'cgst_amount', 'sgst_amount', 'igst_amount',
+                    'line_items', 'tax_mode', 'supply_type',
+                    'recipient_name', 'receipt_number', 'company',
+                    'payment_method', 'payment_reference', 'payment_date',
+                    'payment', 'account', 'student',
+                    'fds_payment', 'fds_account', 'fds_student', 'fds_wedding_group',
+                    'processing_payment', 'processing_student', 'document_type',
+                ]
+            elif instance.document_type != 'PROFORMA':
+                # Standalone official receipts cannot change receipt number, company, or underlying links
+                immutable_core_fields = [
+                    'receipt_number', 'company',
+                    'payment', 'account', 'student',
+                    'fds_payment', 'fds_account', 'fds_student', 'fds_wedding_group',
+                    'processing_payment', 'processing_student',
+                ]
+            else:
+                immutable_core_fields = [
+                    'receipt_number', 'company',
+                    'payment', 'fds_payment', 'processing_payment',
+                ]
+
+            for f in immutable_core_fields:
+                if f in self.initial_data or f in attrs:
+                    new_val = attrs.get(f)
+                    old_val = getattr(instance, f, None)
+                    if isinstance(old_val, Decimal) or isinstance(new_val, Decimal):
+                        if to_decimal(new_val) != to_decimal(old_val):
+                            raise serializers.ValidationError({
+                                f: f"Document immutability: '{f}' cannot be modified once a receipt is ISSUED. Void this receipt and issue a replacement if corrections are required."
+                            })
+                    elif new_val is not None and new_val != old_val:
+                        old_id = getattr(old_val, 'id', old_val)
+                        new_id = getattr(new_val, 'id', new_val)
+                        if str(new_id) != str(old_id):
+                            raise serializers.ValidationError({
+                                f: f"Document immutability: '{f}' cannot be modified once a receipt is ISSUED. Void this receipt and issue a replacement if corrections are required."
+                            })
+                    elif f == 'line_items' and 'line_items' in self.initial_data:
+                        if self.initial_data['line_items'] != instance.line_items:
+                            raise serializers.ValidationError({
+                                'line_items': "Document immutability: line items cannot be modified once a receipt is ISSUED. Void this receipt and issue a replacement if corrections are required."
+                            })
 
         for num_field in (
             'gst_rate', 'cgst_rate', 'sgst_rate', 'igst_rate',
@@ -591,6 +676,15 @@ class FeeReceiptSerializer(serializers.ModelSerializer):
         account = attrs.get('account', getattr(instance, 'account', None))
         student = attrs.get('student', getattr(instance, 'student', None))
 
+        fds_payment = attrs.get('fds_payment', getattr(instance, 'fds_payment', None))
+        fds_account = attrs.get('fds_account', getattr(instance, 'fds_account', None))
+        fds_student = attrs.get('fds_student', getattr(instance, 'fds_student', None))
+        fds_wedding = attrs.get('fds_wedding_group', getattr(instance, 'fds_wedding_group', None))
+
+        processing_payment = attrs.get('processing_payment', getattr(instance, 'processing_payment', None))
+        processing_student = attrs.get('processing_student', getattr(instance, 'processing_student', None))
+
+        # FLAG relations validation
         if payment and account and payment.account_id != account.id:
             raise serializers.ValidationError({'account': 'Selected payment does not belong to the specified fee account.'})
         if payment and not account:
@@ -606,13 +700,43 @@ class FeeReceiptSerializer(serializers.ModelSerializer):
         if user and account and not _can_view_fee_account(user, account):
             raise PermissionDenied('You do not have permission to access this student fee account.')
 
-        recipient_name = (attrs.get('recipient_name') or getattr(instance, 'recipient_name', '') or '').strip()
-        if not recipient_name and student:
-            recipient_name = student.name
-            attrs['recipient_name'] = recipient_name
+        # FDS relations validation
+        if fds_payment and not fds_student and fds_payment.student:
+            fds_student = fds_payment.student
+            attrs['fds_student'] = fds_student
+        if fds_payment and not fds_account and fds_payment.account:
+            fds_account = fds_payment.account
+            attrs['fds_account'] = fds_account
+        if fds_payment and not fds_wedding and fds_payment.wedding_group:
+            fds_wedding = fds_payment.wedding_group
+            attrs['fds_wedding_group'] = fds_wedding
 
+        # LP relations validation
+        if processing_payment and not processing_student and processing_payment.student:
+            processing_student = processing_payment.student
+            attrs['processing_student'] = processing_student
+
+        # Source-company consistency
+        target_company = attrs.get('company', getattr(instance, 'company', None))
+        if payment and target_company and target_company != 'FLAG':
+            raise serializers.ValidationError({'company': 'FLAG payments cannot be associated with a non-FLAG receipt.'})
+        if (fds_payment or fds_student or fds_wedding) and target_company and target_company != 'FDS':
+            raise serializers.ValidationError({'company': 'FDS records cannot be associated with a non-FDS receipt.'})
+        if (processing_payment or processing_student) and target_company and target_company != 'LP':
+            raise serializers.ValidationError({'company': 'LP Processing records cannot be associated with a non-LP receipt.'})
+
+        recipient_name = (
+            attrs.get('recipient_name')
+            or getattr(instance, 'recipient_name', '')
+            or (student.name if student else '')
+            or (fds_student.name if fds_student else '')
+            or (getattr(fds_wedding, 'lead_contact_name', None) or getattr(fds_wedding, 'event_name', None) if fds_wedding else '')
+            or (processing_student.name if processing_student else '')
+            or ''
+        ).strip()
         if not recipient_name:
             raise serializers.ValidationError({'recipient_name': 'Recipient / Student name is required.'})
+        attrs['recipient_name'] = recipient_name
 
         return attrs
 
@@ -746,11 +870,19 @@ class FeeReceiptSerializer(serializers.ModelSerializer):
         payment = validated_data.get('payment')
         account = validated_data.get('account')
         student = validated_data.get('student')
+        fds_student = validated_data.get('fds_student')
+        fds_account = validated_data.get('fds_account')
+        fds_payment = validated_data.get('fds_payment')
+        fds_wedding_group = validated_data.get('fds_wedding_group')
+        processing_student = validated_data.get('processing_student')
+        processing_payment = validated_data.get('processing_payment')
 
         company = (
             validated_data.get('company')
             or (payment.company if payment else None)
             or (account.company if account else None)
+            or ('FDS' if (fds_student or fds_account or fds_payment or fds_wedding_group) else None)
+            or ('LP' if (processing_student or processing_payment) else None)
             or (getattr(student, 'company', None) if student else None)
             or (getattr(user, 'company', None) if user else None)
             or 'FLAG'
@@ -758,6 +890,8 @@ class FeeReceiptSerializer(serializers.ModelSerializer):
         validated_data['company'] = company
 
         campus = getattr(student, 'campus', None) if student else None
+        if campus and not hasattr(campus, 'pk') and not isinstance(campus, int):
+            campus = None
         settings_obj = get_or_create_receipt_settings(company=company, campus=campus)
 
         # Auto-fill Student metadata for any fields not explicitly overridden
@@ -766,9 +900,28 @@ class FeeReceiptSerializer(serializers.ModelSerializer):
             for k, v in student_meta.items():
                 if not validated_data.get(k) and v:
                     validated_data[k] = v
+        elif fds_student:
+            fds_meta = extract_fds_student_metadata(fds_student)
+            for k, v in fds_meta.items():
+                if not validated_data.get(k) and v:
+                    validated_data[k] = v
+        elif fds_wedding_group:
+            wed_meta = extract_fds_wedding_metadata(fds_wedding_group)
+            for k, v in wed_meta.items():
+                if not validated_data.get(k) and v:
+                    validated_data[k] = v
+        elif processing_student:
+            proc_meta = extract_processing_student_metadata(processing_student)
+            for k, v in proc_meta.items():
+                if not validated_data.get(k) and v:
+                    validated_data[k] = v
 
         if account and not validated_data.get('course_or_package_name'):
             validated_data['course_or_package_name'] = account.plan_name or account.plan_code or account.plan_type
+        elif fds_account and not validated_data.get('course_or_package_name'):
+            validated_data['course_or_package_name'] = getattr(fds_account, 'course', None) or 'FDS Course'
+        elif processing_student and not validated_data.get('course_or_package_name'):
+            validated_data['course_or_package_name'] = getattr(processing_student, 'program_applied', None) or getattr(processing_student, 'program_enrolled', None) or 'Processing Student Program'
 
         # Auto-fill Payment metadata if linked
         if payment:
@@ -783,9 +936,57 @@ class FeeReceiptSerializer(serializers.ModelSerializer):
                 validated_data['installment_label'] = inst.label or f"Installment #{inst.sequence_number}"
             if not validated_data.get('notes') and payment.notes:
                 validated_data['notes'] = payment.notes
+        elif fds_payment:
+            if not validated_data.get('payment_method'):
+                validated_data['payment_method'] = getattr(fds_payment, 'mode_of_pay', None) or getattr(fds_payment, 'payment_mode', 'CASH') or 'CASH'
+            if not validated_data.get('payment_reference'):
+                ref = getattr(fds_payment, 'payment_id', None) or getattr(fds_payment, 'reference_number', None) or getattr(fds_payment, 'transaction_id', None) or ''
+                if ref:
+                    validated_data['payment_reference'] = ref
+            if 'payment_date' not in self.initial_data:
+                p_date = getattr(fds_payment, 'pay_date', None) or getattr(fds_payment, 'payment_date', None) or getattr(fds_payment, 'date', None)
+                if p_date:
+                    validated_data['payment_date'] = p_date
+            if not validated_data.get('installment_label'):
+                fee_type = getattr(fds_payment, 'fees_type', None) or getattr(fds_payment, 'fee_type', '') or 'Payment'
+                validated_data['installment_label'] = f"FDS {fee_type} #{fds_payment.id}"
+            if not validated_data.get('notes') and getattr(fds_payment, 'remarks', None):
+                validated_data['notes'] = fds_payment.remarks
+        elif processing_payment:
+            if not validated_data.get('payment_method'):
+                validated_data['payment_method'] = getattr(processing_payment, 'payment_method', None) or getattr(processing_payment, 'payment_mode', 'BANK_TRANSFER') or 'BANK_TRANSFER'
+            if not validated_data.get('payment_reference'):
+                ref = getattr(processing_payment, 'reference', None) or getattr(processing_payment, 'transaction_reference', None)
+                if ref:
+                    validated_data['payment_reference'] = ref
+            if 'payment_date' not in self.initial_data and getattr(processing_payment, 'payment_date', None):
+                validated_data['payment_date'] = processing_payment.payment_date
+            if not validated_data.get('installment_label'):
+                head_disp = processing_payment.get_fee_head_display() if hasattr(processing_payment, 'get_fee_head_display') else processing_payment.fee_head
+                validated_data['installment_label'] = f"{head_disp} Fee"
+            if not validated_data.get('notes'):
+                notes = getattr(processing_payment, 'notes', None) or getattr(processing_payment, 'remarks', None)
+                if notes:
+                    validated_data['notes'] = notes
 
         # Auto-fill Ledger snapshot if not manually overridden
-        ledger_defaults = extract_account_ledger_snapshot(account, payment=payment)
+        if account or payment:
+            ledger_defaults = extract_account_ledger_snapshot(account, payment=payment)
+        elif fds_account or fds_student or fds_wedding_group or fds_payment:
+            ledger_defaults = extract_fds_ledger_snapshot(
+                account=fds_account,
+                student=fds_student,
+                wedding_group=fds_wedding_group,
+                payment=fds_payment,
+            )
+        elif processing_student or processing_payment:
+            ledger_defaults = extract_processing_student_ledger_snapshot(
+                student=processing_student,
+                payment=processing_payment,
+            )
+        else:
+            ledger_defaults = {}
+
         for k, v in ledger_defaults.items():
             if k not in self.initial_data or validated_data.get(k) is None:
                 validated_data[k] = v
@@ -799,7 +1000,6 @@ class FeeReceiptSerializer(serializers.ModelSerializer):
             validated_data['place_of_supply'] = settings_obj.place_of_supply or 'Kerala (32)'
         if 'terms_and_conditions' not in self.initial_data:
             validated_data['terms_and_conditions'] = settings_obj.default_terms_and_conditions
-
         merged_display_options = dict(DEFAULT_DISPLAY_OPTIONS)
         if isinstance(settings_obj.default_display_options, dict):
             for k, v in settings_obj.default_display_options.items():
@@ -820,11 +1020,19 @@ class FeeReceiptSerializer(serializers.ModelSerializer):
         fallback_amount = (
             validated_data.get('subtotal_amount')
             or validated_data.get('total_amount')
-            or (payment.amount if payment else Decimal('0.00'))
+            or (payment.amount if payment else None)
+            or (getattr(fds_payment, 'paid_amount', None) if fds_payment else None)
+            or (getattr(fds_payment, 'amount', None) if fds_payment else None)
+            or (getattr(processing_payment, 'amount', None) if processing_payment else None)
+            or Decimal('0.00')
         )
         fallback_title = (
             validated_data.get('course_or_package_name')
             or (account.plan_name if account else '')
+            or (f"FDS Fee - {fds_payment.fee_type}" if (fds_payment and getattr(fds_payment, 'fee_type', None)) else '')
+            or (f"Processing Fee - {processing_payment.get_fee_head_display()}" if processing_payment else '')
+            or ('FDS Course Fee' if company == 'FDS' else '')
+            or ('Processing Student Fee' if company == 'LP' else '')
             or 'Course Tuition Fee'
         )
         fallback_period = validated_data.get('installment_label') or ''
@@ -871,14 +1079,15 @@ class FeeReceiptSerializer(serializers.ModelSerializer):
             if 'ledger_current_paid' not in self.initial_data or to_decimal(validated_data.get('ledger_current_paid')) == Decimal('0.00'):
                 validated_data['ledger_current_paid'] = validated_data['total_amount']
 
-            if not account:
+            has_source_ledger = bool(account or fds_account or fds_student or fds_wedding_group or processing_student or fds_payment or processing_payment)
+            if not has_source_ledger:
                 if 'ledger_total_fee' not in self.initial_data:
                     validated_data['ledger_total_fee'] = validated_data['total_amount']
                 if 'ledger_total_paid' not in self.initial_data:
                     validated_data['ledger_total_paid'] = validated_data['total_amount']
                 if 'ledger_balance_due' not in self.initial_data:
                     validated_data['ledger_balance_due'] = Decimal('0.00')
-            elif not payment:
+            elif account and not payment:
                 # Mode B: Account-linked without a specific FeePayment row
                 prev_paid = to_decimal(validated_data.get('ledger_previously_paid'))
                 curr_paid = to_decimal(validated_data.get('ledger_current_paid'))
@@ -1065,12 +1274,13 @@ class PublicReceiptVerificationSerializer(serializers.ModelSerializer):
     verification_status = serializers.SerializerMethodField()
     signature_prefix = serializers.SerializerMethodField()
     issued_by_name = serializers.SerializerMethodField()
+    issuer_snapshot = serializers.SerializerMethodField()
 
     class Meta:
         model = FeeReceipt
         fields = [
             'verified', 'is_authentic', 'verification_status', 'signature_prefix',
-            'receipt_number', 'financial_year', 'document_type', 'status', 'issue_date',
+            'receipt_number', 'company', 'financial_year', 'document_type', 'status', 'issue_date',
             'verification_token', 'version',
             'billed_to_type', 'recipient_name', 'student_enrollment_code',
             'course_or_package_name', 'batch_name', 'campus_name', 'grade_level', 'mode_of_study',
@@ -1106,6 +1316,15 @@ class PublicReceiptVerificationSerializer(serializers.ModelSerializer):
         return (obj.signature_hash or '')[:16].upper()
 
     def get_issued_by_name(self, obj):
-        if obj.created_by:
-            return obj.created_by.get_full_name() or obj.created_by.username
-        return 'FLAG Accounts Department'
+        if obj.created_by and obj.created_by.get_full_name():
+            return obj.created_by.get_full_name()
+        return f"{obj.company} Accounts Department"
+
+    def get_issuer_snapshot(self, obj):
+        snap = dict(obj.issuer_snapshot or {})
+        acc_no = snap.get('account_number')
+        if acc_no and len(str(acc_no)) > 4:
+            snap['account_number'] = f"{'X' * (len(str(acc_no)) - 4)}{str(acc_no)[-4:]}"
+        snap.pop('signature_image', None)
+        snap.pop('stamp_image', None)
+        return snap

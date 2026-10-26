@@ -40,7 +40,9 @@ from .views import (
     IntakeOptionListCreateAPIView,
     IntakeOptionDetailAPIView,
     CategoryOptionListCreateAPIView,
-    CategoryOptionDetailAPIView
+    CategoryOptionDetailAPIView,
+    ProcessingFeePaymentListCreateAPIView,
+    ProcessingFeePaymentDetailAPIView
 )
 
 urlpatterns = [
@@ -84,4 +86,7 @@ urlpatterns = [
     path('intake-options/<int:pk>/', IntakeOptionDetailAPIView.as_view(), name='intake-option-detail'),
     path('category-options/', CategoryOptionListCreateAPIView.as_view(), name='category-option-list-create'),
     path('category-options/<int:pk>/', CategoryOptionDetailAPIView.as_view(), name='category-option-detail'),
+    path('processing-students/payments/', ProcessingFeePaymentListCreateAPIView.as_view(), name='processing-student-payments-all'),
+    path('processing-students/<int:student_pk>/payments/', ProcessingFeePaymentListCreateAPIView.as_view(), name='processing-student-payments'),
+    path('processing-student-payments/<int:pk>/', ProcessingFeePaymentDetailAPIView.as_view(), name='processing-student-payment-detail'),
 ]

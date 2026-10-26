@@ -25,6 +25,10 @@ from .permissions import (
     _can_manage_receipt_admin_actions,
     _can_view_fee_account,
     is_trainer_user,
+    has_global_fee_access,
+    get_allowed_fee_companies,
+    can_access_company_receipts,
+    can_manage_company_receipt_settings,
 )
 from .receipt_engine import (
     DEFAULT_DISPLAY_OPTIONS,
@@ -33,6 +37,11 @@ from .receipt_engine import (
     calculate_receipt_financials,
     extract_account_ledger_snapshot,
     extract_student_metadata,
+    extract_fds_student_metadata,
+    extract_fds_wedding_metadata,
+    extract_processing_student_metadata,
+    extract_fds_ledger_snapshot,
+    extract_processing_student_ledger_snapshot,
     get_indian_financial_year,
     get_or_create_receipt_settings,
     to_decimal,
@@ -69,6 +78,8 @@ class ReceiptSettingsAPIView(APIView):
 
     def get(self, request):
         company = (request.GET.get('company') or getattr(request.user, 'company', None) or 'FLAG').upper()
+        if not can_access_company_receipts(request.user, company, action='view'):
+            return Response({'detail': f'Forbidden: You do not have view access for {company} fee settings.'}, status=status.HTTP_403_FORBIDDEN)
         campus_id = request.GET.get('campus') or request.GET.get('campus_id')
 
         if request.GET.get('list') == 'true':
@@ -92,10 +103,10 @@ class ReceiptSettingsAPIView(APIView):
         return Response(data)
 
     def _upsert(self, request):
-        if is_trainer_user(request.user) or not _can_manage_receipt_admin_actions(request.user):
-            return Response({'detail': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
-
         company = (request.data.get('company') or getattr(request.user, 'company', None) or 'FLAG').upper()
+        if is_trainer_user(request.user) or not can_manage_company_receipt_settings(request.user, company):
+            return Response({'detail': f'Forbidden: You do not have permission to manage receipt settings for {company}.'}, status=status.HTTP_403_FORBIDDEN)
+
         campus_id = request.data.get('campus')
         campus = None
         if campus_id not in (None, ''):
@@ -172,11 +183,18 @@ class FeeReceiptListCreateAPIView(APIView):
     permission_classes = [IsAuthenticated, CanManageReceipts]
 
     def get(self, request):
-        qs = FeeReceipt.objects.select_related(
-            'student', 'account', 'payment', 'created_by', 'updated_by', 'voided_by'
-        )
+        allowed_companies = get_allowed_fee_companies(request.user, action='view')
+        if not allowed_companies:
+            return Response([])
 
-        if not _is_global_fee_viewer(request.user):
+        qs = FeeReceipt.objects.select_related(
+            'student', 'account', 'payment',
+            'fds_student', 'fds_account', 'fds_payment', 'fds_wedding_group',
+            'processing_student', 'processing_payment',
+            'created_by', 'updated_by', 'voided_by'
+        ).filter(company__in=allowed_companies)
+
+        if not has_global_fee_access(request.user):
             qs = qs.filter(Q(student__trainer=request.user) | Q(created_by=request.user))
 
         company = request.GET.get('company')
@@ -235,6 +253,10 @@ class FeeReceiptListCreateAPIView(APIView):
     def post(self, request):
         if is_trainer_user(request.user):
             return Response({'detail': 'Forbidden: Trainers cannot create receipts.'}, status=status.HTTP_403_FORBIDDEN)
+        target_company = (request.data.get('company') or getattr(request.user, 'company', None) or 'FLAG').upper()
+        if not can_access_company_receipts(request.user, target_company, action='manage'):
+            return Response({'detail': f'You do not have permission to create fee receipts for {target_company}.'}, status=status.HTTP_403_FORBIDDEN)
+
         serializer = FeeReceiptSerializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
         receipt = serializer.save()
@@ -246,10 +268,17 @@ class FeeReceiptDetailAPIView(APIView):
 
     def get_object(self, request, pk):
         receipt = get_object_or_404(
-            FeeReceipt.objects.select_related('student', 'account', 'payment', 'created_by', 'updated_by', 'voided_by'),
+            FeeReceipt.objects.select_related(
+                'student', 'account', 'payment',
+                'fds_student', 'fds_account', 'fds_payment', 'fds_wedding_group',
+                'processing_student', 'processing_payment',
+                'created_by', 'updated_by', 'voided_by'
+            ),
             pk=pk,
         )
-        if not _is_global_fee_viewer(request.user):
+        if not can_access_company_receipts(request.user, receipt.company, action='view'):
+            return None
+        if not has_global_fee_access(request.user):
             can_access = (
                 receipt.created_by_id == request.user.id
                 or getattr(receipt.student, 'trainer_id', None) == request.user.id
@@ -275,6 +304,8 @@ class FeeReceiptDetailAPIView(APIView):
         receipt = self.get_object(request, pk)
         if not receipt:
             return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        if not can_access_company_receipts(request.user, receipt.company, action='manage'):
+            return Response({'detail': f'Forbidden: Cannot modify receipts for {receipt.company}.'}, status=status.HTTP_403_FORBIDDEN)
         serializer = FeeReceiptSerializer(receipt, data=request.data, context={'request': request}, partial=True)
         serializer.is_valid(raise_exception=True)
         updated = serializer.save()
@@ -286,6 +317,8 @@ class FeeReceiptDetailAPIView(APIView):
         receipt = self.get_object(request, pk)
         if not receipt:
             return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        if not can_access_company_receipts(request.user, receipt.company, action='manage'):
+            return Response({'detail': f'Forbidden: Cannot delete receipts for {receipt.company}.'}, status=status.HTTP_403_FORBIDDEN)
         if receipt.status != 'DRAFT':
             return Response(
                 {'detail': 'Issued receipts cannot be deleted for audit compliance. Please void the receipt instead.'},
@@ -312,10 +345,74 @@ class FeeReceiptFromPaymentAPIView(APIView):
             .first()
         ) or payment.receipts.order_by('-created_at').first()
 
-        if not existing:
+        is_preview_req = request.GET.get('preview') in ('true', '1')
+        if existing and not is_preview_req:
+            return Response(FeeReceiptSerializer(existing).data, status=status.HTTP_200_OK)
+
+        if not existing and not is_preview_req and is_trainer_user(request.user):
             return Response({'detail': 'No receipt has been generated yet for this payment.'}, status=status.HTTP_404_NOT_FOUND)
 
-        return Response(FeeReceiptSerializer(existing).data, status=status.HTTP_200_OK)
+        student = payment.account.student if payment.account else None
+        student_meta = extract_student_metadata(student) if student else {}
+        ledger_meta = extract_account_ledger_snapshot(payment.account, payment=payment)
+        settings_obj = get_or_create_receipt_settings('FLAG', campus=getattr(student, 'campus', None))
+        issuer_snap = build_issuer_snapshot(settings_obj, company='FLAG')
+        fin = calculate_receipt_financials(
+            subtotal_amount=payment.amount,
+            tax_mode=settings_obj.default_gst_mode or 'NONE',
+            gst_rate=settings_obj.default_gst_rate,
+            default_sac=settings_obj.sac_code or '999293',
+            fallback_title=payment.account.plan_name if payment.account else 'Course Tuition Fee',
+            fallback_period=payment.installment.label if (payment.installment and payment.installment.label) else '',
+        )
+        return Response({
+            'id': existing.id if (existing and is_preview_req) else None,
+            'is_preview': True,
+            'company': 'FLAG',
+            'payment': payment.id,
+            'account': payment.account_id,
+            'student': payment.account.student_id if payment.account else None,
+            'recipient_name': student_meta.get('recipient_name') or (student.name if student else ''),
+            'recipient_phone': student_meta.get('recipient_phone', ''),
+            'recipient_email': student_meta.get('recipient_email', ''),
+            'parent_or_sponsor_name': student_meta.get('parent_or_sponsor_name', ''),
+            'student_enrollment_code': student_meta.get('student_enrollment_code', ''),
+            'course_or_package_name': student_meta.get('course_or_package_name', ''),
+            'batch_name': student_meta.get('batch_name', ''),
+            'campus_name': student_meta.get('campus_name', ''),
+            'grade_level': student_meta.get('grade_level', ''),
+            'mode_of_study': student_meta.get('mode_of_study', ''),
+            'subtotal_amount': str(fin['subtotal_amount']),
+            'discount_amount': str(fin['discount_amount']),
+            'taxable_amount': str(fin['taxable_amount']),
+            'tax_mode': fin['tax_mode'],
+            'supply_type': fin['supply_type'],
+            'cgst_rate': str(fin['cgst_rate']),
+            'cgst_amount': str(fin['cgst_amount']),
+            'sgst_rate': str(fin['sgst_rate']),
+            'sgst_amount': str(fin['sgst_amount']),
+            'igst_rate': str(fin['igst_rate']),
+            'igst_amount': str(fin['igst_amount']),
+            'total_tax_amount': str(fin['total_tax_amount']),
+            'total_amount': str(fin['total_amount']),
+            'amount_in_words': fin['amount_in_words'],
+            'payment_method': payment.payment_method,
+            'payment_reference': payment.reference or '',
+            'payment_date': payment.payment_date,
+            'installment_label': payment.installment.label if payment.installment else '',
+            'payment_status_badge': 'PAID',
+            'ledger_total_fee': str(ledger_meta.get('ledger_total_fee', '0.00')),
+            'ledger_discount': str(ledger_meta.get('ledger_discount', '0.00')),
+            'ledger_previously_paid': str(ledger_meta.get('ledger_previously_paid', '0.00')),
+            'ledger_current_paid': str(ledger_meta.get('ledger_current_paid', '0.00')),
+            'ledger_total_paid': str(ledger_meta.get('ledger_total_paid', '0.00')),
+            'ledger_balance_due': str(ledger_meta.get('ledger_balance_due', '0.00')),
+            'line_items': fin['line_items'],
+            'issuer_snapshot': issuer_snap,
+            'status': 'DRAFT',
+            'document_type': 'RECEIPT',
+            'receipt_number': '',
+        }, status=status.HTTP_200_OK)
 
     def post(self, request, payment_id):
         if is_trainer_user(request.user):
@@ -364,6 +461,297 @@ class FeeReceiptFromPaymentAPIView(APIView):
             return Response(FeeReceiptSerializer(receipt).data, status=status.HTTP_201_CREATED)
 
 
+class FeeReceiptFromFdsPaymentAPIView(APIView):
+    permission_classes = [IsAuthenticated, CanManageReceipts]
+
+    def get(self, request, payment_id):
+        from fds.models import FdsFeesCollection
+        payment = get_object_or_404(
+            FdsFeesCollection.objects.select_related('student', 'wedding_group'),
+            pk=payment_id,
+        )
+        if not can_access_company_receipts(request.user, 'FDS', action='view'):
+            return Response({'detail': 'Forbidden: Insufficient permissions for FDS fee receipts.'}, status=status.HTTP_403_FORBIDDEN)
+
+        existing = (
+            FeeReceipt.objects.filter(fds_payment=payment).exclude(status='VOID')
+            .order_by('-created_at')
+            .first()
+        ) or FeeReceipt.objects.filter(fds_payment=payment).order_by('-created_at').first()
+
+        is_preview_req = request.GET.get('preview') in ('true', '1')
+        if existing and not is_preview_req:
+            return Response(FeeReceiptSerializer(existing).data, status=status.HTTP_200_OK)
+
+        if not existing and not is_preview_req and is_trainer_user(request.user):
+            return Response({'detail': 'No receipt has been generated yet for this FDS payment.'}, status=status.HTTP_404_NOT_FOUND)
+
+        student_meta = {}
+        if payment.student:
+            student_meta = extract_fds_student_metadata(payment.student)
+        elif payment.wedding_group:
+            student_meta = extract_fds_wedding_metadata(payment.wedding_group)
+
+        ledger_meta = extract_fds_ledger_snapshot(
+            student=payment.student,
+            wedding_group=payment.wedding_group,
+            payment=payment,
+        )
+        branch = getattr(payment.student, 'branch', None)
+        settings_obj = get_or_create_receipt_settings('FDS', campus=branch)
+        issuer_snap = build_issuer_snapshot(settings_obj, company='FDS')
+        p_amt = getattr(payment, 'paid_amount', None) or getattr(payment, 'amount', Decimal('0.00'))
+        fallback_title = f"FDS Fee - {payment.fee_type}" if getattr(payment, 'fee_type', None) else 'FDS Course Fee'
+        if payment.wedding_group:
+            fallback_title = f"Wedding Choreography - {payment.wedding_group.event_name or payment.wedding_group.lead_contact_name}"
+
+        fin = calculate_receipt_financials(
+            subtotal_amount=p_amt,
+            tax_mode=settings_obj.default_gst_mode or 'NONE',
+            gst_rate=settings_obj.default_gst_rate,
+            default_sac=settings_obj.sac_code or '999293',
+            fallback_title=fallback_title,
+            fallback_period=f"FDS #{payment.id}",
+        )
+        p_date = getattr(payment, 'pay_date', None) or getattr(payment, 'payment_date', None) or timezone.now()
+        return Response({
+            'id': existing.id if (existing and is_preview_req) else None,
+            'is_preview': True,
+            'company': 'FDS',
+            'fds_payment': payment.id,
+            'fds_student': payment.student_id,
+            'fds_wedding_group': payment.wedding_group_id,
+            'recipient_name': student_meta.get('recipient_name') or '',
+            'recipient_phone': student_meta.get('recipient_phone', ''),
+            'recipient_email': student_meta.get('recipient_email', ''),
+            'parent_or_sponsor_name': student_meta.get('parent_or_sponsor_name', ''),
+            'student_enrollment_code': student_meta.get('student_enrollment_code', ''),
+            'course_or_package_name': student_meta.get('course_or_package_name', '') or fallback_title,
+            'batch_name': student_meta.get('batch_name', ''),
+            'campus_name': student_meta.get('campus_name', ''),
+            'grade_level': student_meta.get('grade_level', ''),
+            'mode_of_study': student_meta.get('mode_of_study', ''),
+            'subtotal_amount': str(fin['subtotal_amount']),
+            'discount_amount': str(fin['discount_amount']),
+            'taxable_amount': str(fin['taxable_amount']),
+            'tax_mode': fin['tax_mode'],
+            'supply_type': fin['supply_type'],
+            'cgst_rate': str(fin['cgst_rate']),
+            'cgst_amount': str(fin['cgst_amount']),
+            'sgst_rate': str(fin['sgst_rate']),
+            'sgst_amount': str(fin['sgst_amount']),
+            'igst_rate': str(fin['igst_rate']),
+            'igst_amount': str(fin['igst_amount']),
+            'total_tax_amount': str(fin['total_tax_amount']),
+            'total_amount': str(fin['total_amount']),
+            'amount_in_words': fin['amount_in_words'],
+            'payment_method': getattr(payment, 'mode_of_pay', 'UPI'),
+            'payment_reference': payment.remarks or '',
+            'payment_date': p_date,
+            'installment_label': f"FDS #{payment.id}",
+            'payment_status_badge': 'PAID',
+            'ledger_total_fee': str(ledger_meta.get('ledger_total_fee', '0.00')),
+            'ledger_discount': str(ledger_meta.get('ledger_discount', '0.00')),
+            'ledger_previously_paid': str(ledger_meta.get('ledger_previously_paid', '0.00')),
+            'ledger_current_paid': str(ledger_meta.get('ledger_current_paid', '0.00')),
+            'ledger_total_paid': str(ledger_meta.get('ledger_total_paid', '0.00')),
+            'ledger_balance_due': str(ledger_meta.get('ledger_balance_due', '0.00')),
+            'line_items': fin['line_items'],
+            'issuer_snapshot': issuer_snap,
+            'status': 'DRAFT',
+            'document_type': 'RECEIPT',
+            'receipt_number': '',
+        }, status=status.HTTP_200_OK)
+
+    def post(self, request, payment_id):
+        if is_trainer_user(request.user) or not can_access_company_receipts(request.user, 'FDS', action='manage'):
+            return Response({'detail': 'Forbidden: Insufficient permissions to issue FDS fee receipts.'}, status=status.HTTP_403_FORBIDDEN)
+
+        from fds.models import FdsFeesCollection
+        with transaction.atomic():
+            payment = get_object_or_404(
+                FdsFeesCollection.objects.select_for_update().select_related('student', 'wedding_group'),
+                pk=payment_id,
+            )
+
+            force_new = str(request.data.get('force_new', 'false')).lower() in ('true', '1', 'yes')
+            existing = (
+                FeeReceipt.objects.filter(fds_payment=payment).exclude(status='VOID')
+                .order_by('-created_at')
+                .first()
+            )
+
+            if existing and not force_new:
+                override_keys = set(request.data.keys()) - {'force_new', 'fds_payment', 'company'}
+                if override_keys:
+                    serializer = FeeReceiptSerializer(existing, data=request.data, context={'request': request}, partial=True)
+                    serializer.is_valid(raise_exception=True)
+                    existing = serializer.save()
+                return Response(FeeReceiptSerializer(existing).data, status=status.HTTP_200_OK)
+
+            payload = {}
+            if isinstance(request.data, dict):
+                payload.update(request.data)
+            else:
+                payload.update(request.data.dict())
+            payload.pop('force_new', None)
+            payload['company'] = 'FDS'
+            payload['fds_payment'] = payment.id
+            if payment.student_id:
+                payload['fds_student'] = payment.student_id
+            if payment.wedding_group_id:
+                payload['fds_wedding_group'] = payment.wedding_group_id
+            fds_pdate = getattr(payment, 'pay_date', None) or getattr(payment, 'payment_date', None)
+            if 'payment_date' not in payload and fds_pdate:
+                import datetime as dt_mod
+                if isinstance(fds_pdate, dt_mod.date) and not isinstance(fds_pdate, dt_mod.datetime):
+                    fds_pdate = timezone.make_aware(dt_mod.datetime.combine(fds_pdate, dt_mod.time.min))
+                payload['payment_date'] = fds_pdate
+            if 'issue_date' not in payload:
+                payload['issue_date'] = timezone.now()
+
+            serializer = FeeReceiptSerializer(data=payload, context={'request': request})
+            serializer.is_valid(raise_exception=True)
+            receipt = serializer.save()
+            return Response(FeeReceiptSerializer(receipt).data, status=status.HTTP_201_CREATED)
+
+
+class FeeReceiptFromProcessingPaymentAPIView(APIView):
+    permission_classes = [IsAuthenticated, CanManageReceipts]
+
+    def get(self, request, payment_id):
+        from trainers.models import ProcessingFeePayment
+        payment = get_object_or_404(
+            ProcessingFeePayment.objects.select_related('student'),
+            pk=payment_id,
+        )
+        if not can_access_company_receipts(request.user, 'LP', action='view'):
+            return Response({'detail': 'Forbidden: Insufficient permissions for LP fee receipts.'}, status=status.HTTP_403_FORBIDDEN)
+
+        existing = (
+            FeeReceipt.objects.filter(processing_payment=payment).exclude(status='VOID')
+            .order_by('-created_at')
+            .first()
+        ) or FeeReceipt.objects.filter(processing_payment=payment).order_by('-created_at').first()
+
+        is_preview_req = request.GET.get('preview') in ('true', '1')
+        if existing and not is_preview_req:
+            return Response(FeeReceiptSerializer(existing).data, status=status.HTTP_200_OK)
+
+        if not existing and not is_preview_req and is_trainer_user(request.user):
+            return Response({'detail': 'No receipt has been generated yet for this LP payment.'}, status=status.HTTP_404_NOT_FOUND)
+
+        student_meta = extract_processing_student_metadata(payment.student) if payment.student else {}
+        ledger_meta = extract_processing_student_ledger_snapshot(
+            student=payment.student,
+            fee_head=payment.fee_head,
+            payment=payment,
+        )
+        settings_obj = get_or_create_receipt_settings('LP')
+        issuer_snap = build_issuer_snapshot(settings_obj, company='LP')
+        fin = calculate_receipt_financials(
+            subtotal_amount=payment.amount,
+            tax_mode=settings_obj.default_gst_mode or 'NONE',
+            gst_rate=settings_obj.default_gst_rate,
+            default_sac=settings_obj.sac_code or '999293',
+            fallback_title=f"Processing Fee - {payment.get_fee_head_display()}",
+            fallback_period=f"{payment.get_fee_head_display()} Fee",
+        )
+        return Response({
+            'id': existing.id if (existing and is_preview_req) else None,
+            'is_preview': True,
+            'company': 'LP',
+            'processing_payment': payment.id,
+            'processing_student': payment.student_id,
+            'recipient_name': student_meta.get('recipient_name') or '',
+            'recipient_phone': student_meta.get('recipient_phone', ''),
+            'recipient_email': student_meta.get('recipient_email', ''),
+            'parent_or_sponsor_name': student_meta.get('parent_or_sponsor_name', ''),
+            'student_enrollment_code': student_meta.get('student_enrollment_code', ''),
+            'course_or_package_name': student_meta.get('course_or_package_name', ''),
+            'batch_name': student_meta.get('batch_name', ''),
+            'campus_name': student_meta.get('campus_name', ''),
+            'grade_level': student_meta.get('grade_level', ''),
+            'mode_of_study': student_meta.get('mode_of_study', ''),
+            'subtotal_amount': str(fin['subtotal_amount']),
+            'discount_amount': str(fin['discount_amount']),
+            'taxable_amount': str(fin['taxable_amount']),
+            'tax_mode': fin['tax_mode'],
+            'supply_type': fin['supply_type'],
+            'cgst_rate': str(fin['cgst_rate']),
+            'cgst_amount': str(fin['cgst_amount']),
+            'sgst_rate': str(fin['sgst_rate']),
+            'sgst_amount': str(fin['sgst_amount']),
+            'igst_rate': str(fin['igst_rate']),
+            'igst_amount': str(fin['igst_amount']),
+            'total_tax_amount': str(fin['total_tax_amount']),
+            'total_amount': str(fin['total_amount']),
+            'amount_in_words': fin['amount_in_words'],
+            'payment_method': payment.payment_method,
+            'payment_reference': payment.reference or '',
+            'payment_date': payment.payment_date,
+            'installment_label': f"{payment.get_fee_head_display()} Fee",
+            'payment_status_badge': 'PAID',
+            'ledger_total_fee': str(ledger_meta.get('ledger_total_fee', '0.00')),
+            'ledger_discount': str(ledger_meta.get('ledger_discount', '0.00')),
+            'ledger_previously_paid': str(ledger_meta.get('ledger_previously_paid', '0.00')),
+            'ledger_current_paid': str(ledger_meta.get('ledger_current_paid', '0.00')),
+            'ledger_total_paid': str(ledger_meta.get('ledger_total_paid', '0.00')),
+            'ledger_balance_due': str(ledger_meta.get('ledger_balance_due', '0.00')),
+            'line_items': fin['line_items'],
+            'issuer_snapshot': issuer_snap,
+            'status': 'DRAFT',
+            'document_type': 'RECEIPT',
+            'receipt_number': '',
+        }, status=status.HTTP_200_OK)
+
+    def post(self, request, payment_id):
+        if is_trainer_user(request.user) or not can_access_company_receipts(request.user, 'LP', action='manage'):
+            return Response({'detail': 'Forbidden: Insufficient permissions to issue LP fee receipts.'}, status=status.HTTP_403_FORBIDDEN)
+
+        from trainers.models import ProcessingFeePayment
+        with transaction.atomic():
+            payment = get_object_or_404(
+                ProcessingFeePayment.objects.select_for_update().select_related('student'),
+                pk=payment_id,
+            )
+
+            force_new = str(request.data.get('force_new', 'false')).lower() in ('true', '1', 'yes')
+            existing = (
+                FeeReceipt.objects.filter(processing_payment=payment).exclude(status='VOID')
+                .order_by('-created_at')
+                .first()
+            )
+
+            if existing and not force_new:
+                override_keys = set(request.data.keys()) - {'force_new', 'processing_payment', 'company'}
+                if override_keys:
+                    serializer = FeeReceiptSerializer(existing, data=request.data, context={'request': request}, partial=True)
+                    serializer.is_valid(raise_exception=True)
+                    existing = serializer.save()
+                return Response(FeeReceiptSerializer(existing).data, status=status.HTTP_200_OK)
+
+            payload = {}
+            if isinstance(request.data, dict):
+                payload.update(request.data)
+            else:
+                payload.update(request.data.dict())
+            payload.pop('force_new', None)
+            payload['company'] = 'LP'
+            payload['processing_payment'] = payment.id
+            if payment.student_id:
+                payload['processing_student'] = payment.student_id
+            if 'payment_date' not in payload and payment.payment_date:
+                payload['payment_date'] = payment.payment_date
+            if 'issue_date' not in payload:
+                payload['issue_date'] = timezone.now()
+
+            serializer = FeeReceiptSerializer(data=payload, context={'request': request})
+            serializer.is_valid(raise_exception=True)
+            receipt = serializer.save()
+            return Response(FeeReceiptSerializer(receipt).data, status=status.HTTP_201_CREATED)
+
+
 class FeeReceiptVoidAPIView(APIView):
     permission_classes = [IsAuthenticated, CanManageReceipts]
 
@@ -372,6 +760,8 @@ class FeeReceiptVoidAPIView(APIView):
             return Response({'detail': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
 
         receipt = get_object_or_404(FeeReceipt.objects.select_related('account', 'account__student'), pk=pk)
+        if not can_access_company_receipts(request.user, receipt.company, action='manage'):
+            return Response({'detail': f'Forbidden: You do not have permission to void receipts for {receipt.company}.'}, status=status.HTTP_403_FORBIDDEN)
         if receipt.account and not _can_view_fee_account(request.user, receipt.account):
             return Response({'detail': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
 
@@ -449,6 +839,12 @@ class FeeReceiptCalculatePreviewAPIView(APIView):
         payment_id = data.get('payment')
         account_id = data.get('account')
         student_id = data.get('student')
+        fds_payment_id = data.get('fds_payment')
+        fds_student_id = data.get('fds_student')
+        fds_wedding_id = data.get('fds_wedding_group')
+        fds_account_id = data.get('fds_account')
+        processing_payment_id = data.get('processing_payment')
+        processing_student_id = data.get('processing_student')
 
         payment = (
             get_object_or_404(FeePayment.objects.select_related('account', 'account__student', 'installment'), pk=payment_id)
@@ -465,6 +861,40 @@ class FeeReceiptCalculatePreviewAPIView(APIView):
             if student_id not in (None, '')
             else None
         )
+
+        fds_payment = None
+        fds_student = None
+        fds_wedding = None
+        fds_account = None
+        if fds_payment_id not in (None, ''):
+            from fds.models import FdsFeesCollection
+            fds_payment = get_object_or_404(FdsFeesCollection.objects.select_related('student', 'wedding_group'), pk=fds_payment_id)
+        if fds_student_id not in (None, ''):
+            from fds.models import FdsStudent
+            fds_student = get_object_or_404(FdsStudent, pk=fds_student_id)
+        elif fds_payment and fds_payment.student:
+            fds_student = fds_payment.student
+        if fds_wedding_id not in (None, ''):
+            from fds.models import FdsWeddingGroup
+            fds_wedding = get_object_or_404(FdsWeddingGroup, pk=fds_wedding_id)
+        elif fds_payment and fds_payment.wedding_group:
+            fds_wedding = fds_payment.wedding_group
+        if fds_account_id not in (None, ''):
+            from fds.models import FdsStudentFeeAccount
+            fds_account = get_object_or_404(FdsStudentFeeAccount, pk=fds_account_id)
+        elif fds_student and hasattr(fds_student, 'fee_account'):
+            fds_account = getattr(fds_student, 'fee_account', None)
+
+        processing_payment = None
+        processing_student = None
+        if processing_payment_id not in (None, ''):
+            from trainers.models import ProcessingFeePayment
+            processing_payment = get_object_or_404(ProcessingFeePayment.objects.select_related('student'), pk=processing_payment_id)
+        if processing_student_id not in (None, ''):
+            from trainers.models import ProcessingStudent
+            processing_student = get_object_or_404(ProcessingStudent, pk=processing_student_id)
+        elif processing_payment and processing_payment.student:
+            processing_student = processing_payment.student
 
         if payment and account and payment.account_id != account.id:
             return Response(
@@ -483,7 +913,7 @@ class FeeReceiptCalculatePreviewAPIView(APIView):
             student = account.student
 
         if student and not account:
-            account = student.fee_account
+            account = getattr(student, 'fee_account', None)
 
         if account and not _can_view_fee_account(request.user, account):
             return Response({'detail': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
@@ -495,30 +925,74 @@ class FeeReceiptCalculatePreviewAPIView(APIView):
             data.get('company')
             or (payment.company if payment else None)
             or (account.company if account else None)
+            or ('FDS' if (fds_payment or fds_student or fds_wedding or fds_account) else None)
+            or ('LP' if (processing_payment or processing_student) else None)
             or (getattr(student, 'company', None) if student else None)
             or getattr(request.user, 'company', None)
             or 'FLAG'
+        ).upper()
+
+        if not can_access_company_receipts(request.user, company, action='view'):
+            return Response({'detail': f'Forbidden: No fee access for {company}.'}, status=status.HTTP_403_FORBIDDEN)
+
+        campus = (
+            getattr(student, 'campus', None) if student else None
+        ) or (
+            getattr(fds_student, 'branch', None) if fds_student else None
         )
-        campus = getattr(student, 'campus', None) if student else None
         settings_obj = get_or_create_receipt_settings(company=company, campus=campus)
 
-        student_meta = extract_student_metadata(student) if student else {}
-        ledger_meta = extract_account_ledger_snapshot(account, payment=payment)
+        student_meta = {}
+        if student:
+            student_meta = extract_student_metadata(student)
+        elif fds_student:
+            student_meta = extract_fds_student_metadata(fds_student)
+        elif fds_wedding:
+            student_meta = extract_fds_wedding_metadata(fds_wedding)
+        elif processing_student:
+            student_meta = extract_processing_student_metadata(processing_student)
+
+        if account or payment:
+            ledger_meta = extract_account_ledger_snapshot(account, payment=payment)
+        elif fds_account or fds_student or fds_wedding or fds_payment:
+            ledger_meta = extract_fds_ledger_snapshot(
+                account=fds_account,
+                student=fds_student,
+                wedding_group=fds_wedding,
+                payment=fds_payment
+            )
+        elif processing_student or processing_payment:
+            ledger_meta = extract_processing_student_ledger_snapshot(
+                student=processing_student,
+                payment=processing_payment
+            )
+        else:
+            ledger_meta = {}
 
         fallback_amount = (
             data.get('subtotal_amount')
             or data.get('total_amount')
-            or (payment.amount if payment else Decimal('0.00'))
+            or (payment.amount if payment else None)
+            or (getattr(fds_payment, 'amount', None) if fds_payment else None)
+            or (getattr(processing_payment, 'amount', None) if processing_payment else None)
+            or Decimal('0.00')
         )
         fallback_title = (
             data.get('course_or_package_name')
             or student_meta.get('course_or_package_name')
             or (account.plan_name if account else '')
+            or (f"FDS Fee - {fds_payment.fee_type}" if (fds_payment and getattr(fds_payment, 'fee_type', None)) else '')
+            or (f"Processing Fee - {processing_payment.get_fee_head_display()}" if processing_payment else '')
+            or ('FDS Course Fee' if company == 'FDS' else '')
+            or ('Processing Student Fee' if company == 'LP' else '')
             or 'Course Tuition Fee'
         )
         fallback_period = (
             data.get('installment_label')
             or (payment.installment.label if (payment and payment.installment) else '')
+            or (f"FDS #{fds_payment.id}" if fds_payment else '')
+            or (f"{processing_payment.get_fee_head_display()} Fee" if processing_payment else '')
+            or ''
         )
 
         fin = calculate_receipt_financials(
@@ -557,7 +1031,16 @@ class FeeReceiptSendEmailAPIView(APIView):
     permission_classes = [IsAuthenticated, CanManageReceipts]
 
     def post(self, request, pk):
-        receipt = get_object_or_404(FeeReceipt.objects.select_related('student', 'account', 'account__student'), pk=pk)
+        receipt = get_object_or_404(
+            FeeReceipt.objects.select_related(
+                'student', 'account', 'account__student',
+                'fds_student', 'fds_account', 'fds_payment',
+                'processing_student', 'processing_payment'
+            ),
+            pk=pk
+        )
+        if not can_access_company_receipts(request.user, receipt.company, action='manage'):
+            return Response({'detail': f'Forbidden: You do not have permission to send receipt emails for {receipt.company}.'}, status=status.HTTP_403_FORBIDDEN)
         if receipt.account and not _can_view_fee_account(request.user, receipt.account):
             return Response({'detail': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
 
@@ -566,6 +1049,8 @@ class FeeReceiptSendEmailAPIView(APIView):
             or request.data.get('email')
             or receipt.recipient_email
             or (receipt.student.email if receipt.student else '')
+            or (getattr(receipt.fds_student, 'email', None) if receipt.fds_student else '')
+            or (getattr(receipt.processing_student, 'email', None) if receipt.processing_student else '')
             or ''
         ).strip()
 
@@ -605,7 +1090,7 @@ class FeeReceiptSendEmailAPIView(APIView):
                 )
 
         issuer_snap = receipt.issuer_snapshot or {}
-        raw_org_name = issuer_snap.get('organization_name') or 'FLAG German Language Academy'
+        raw_org_name = issuer_snap.get('organization_name') or f"{receipt.company} Accounts Department"
         raw_org_email = issuer_snap.get('email') or ''
         raw_org_phone = issuer_snap.get('phone') or ''
 
@@ -680,22 +1165,22 @@ class FeeReceiptSendEmailAPIView(APIView):
                 is_active=True,
                 status=MailAccount.STATUS_CONNECTED,
                 module_scope=MailAccount.SCOPE_FEES,
+                company=receipt.company,
             )
-            .filter(Q(company=receipt.company) | Q(company='FLAG'))
             .first()
         )
         if not fee_account:
-            # Fall back to any connected account explicitly designated for fees/accounts
+            # Fall back to any company-specific account designated for fees/accounts
             fee_account = (
                 MailAccount.objects.filter(
                     is_active=True,
                     status=MailAccount.STATUS_CONNECTED,
+                    company=receipt.company,
                 )
                 .filter(
-                    Q(module_scope=MailAccount.SCOPE_FEES)
-                    | Q(email__icontains='account')
+                    Q(email__icontains='account')
                     | Q(send_as_email__icontains='account')
-                    | Q(email__icontains='jayesh')
+                    | Q(email__icontains='fee')
                 )
                 .first()
             )
@@ -741,9 +1226,16 @@ class FeeReceiptSendEmailAPIView(APIView):
         # 2. If no fee_account or Gmail API failed, fall back to Django SMTP
         if not sent_ok:
             try:
+                from email.utils import formataddr
+                smtp_from = (
+                    (fee_account.send_as_email or fee_account.email) if fee_account
+                    else (raw_org_email or getattr(settings, 'DEFAULT_FROM_EMAIL', 'accounts@lifeplannercrm.com'))
+                )
+                from_header = formataddr((raw_org_name, smtp_from))
                 msg = EmailMultiAlternatives(
                     subject=subject,
                     body=text_body,
+                    from_email=from_header,
                     to=[to_email],
                 )
                 msg.attach_alternative(html_body, "text/html")

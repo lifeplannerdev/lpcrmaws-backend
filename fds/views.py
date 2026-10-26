@@ -2,7 +2,7 @@ import openpyxl
 from io import BytesIO
 from datetime import datetime
 
-from django.db.models import Q, Sum, Count
+from django.db.models import Q, Sum, Count, Prefetch
 from django.http import HttpResponse
 from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action
@@ -1041,9 +1041,13 @@ from .models import FdsStudentFeeAccount
 class FdsStudentFeeAccountViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = FdsStudentFeeAccountSerializer
+    pagination_class = FdsPagination
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['status', 'active_package', 'plan_type']
-    search_fields = ['student__name', 'student__student_id', 'plan_name', 'plan_code']
+    search_fields = [
+        'student__name', 'student__student_id', 'student__contact_no', 'student__whatsapp_no',
+        'student__batch__name', 'plan_name', 'plan_code'
+    ]
     ordering_fields = ['updated_at', 'balance_due', 'total_due', 'total_paid']
     ordering = ['-updated_at']
 
@@ -1057,18 +1061,36 @@ class FdsStudentFeeAccountViewSet(viewsets.ModelViewSet):
             return FdsStudentFeeAccount.objects.none()
 
         qs = FdsStudentFeeAccount.objects.select_related(
-            'student', 'student__batch', 'student__batch__trainer', 'active_package'
-        ).prefetch_related('installments', 'payments', 'adjustments')
+            'student',
+            'student__batch',
+            'student__batch__trainer',
+            'student__batch__coordinator',
+            'active_package',
+        ).prefetch_related(
+            'installments',
+            Prefetch(
+                'payments',
+                queryset=FdsFeesCollection.objects.select_related(
+                    'fees_type', 'student', 'wedding_group', 'collected_by'
+                )
+            ),
+            Prefetch(
+                'adjustments',
+                queryset=FdsFeeAdjustment.objects.select_related('created_by')
+            )
+        )
 
-        if fds_admin_all(self.request.user):
+        if fds_admin_all(self.request.user) or fds_fees_access(self.request.user):
             trainer_id = self.request.query_params.get('trainer')
             branch = self.request.query_params.get('branch')
             if branch and branch.upper() in ('KOCHI', 'KOTTAYAM'):
-                qs = qs.filter(student__branch=branch.upper())
+                b = branch.upper()
+                qs = qs.filter(Q(student__branch=b) | Q(student__batch__branch=b))
             if trainer_id:
                 qs = qs.filter(student__batch__trainer_id=trainer_id)
         else:
-            qs = qs.filter(student__branch=get_user_branch(self.request.user))
+            ub = get_user_branch(self.request.user)
+            qs = qs.filter(Q(student__branch=ub) | Q(student__batch__branch=ub))
 
         student_id = self.request.query_params.get('student_id') or self.request.query_params.get('student')
         class_cat = self.request.query_params.get('class_category')
@@ -1078,8 +1100,14 @@ class FdsStudentFeeAccountViewSet(viewsets.ModelViewSet):
 
         if student_id:
             qs = qs.filter(student_id=student_id)
-        if class_cat and class_cat != 'ALL':
-            qs = qs.filter(student__batch__class_category=class_cat)
+        if class_cat and class_cat.upper() != 'ALL':
+            cat = class_cat.upper()
+            qs = qs.filter(
+                Q(student__batch__class_category=cat) |
+                Q(active_package__category=cat) |
+                Q(student__fee_structure__category=cat) |
+                Q(plan_name__icontains=cat)
+            )
         if status_filter:
             qs = qs.filter(status=status_filter)
         if plan_type:
@@ -1088,6 +1116,9 @@ class FdsStudentFeeAccountViewSet(viewsets.ModelViewSet):
             qs = qs.filter(
                 Q(student__name__icontains=search) |
                 Q(student__student_id__icontains=search) |
+                Q(student__contact_no__icontains=search) |
+                Q(student__whatsapp_no__icontains=search) |
+                Q(student__batch__name__icontains=search) |
                 Q(plan_name__icontains=search) |
                 Q(plan_code__icontains=search)
             )
@@ -1368,12 +1399,14 @@ class FdsStudentFeeAccountViewSet(viewsets.ModelViewSet):
         total_overdue = qs.aggregate(t=Sum('overdue_amount'))['t'] or Decimal('0')
 
         pending_qs = FdsStudent.objects.filter(is_active=True, fee_account__isnull=True)
-        if fds_admin_all(request.user):
+        if fds_admin_all(request.user) or fds_fees_access(request.user):
             branch = request.query_params.get('branch')
             if branch and branch.upper() in ('KOCHI', 'KOTTAYAM'):
-                pending_qs = pending_qs.filter(branch=branch.upper())
+                b = branch.upper()
+                pending_qs = pending_qs.filter(Q(branch=b) | Q(batch__branch=b))
         else:
-            pending_qs = pending_qs.filter(branch=get_user_branch(request.user))
+            ub = get_user_branch(request.user)
+            pending_qs = pending_qs.filter(Q(branch=ub) | Q(batch__branch=ub))
         pending_count = pending_qs.count()
 
         return Response({
@@ -1706,7 +1739,7 @@ class FdsAnalysisView(APIView):
 
         import calendar as _cal
         from datetime import date as _date
-        from django.db.models import Q, Sum, Count
+        from django.db.models import Q, Sum, Count, Prefetch
 
         today = timezone.now().date()
         this_month_start = today.replace(day=1)

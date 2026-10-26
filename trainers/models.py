@@ -781,6 +781,46 @@ class ProcessingStudent(models.Model):
         return f"{self.name} - {self.category}"
 
 
+class ProcessingFeePayment(models.Model):
+    FEE_HEAD_CHOICES = [
+        ('REGISTRATION', 'Registration Fee'),
+        ('PROCESSING', 'Application / Processing Fee'),
+        ('ADMISSION', 'Admission Fee'),
+        ('LANGUAGE', 'Language Confirmation Fee'),
+        ('VISA', 'Visa Approval Fee'),
+        ('MINISTRY', 'Ministry Letter Fee'),
+        ('OTHER', 'Other / Ad-hoc Fee'),
+    ]
+
+    student = models.ForeignKey(ProcessingStudent, on_delete=models.CASCADE, related_name='fee_payments')
+    fee_head = models.CharField(max_length=30, choices=FEE_HEAD_CHOICES, default='PROCESSING', db_index=True)
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    payment_method = models.CharField(max_length=20, default='UPI')
+    payment_date = models.DateTimeField(default=timezone.now, db_index=True)
+    reference = models.CharField(max_length=150, blank=True)
+    notes = models.TextField(blank=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='processing_payments_created')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-payment_date', '-created_at']
+
+    def __str__(self):
+        return f"{self.student.name} - {self.fee_head} - {self.amount}"
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        from .services import recalculate_processing_student_fees
+        recalculate_processing_student_fees(self.student)
+
+    def delete(self, *args, **kwargs):
+        student = self.student
+        super().delete(*args, **kwargs)
+        if student:
+            from .services import recalculate_processing_student_fees
+            recalculate_processing_student_fees(student)
+
+
 class ProcessingDynamicField(models.Model):
     FIELD_TYPE_CHOICES = [
         ('text', 'Text'),

@@ -16,7 +16,7 @@ import csv
 
 from .models import (
     Trainer, Student, Attendance, AcademicBatch, AcademicPackage, Branch,
-    ExamResult, ProcessingStudent, ProcessingDynamicField, ProcessingStudentDocument,
+    ExamResult, ProcessingStudent, ProcessingFeePayment, ProcessingDynamicField, ProcessingStudentDocument,
     StudentTimeline, CourseLevel, CourseModule, StudentModuleProgress,
     StudentPackageEnrollment, StudentAcademicPlacement, IntakeOption, CategoryOption
 )
@@ -30,6 +30,7 @@ from .serializers import (
     BranchSerializer,
     ExamResultSerializer,
     ProcessingStudentSerializer,
+    ProcessingFeePaymentSerializer,
     ProcessingDynamicFieldSerializer,
     ProcessingStudentDocumentSerializer,
     CourseLevelSerializer,
@@ -1090,11 +1091,20 @@ class ProcessingStudentListCreateAPIView(APIView):
 
         paginator = StandardResultsSetPagination()
         page = paginator.paginate_queryset(qs, request)
-        serializer = ProcessingStudentSerializer(page, many=True)
+        serializer = ProcessingStudentSerializer(page, many=True, context={'request': request})
         return paginator.get_paginated_response(serializer.data)
 
     def post(self, request):
-        if not (_has_perm(request.user, 'processing_students:edit_any') or _has_perm(request.user, 'processing_students:edit_own')):
+        can_create = (
+            _has_perm(request.user, 'processing_students:edit_any')
+            or _has_perm(request.user, 'processing_students:edit_own')
+            or _has_perm(request.user, 'processing_students:create')
+            or _has_perm(request.user, 'processing_students:manage_fees')
+            or _has_perm(request.user, 'fees:lp')
+            or _has_perm(request.user, 'fees:accounts')
+            or request.user.is_superuser
+        )
+        if not can_create:
             return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
         data = request.data.copy()
@@ -1106,7 +1116,7 @@ class ProcessingStudentListCreateAPIView(APIView):
         elif _has_perm(request.user, 'processing_students:edit_own') and not _has_perm(request.user, 'processing_students:edit_any'):
             data['assigned_to'] = request.user.id
 
-        serializer = ProcessingStudentSerializer(data=data)
+        serializer = ProcessingStudentSerializer(data=data, context={'request': request})
         if serializer.is_valid():
             student = serializer.save()
             ActivityLog.objects.create(
@@ -1126,7 +1136,13 @@ class ProcessingStudentDetailAPIView(APIView):
 
     def get_object(self, request, pk):
         qs = ProcessingStudent.objects.select_related('assigned_to')
-        can_read_any = _has_perm(request.user, 'processing_students:read_any')
+        can_read_any = (
+            _has_perm(request.user, 'processing_students:read_any')
+            or _has_perm(request.user, 'processing_students:manage_fees')
+            or _has_perm(request.user, 'fees:lp')
+            or _has_perm(request.user, 'fees:accounts')
+            or request.user.is_superuser
+        )
         can_read_own = _has_perm(request.user, 'processing_students:read_own')
         
         if not can_read_any and can_read_own:
@@ -1135,11 +1151,18 @@ class ProcessingStudentDetailAPIView(APIView):
         return get_object_or_404(qs, pk=pk)
 
     def get(self, request, pk):
-        if not (_has_perm(request.user, 'processing_students:read_any') or _has_perm(request.user, 'processing_students:read_own')):
+        if not (
+            _has_perm(request.user, 'processing_students:read_any')
+            or _has_perm(request.user, 'processing_students:read_own')
+            or _has_perm(request.user, 'processing_students:manage_fees')
+            or _has_perm(request.user, 'fees:lp')
+            or _has_perm(request.user, 'fees:accounts')
+            or request.user.is_superuser
+        ):
             return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
         
         student = self.get_object(request, pk)
-        return Response(ProcessingStudentSerializer(student).data)
+        return Response(ProcessingStudentSerializer(student, context={'request': request}).data)
 
     def put(self, request, pk):
         return self.patch(request, pk)
@@ -1149,11 +1172,17 @@ class ProcessingStudentDetailAPIView(APIView):
         
         can_edit_any = _has_perm(request.user, 'processing_students:edit_any')
         can_edit_own = _has_perm(request.user, 'processing_students:edit_own') and student.assigned_to == request.user
+        can_edit_fee = (
+            _has_perm(request.user, 'processing_students:manage_fees')
+            or _has_perm(request.user, 'fees:lp')
+            or _has_perm(request.user, 'fees:accounts')
+            or request.user.is_superuser
+        )
         
-        if not (can_edit_any or can_edit_own):
+        if not (can_edit_any or can_edit_own or can_edit_fee):
             return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
-        serializer = ProcessingStudentSerializer(student, data=request.data, partial=True)
+        serializer = ProcessingStudentSerializer(student, data=request.data, partial=True, context={'request': request})
         if serializer.is_valid():
             changes_list = []
             for field, new_val in serializer.validated_data.items():
@@ -1497,3 +1526,104 @@ class CategoryOptionDetailAPIView(APIView):
         option = get_object_or_404(CategoryOption, pk=pk)
         option.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+def _can_manage_processing_fees(user):
+    if not (user and user.is_authenticated):
+        return False
+    return (
+        user.is_superuser
+        or _has_perm(user, 'processing_students:manage_fees')
+        or _has_perm(user, 'fees:accounts')
+        or _has_perm(user, 'fees:lp')
+    )
+
+
+def _can_view_processing_fees(user, student=None):
+    if not (user and user.is_authenticated):
+        return False
+    if _can_manage_processing_fees(user) or _has_perm(user, 'processing_students:read_any'):
+        return True
+    if student and _has_perm(user, 'processing_students:read_own') and student.assigned_to == user:
+        return True
+    return False
+
+
+class ProcessingFeePaymentListCreateAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, student_pk=None):
+        if student_pk:
+            student = get_object_or_404(ProcessingStudent, pk=student_pk)
+            if not _can_view_processing_fees(request.user, student):
+                return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+            payments = student.fee_payments.all().order_by('-payment_date', '-created_at')
+        else:
+            if not _can_view_processing_fees(request.user):
+                return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+            payments = ProcessingFeePayment.objects.select_related('student', 'created_by').order_by('-payment_date', '-created_at')
+
+        serializer = ProcessingFeePaymentSerializer(payments, many=True, context={'request': request})
+        return Response(serializer.data)
+
+    def post(self, request, student_pk=None):
+        if not _can_manage_processing_fees(request.user):
+            return Response({"detail": "Forbidden. Fee management permissions required."}, status=status.HTTP_403_FORBIDDEN)
+
+        data = request.data.copy()
+        if student_pk:
+            data['student'] = student_pk
+
+        serializer = ProcessingFeePaymentSerializer(data=data, context={'request': request})
+        if serializer.is_valid():
+            payment = serializer.save()
+            ActivityLog.objects.create(
+                user=request.user,
+                company='LP',
+                action='STUDENT_UPDATED',
+                entity_type='ProcessingFeePayment',
+                entity_id=payment.id,
+                entity_name=payment.student.name,
+                description=f"Fee payment of {payment.amount} ({payment.get_fee_head_display()}) recorded for {payment.student.name}"
+            )
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ProcessingFeePaymentDetailAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get_object(self, request, pk):
+        payment = get_object_or_404(ProcessingFeePayment.objects.select_related('student'), pk=pk)
+        if not _can_view_processing_fees(request.user, payment.student):
+            return None
+        return payment
+
+    def get(self, request, pk):
+        payment = self.get_object(request, pk)
+        if not payment:
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        serializer = ProcessingFeePaymentSerializer(payment, context={'request': request})
+        return Response(serializer.data)
+
+    def delete(self, request, pk):
+        if not _can_manage_processing_fees(request.user):
+            return Response({"detail": "Forbidden. Fee management permissions required."}, status=status.HTTP_403_FORBIDDEN)
+
+        payment = get_object_or_404(ProcessingFeePayment, pk=pk)
+        student = payment.student
+        amt = payment.amount
+        head = payment.get_fee_head_display()
+        payment.delete()
+
+        ActivityLog.objects.create(
+            user=request.user,
+            company='LP',
+            action='STUDENT_UPDATED',
+            entity_type='ProcessingFeePayment',
+            entity_id=pk,
+            entity_name=student.name,
+            description=f"Fee payment of {amt} ({head}) deleted for {student.name}"
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+

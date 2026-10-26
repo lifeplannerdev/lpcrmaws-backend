@@ -463,62 +463,143 @@ def verify_receipt_signature(receipt) -> bool:
     return hmac.compare_digest(receipt.signature_hash, expected)
 
 
+COMPANY_DEFAULTS = {
+    'FLAG': {
+        'company': 'FLAG',
+        'organization_name': 'FLAG German Language Academy',
+        'subtitle': 'Foreign Language Academy for Global Careers',
+        'address': 'Kochi | Kottayam | Kerala, India',
+        'phone': '+91 98460 00000',
+        'email': 'accounts@flagacademy.in',
+        'website': 'www.flagacademy.in',
+        'gstin': '',
+        'pan_number': '',
+        'place_of_supply': 'Kerala (32)',
+        'sac_code': '999293',
+        'logo_url': '',
+        'signature_image': '',
+        'stamp_image': '',
+        'watermark_text': 'FLAG GERMAN ACADEMY',
+        'authorized_signatory_name': 'Authorized Signatory',
+        'authorized_signatory_designation': 'Accounts & Finance Department',
+        'bank_name': '',
+        'account_name': '',
+        'account_number': '',
+        'ifsc_code': '',
+        'upi_id': '',
+        'footer_note': 'Thank you for choosing FLAG German Academy.',
+        'brand_color': '#312e81',
+        'receipt_prefix': 'FLAG',
+        'terms': (
+            '1. Fees once paid are non-refundable and non-transferable unless specified in the academy policy.\n'
+            '2. This is a computer-generated digital receipt with cryptographic QR verification.\n'
+            '3. Subject to Kochi jurisdiction.'
+        ),
+    },
+    'FDS': {
+        'company': 'FDS',
+        'organization_name': 'FILMAATIC Dance Studio',
+        'subtitle': 'Dance • Fitness • Wedding Choreography',
+        'address': 'Kochi | Kottayam | Kerala, India',
+        'phone': '+91 98460 00000',
+        'email': 'accounts@filmaatic.in',
+        'website': 'www.filmaatic.in',
+        'gstin': '',
+        'pan_number': '',
+        'place_of_supply': 'Kerala (32)',
+        'sac_code': '999293',
+        'logo_url': '',
+        'signature_image': '',
+        'stamp_image': '',
+        'watermark_text': 'FILMAATIC DANCE STUDIO',
+        'authorized_signatory_name': 'Authorized Signatory',
+        'authorized_signatory_designation': 'Accounts & Finance Department',
+        'bank_name': '',
+        'account_name': '',
+        'account_number': '',
+        'ifsc_code': '',
+        'upi_id': '',
+        'footer_note': 'Thank you for dancing with FILMAATIC.',
+        'brand_color': '#4f46e5',
+        'receipt_prefix': 'FDS',
+        'terms': (
+            '1. Fees once paid are non-refundable and non-transferable unless specified in the studio policy.\n'
+            '2. This is a computer-generated digital receipt with cryptographic QR verification.\n'
+            '3. Subject to Kottayam jurisdiction.'
+        ),
+    },
+    'LP': {
+        'company': 'LP',
+        'organization_name': 'Life Planner Universal',
+        'subtitle': 'Study Abroad & Global Processing',
+        'address': 'Kochi | Kerala, India',
+        'phone': '+91 98460 00000',
+        'email': 'accounts@lifeplanneruniversal.com',
+        'website': 'www.lifeplanneruniversal.com',
+        'gstin': '',
+        'pan_number': '',
+        'place_of_supply': 'Kerala (32)',
+        'sac_code': '999293',
+        'logo_url': '',
+        'signature_image': '',
+        'stamp_image': '',
+        'watermark_text': 'LIFE PLANNER UNIVERSAL',
+        'authorized_signatory_name': 'Authorized Signatory',
+        'authorized_signatory_designation': 'Accounts & Finance Department',
+        'bank_name': '',
+        'account_name': '',
+        'account_number': '',
+        'ifsc_code': '',
+        'upi_id': '',
+        'footer_note': 'Thank you for choosing Life Planner Universal.',
+        'brand_color': '#0f766e',
+        'receipt_prefix': 'LP',
+        'terms': (
+            '1. Processing and consultancy fees are subject to the signed agreement terms.\n'
+            '2. This is a computer-generated digital receipt with cryptographic QR verification.\n'
+            '3. Subject to Kochi jurisdiction.'
+        ),
+    },
+}
+
+
 def build_issuer_snapshot(settings_obj=None, company='FLAG') -> dict:
+    company = (company or 'FLAG').upper()
+    base_defaults = COMPANY_DEFAULTS.get(company, COMPANY_DEFAULTS['FLAG'])
+
     if not settings_obj:
-        return {
-            'company': company,
-            'organization_name': 'FLAG German Language Academy' if company == 'FLAG' else f'{company} Academy',
-            'subtitle': 'Foreign Language Academy for Global Careers',
-            'address': 'Kochi | Kottayam | Kerala, India',
-            'phone': '+91 98460 00000',
-            'email': 'accounts@flagacademy.in',
-            'website': 'www.flagacademy.in',
-            'gstin': '',
-            'pan_number': '',
-            'place_of_supply': 'Kerala (32)',
-            'sac_code': '999293',
-            'logo_url': '',
-            'signature_image': '',
-            'stamp_image': '',
-            'watermark_text': 'FLAG GERMAN ACADEMY',
-            'authorized_signatory_name': 'Authorized Signatory',
-            'authorized_signatory_designation': 'Accounts & Finance Department',
-            'bank_name': '',
-            'account_name': '',
-            'account_number': '',
-            'ifsc_code': '',
-            'upi_id': '',
-            'footer_note': 'Thank you for choosing FLAG German Academy.',
-            'brand_color': '#312e81',
-        }
+        snapshot = dict(base_defaults)
+        snapshot.pop('terms', None)
+        snapshot.pop('receipt_prefix', None)
+        return snapshot
 
     return {
         'company': settings_obj.company,
         'campus_id': settings_obj.campus_id,
         'campus_name': settings_obj.campus.name if settings_obj.campus else '',
-        'organization_name': settings_obj.organization_name,
-        'subtitle': settings_obj.subtitle,
-        'address': settings_obj.address,
-        'phone': settings_obj.phone,
-        'email': settings_obj.email,
-        'website': settings_obj.website,
-        'gstin': settings_obj.gstin,
-        'pan_number': settings_obj.pan_number,
-        'place_of_supply': settings_obj.place_of_supply,
-        'sac_code': settings_obj.sac_code,
-        'logo_url': settings_obj.logo_url,
-        'signature_image': settings_obj.signature_image,
-        'stamp_image': settings_obj.stamp_image,
-        'watermark_text': settings_obj.watermark_text,
-        'authorized_signatory_name': settings_obj.authorized_signatory_name,
-        'authorized_signatory_designation': settings_obj.authorized_signatory_designation,
-        'bank_name': settings_obj.bank_name,
-        'account_name': settings_obj.account_name,
-        'account_number': settings_obj.account_number,
-        'ifsc_code': settings_obj.ifsc_code,
-        'upi_id': settings_obj.upi_id,
-        'footer_note': settings_obj.footer_note,
-        'brand_color': settings_obj.brand_color,
+        'organization_name': settings_obj.organization_name or base_defaults['organization_name'],
+        'subtitle': settings_obj.subtitle or base_defaults['subtitle'],
+        'address': settings_obj.address or base_defaults['address'],
+        'phone': settings_obj.phone or base_defaults['phone'],
+        'email': settings_obj.email or base_defaults['email'],
+        'website': settings_obj.website or base_defaults['website'],
+        'gstin': settings_obj.gstin or '',
+        'pan_number': settings_obj.pan_number or '',
+        'place_of_supply': settings_obj.place_of_supply or base_defaults['place_of_supply'],
+        'sac_code': settings_obj.sac_code or '999293',
+        'logo_url': settings_obj.logo_url or '',
+        'signature_image': settings_obj.signature_image or '',
+        'stamp_image': settings_obj.stamp_image or '',
+        'watermark_text': settings_obj.watermark_text or base_defaults['watermark_text'],
+        'authorized_signatory_name': settings_obj.authorized_signatory_name or base_defaults['authorized_signatory_name'],
+        'authorized_signatory_designation': settings_obj.authorized_signatory_designation or base_defaults['authorized_signatory_designation'],
+        'bank_name': settings_obj.bank_name or '',
+        'account_name': settings_obj.account_name or '',
+        'account_number': settings_obj.account_number or '',
+        'ifsc_code': settings_obj.ifsc_code or '',
+        'upi_id': settings_obj.upi_id or '',
+        'footer_note': settings_obj.footer_note or base_defaults['footer_note'],
+        'brand_color': settings_obj.brand_color or base_defaults['brand_color'],
     }
 
 
@@ -567,6 +648,78 @@ def extract_student_metadata(student) -> dict:
         'campus_name': campus_name,
         'grade_level': grade_level,
         'mode_of_study': mode_of_study or 'Offline',
+    }
+
+
+def extract_fds_student_metadata(student) -> dict:
+    if not student:
+        return {}
+    batch_name = ''
+    if hasattr(student, 'batch') and student.batch:
+        batch_name = getattr(student.batch, 'name', '') or str(student.batch)
+    
+    branch_name = getattr(student, 'branch', '') or ''
+    phone = getattr(student, 'contact_no', '') or getattr(student, 'whatsapp_no', '') or ''
+    email = getattr(student, 'email', '') if hasattr(student, 'email') else ''
+    parent_name = getattr(student, 'parent_name', '') or ''
+    enrollment_code = getattr(student, 'student_id', '') or f"FDS-STU-{student.id:04d}"
+
+    course_name = ''
+    if hasattr(student, 'fee_structure') and student.fee_structure:
+        course_name = getattr(student.fee_structure, 'name', '') or ''
+    if not course_name and batch_name:
+        course_name = f"Dance Class - {batch_name}"
+
+    return {
+        'recipient_name': student.name,
+        'recipient_phone': phone,
+        'recipient_email': email,
+        'parent_or_sponsor_name': parent_name,
+        'campus_name': branch_name,
+        'batch_name': batch_name,
+        'course_or_package_name': course_name or 'Dance & Fitness Program',
+        'student_enrollment_code': enrollment_code,
+        'mode_of_study': 'Studio / In-Person',
+    }
+
+
+def extract_fds_wedding_metadata(wedding_group) -> dict:
+    if not wedding_group:
+        return {}
+    pkg_display = wedding_group.get_package_type_display() if hasattr(wedding_group, 'get_package_type_display') else str(wedding_group.package_type)
+    batch_name = getattr(wedding_group.batch, 'name', '') if getattr(wedding_group, 'batch', None) else 'Wedding Choreography'
+    return {
+        'recipient_name': wedding_group.lead_contact_name or wedding_group.event_name,
+        'recipient_phone': wedding_group.lead_contact_phone or '',
+        'recipient_email': '',
+        'parent_or_sponsor_name': wedding_group.event_name,
+        'campus_name': getattr(wedding_group, 'branch', '') or '',
+        'batch_name': batch_name,
+        'course_or_package_name': f"Wedding Choreography ({pkg_display})",
+        'student_enrollment_code': getattr(wedding_group, 'group_id', '') or f"FDS-WED-{wedding_group.id:04d}",
+        'mode_of_study': 'Studio / In-Person',
+    }
+
+
+def extract_processing_student_metadata(student) -> dict:
+    if not student:
+        return {}
+    enrollment_code = f"LP-PROC-{student.id:04d}"
+    course_name = student.program_applied or ''
+    if student.university:
+        course_name = f"{course_name} - {student.university}" if course_name else student.university
+    batch_name = student.intake or ''
+
+    return {
+        'recipient_name': student.name,
+        'recipient_phone': student.mobile_number or getattr(student, 'whatsapp_number', '') or '',
+        'recipient_email': student.email or '',
+        'parent_or_sponsor_name': student.parent_contact or '',
+        'campus_name': student.category or 'Global Processing',
+        'batch_name': batch_name,
+        'course_or_package_name': course_name or 'Global Study Abroad Processing',
+        'student_enrollment_code': enrollment_code,
+        'mode_of_study': 'Consultancy & Processing',
     }
 
 
@@ -646,26 +799,166 @@ def extract_account_ledger_snapshot(account, payment=None) -> dict:
     }
 
 
+def extract_fds_ledger_snapshot(account=None, payment=None, student=None, wedding_group=None) -> dict:
+    """
+    Computes ledger snapshot from an FDS fee account, collection payment, student, or wedding group.
+    """
+    if account:
+        total_fee = to_decimal(account.total_due, Decimal('0.00'))
+        tot_paid = to_decimal(account.total_paid, Decimal('0.00'))
+        bal_due = to_decimal(account.balance_due, Decimal('0.00'))
+        curr_paid = to_decimal(getattr(payment, 'paid_amount', Decimal('0.00')), Decimal('0.00')) if payment else Decimal('0.00')
+        prev_paid = max(Decimal('0.00'), tot_paid - curr_paid) if payment else tot_paid
+        schedule = []
+        if hasattr(account, 'installments'):
+            for inst in account.installments.all().order_by('sequence_number'):
+                schedule.append({
+                    'sequence_number': inst.sequence_number,
+                    'label': inst.label or f"Installment #{inst.sequence_number}",
+                    'due_date': inst.due_date.isoformat() if inst.due_date else '',
+                    'scheduled_amount': str(to_decimal(inst.scheduled_amount)),
+                    'paid_amount': str(to_decimal(inst.paid_amount)),
+                    'balance_amount': str(to_decimal(inst.balance_amount)),
+                    'status': inst.status,
+                })
+        return {
+            'ledger_total_fee': total_fee,
+            'ledger_discount': Decimal('0.00'),
+            'ledger_previously_paid': prev_paid,
+            'ledger_current_paid': curr_paid,
+            'ledger_total_paid': tot_paid,
+            'ledger_balance_due': bal_due,
+            'ledger_next_due_date': account.next_due_date,
+            'installment_schedule_snapshot': schedule,
+        }
+
+    if payment:
+        total_fee = to_decimal(getattr(payment, 'total_fees', Decimal('0.00')), Decimal('0.00'))
+        curr_paid = to_decimal(getattr(payment, 'paid_amount', Decimal('0.00')), Decimal('0.00'))
+        bal_due = to_decimal(getattr(payment, 'balance', Decimal('0.00')), Decimal('0.00'))
+        return {
+            'ledger_total_fee': total_fee or curr_paid,
+            'ledger_discount': Decimal('0.00'),
+            'ledger_previously_paid': Decimal('0.00'),
+            'ledger_current_paid': curr_paid,
+            'ledger_total_paid': curr_paid,
+            'ledger_balance_due': bal_due,
+            'ledger_next_due_date': None,
+            'installment_schedule_snapshot': [],
+        }
+
+    if wedding_group:
+        total_fee = to_decimal(getattr(wedding_group, 'fee_amount', Decimal('0.00')), Decimal('0.00'))
+        tot_paid = to_decimal(getattr(wedding_group, 'amount_paid', Decimal('0.00')), Decimal('0.00'))
+        bal_due = max(Decimal('0.00'), total_fee - tot_paid)
+        return {
+            'ledger_total_fee': total_fee,
+            'ledger_discount': Decimal('0.00'),
+            'ledger_previously_paid': tot_paid,
+            'ledger_current_paid': Decimal('0.00'),
+            'ledger_total_paid': tot_paid,
+            'ledger_balance_due': bal_due,
+            'ledger_next_due_date': None,
+            'installment_schedule_snapshot': [],
+        }
+
+    if student:
+        pkg = getattr(student, 'fee_structure', None)
+        total_fee = to_decimal(getattr(pkg, 'amount', Decimal('0.00')), Decimal('0.00')) if pkg else Decimal('0.00')
+        return {
+            'ledger_total_fee': total_fee,
+            'ledger_discount': Decimal('0.00'),
+            'ledger_previously_paid': Decimal('0.00'),
+            'ledger_current_paid': Decimal('0.00'),
+            'ledger_total_paid': Decimal('0.00'),
+            'ledger_balance_due': total_fee,
+            'ledger_next_due_date': None,
+            'installment_schedule_snapshot': [],
+        }
+
+    return {
+        'ledger_total_fee': Decimal('0.00'),
+        'ledger_discount': Decimal('0.00'),
+        'ledger_previously_paid': Decimal('0.00'),
+        'ledger_current_paid': Decimal('0.00'),
+        'ledger_total_paid': Decimal('0.00'),
+        'ledger_balance_due': Decimal('0.00'),
+        'ledger_next_due_date': None,
+        'installment_schedule_snapshot': [],
+    }
+
+
+def extract_processing_student_ledger_snapshot(student, fee_head='PROCESSING', payment=None) -> dict:
+    """
+    Computes ledger snapshot for an LP ProcessingStudent fee head and payment.
+    """
+    if not student:
+        amt = to_decimal(getattr(payment, 'amount', Decimal('0.00'))) if payment else Decimal('0.00')
+        return {
+            'ledger_total_fee': amt,
+            'ledger_discount': Decimal('0.00'),
+            'ledger_previously_paid': Decimal('0.00'),
+            'ledger_current_paid': amt,
+            'ledger_total_paid': amt,
+            'ledger_balance_due': Decimal('0.00'),
+            'ledger_next_due_date': None,
+            'installment_schedule_snapshot': [],
+        }
+
+    from trainers.services import HEAD_TO_PREFIX
+    prefix = HEAD_TO_PREFIX.get(fee_head, 'processing_fee')
+
+    tot_fee = to_decimal(getattr(student, f'{prefix}_amount', Decimal('0.00')), Decimal('0.00'))
+    tot_paid = to_decimal(getattr(student, f'{prefix}_paid', Decimal('0.00')), Decimal('0.00'))
+    curr_paid = to_decimal(getattr(payment, 'amount', Decimal('0.00')), Decimal('0.00')) if payment else Decimal('0.00')
+    prev_paid = max(Decimal('0.00'), tot_paid - curr_paid) if payment else tot_paid
+    bal_due = max(Decimal('0.00'), tot_fee - tot_paid)
+
+    return {
+        'ledger_total_fee': tot_fee or tot_paid,
+        'ledger_discount': Decimal('0.00'),
+        'ledger_previously_paid': prev_paid,
+        'ledger_current_paid': curr_paid,
+        'ledger_total_paid': tot_paid,
+        'ledger_balance_due': bal_due,
+        'ledger_next_due_date': None,
+        'installment_schedule_snapshot': [],
+    }
+
+
 def get_or_create_receipt_settings(company='FLAG', campus=None):
     from django.db import IntegrityError, transaction
     from .models import ReceiptSettings
 
     company = (company or 'FLAG').upper()
     if campus is not None:
-        settings_obj = ReceiptSettings.objects.filter(company=company, campus=campus).first()
-        if settings_obj:
-            return settings_obj
+        if hasattr(campus, 'pk') or isinstance(campus, int) or (isinstance(campus, str) and campus.isdigit()):
+            settings_obj = ReceiptSettings.objects.filter(company=company, campus=campus).first()
+            if settings_obj:
+                return settings_obj
     settings_obj = ReceiptSettings.objects.filter(company=company, campus__isnull=True).first()
     if not settings_obj:
-        org_name = 'FLAG German Language Academy' if company == 'FLAG' else f'{company} Academy'
+        defs = COMPANY_DEFAULTS.get(company, COMPANY_DEFAULTS['FLAG'])
+        opts = dict(DEFAULT_DISPLAY_OPTIONS)
+        if company in ('FDS', 'LP'):
+            opts['compact_fy'] = True
         try:
             with transaction.atomic():
                 settings_obj = ReceiptSettings.objects.create(
                     company=company,
                     campus=None,
-                    organization_name=org_name,
-                    receipt_prefix=company,
-                    default_display_options=dict(DEFAULT_DISPLAY_OPTIONS),
+                    organization_name=defs['organization_name'],
+                    subtitle=defs['subtitle'],
+                    address=defs['address'],
+                    phone=defs['phone'],
+                    email=defs['email'],
+                    website=defs['website'],
+                    watermark_text=defs['watermark_text'],
+                    footer_note=defs['footer_note'],
+                    brand_color=defs['brand_color'],
+                    receipt_prefix=defs['receipt_prefix'],
+                    default_terms_and_conditions=defs.get('terms', ''),
+                    default_display_options=opts,
                 )
         except IntegrityError:
             settings_obj = (
@@ -675,11 +968,12 @@ def get_or_create_receipt_settings(company='FLAG', campus=None):
     return settings_obj
 
 
-def allocate_receipt_number(company='FLAG', campus=None, issue_date=None):
+def allocate_receipt_number(company='FLAG', campus=None, issue_date=None, compact=None):
     """
     Atomically allocate the next sequential Financial Year receipt number
-    (e.g., FLAG/2026-27/0001) using row-level locking on ReceiptSettings,
-    tracking and resetting sequences per Financial Year (fy).
+    (e.g., FLAG/26-27/0001, FDS/26-27/0001, LP/26-27/0001 or FLAG/2026-27/0001)
+    using row-level locking on ReceiptSettings, tracking and resetting sequences per FY.
+    Compact FY numbers (<16 chars) comply with CBIC Rule 46.
     """
     from django.db import IntegrityError, transaction
     from django.db.models import Max
@@ -699,31 +993,24 @@ def allocate_receipt_number(company='FLAG', campus=None, issue_date=None):
         if not locked:
             locked = ReceiptSettings.objects.select_for_update().filter(company=company, campus__isnull=True).first()
         if not locked:
-            org_name = 'FLAG German Language Academy' if company == 'FLAG' else f'{company} Academy'
-            try:
-                with transaction.atomic():
-                    created = ReceiptSettings.objects.create(
-                        company=company,
-                        campus=None,
-                        organization_name=org_name,
-                        receipt_prefix=company,
-                        default_display_options=dict(DEFAULT_DISPLAY_OPTIONS),
-                    )
-                locked = ReceiptSettings.objects.select_for_update().get(pk=created.pk)
-            except IntegrityError:
-                locked = ReceiptSettings.objects.select_for_update().filter(company=company, campus__isnull=True).first()
-                if not locked:
-                    locked = ReceiptSettings.objects.select_for_update().get(id=1)
+            locked = get_or_create_receipt_settings(company=company, campus=None)
+            locked = ReceiptSettings.objects.select_for_update().get(pk=locked.pk)
 
         raw_prefix = (locked.receipt_prefix or company).strip().rstrip('/')
+        opts = dict(locked.default_display_options or {})
 
-        # Avoid duplicating FY if the user already included it in receipt_prefix
-        if fy in raw_prefix:
+        # Determine whether to use compact FY (e.g. 26-27 vs 2026-27)
+        is_compact = compact if compact is not None else (
+            bool(opts.get('compact_fy')) or (company in ('FDS', 'LP'))
+        )
+        fy_token = fy[-5:] if (is_compact and len(fy) == 7 and fy[4] == '-') else fy
+
+        # Avoid duplicating FY if already present in receipt_prefix
+        if fy in raw_prefix or fy_token in raw_prefix:
             prefix_with_fy = raw_prefix
         else:
-            prefix_with_fy = f"{raw_prefix}/{fy}"
+            prefix_with_fy = f"{raw_prefix}/{fy_token}"
 
-        opts = dict(locked.default_display_options or {})
         fy_sequences = dict(opts.get('fy_sequences') or {})
         active_fy = opts.get('active_fy')
 
