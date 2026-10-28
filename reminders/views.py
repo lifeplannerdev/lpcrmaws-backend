@@ -202,6 +202,19 @@ class ReminderDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
         old_status = reminder.status
         instance = serializer.save()
 
+        # Keep notification settings start date & time synced if lead_days == 0
+        setting = getattr(instance, 'notification_setting', None)
+        if setting and setting.lead_days == 0:
+            changed = False
+            if 'reminder_date' in serializer.validated_data:
+                setting.notify_start_date = instance.reminder_date
+                changed = True
+            if 'reminder_time' in serializer.validated_data:
+                setting.notify_start_time = instance.reminder_time
+                changed = True
+            if changed:
+                setting.save(update_fields=['notify_start_date', 'notify_start_time', 'updated_at'])
+
         if instance.status != old_status:
             ReminderUpdate.objects.create(
                 reminder=instance,
@@ -625,7 +638,9 @@ class ReminderAlertsAPIView(APIView):
 
     def get(self, request):
         user = request.user
-        today = timezone.now().date()
+        now = timezone.localtime()
+        today = now.date()
+        current_time = now.time().replace(second=0, microsecond=0)
         is_admin = is_reminders_admin(user)
 
         # Base query: Active reminders assigned to user
@@ -654,13 +669,32 @@ class ReminderAlertsAPIView(APIView):
         overdue_count = 0
         today_count = 0
         pending_approval_count = 0
+        upcoming_seconds_list = []
 
         for r in alerts_qs:
             eff_date = r.effective_deadline
-            is_overdue = eff_date < today
-            is_today = eff_date == today
+            eff_time = r.deadline_time if r.deadline else r.reminder_time
+            is_overdue = False
+            is_today = False
             is_pending_approval = (r.status == 'PENDING_APPROVAL')
             is_needs_revision = (r.status == 'IN_PROGRESS' and bool(r.rejection_reason))
+
+            if eff_date < today:
+                is_overdue = True
+            elif eff_date == today:
+                is_today = True
+                if eff_time:
+                    cur_t = current_time
+                    r_t = eff_time.replace(second=0, microsecond=0)
+                    if cur_t > r_t:
+                        is_overdue = True
+                    elif cur_t < r_t:
+                        from datetime import datetime
+                        dt_target = datetime.combine(today, r_t)
+                        dt_now = datetime.combine(today, cur_t)
+                        diff_sec = int((dt_target - dt_now).total_seconds())
+                        if diff_sec > 0:
+                            upcoming_seconds_list.append(diff_sec)
 
             # Per-reminder notification settings check
             setting = getattr(r, 'notification_setting', None)
@@ -669,15 +703,30 @@ class ReminderAlertsAPIView(APIView):
                 if not setting.is_enabled and not is_pending_approval:
                     continue
 
-                # Start date check
-                if setting.notify_start_date and today < setting.notify_start_date and not is_pending_approval:
-                    continue
-
-                # Lead days window check
-                if setting.lead_days > 0 and not is_pending_approval:
-                    start_window = eff_date - timedelta(days=setting.lead_days)
-                    if today < start_window:
-                        continue
+                # Start date & time check
+                start_date = setting.notify_start_date
+                start_time = setting.notify_start_time or eff_time
+                if not is_pending_approval:
+                    if start_date:
+                        if today < start_date:
+                            continue
+                        if today == start_date and start_time:
+                            if current_time < start_time.replace(second=0, microsecond=0):
+                                continue
+                    elif setting.lead_days > 0:
+                        start_window = eff_date - timedelta(days=setting.lead_days)
+                        if today < start_window:
+                            continue
+                        if today == eff_date and start_time:
+                            if current_time < start_time.replace(second=0, microsecond=0):
+                                continue
+                    else:
+                        if today < eff_date:
+                            continue
+                        if today == eff_date and eff_time:
+                            if current_time < eff_time.replace(second=0, microsecond=0):
+                                # Scheduled for later today; suppress premature alert
+                                continue
 
             if is_overdue:
                 overdue_count += 1
@@ -693,8 +742,11 @@ class ReminderAlertsAPIView(APIView):
                 "priority": r.priority,
                 "status": r.status,
                 "reminder_date": str(r.reminder_date),
+                "reminder_time": r.reminder_time.strftime('%H:%M') if r.reminder_time else None,
                 "deadline": str(r.deadline) if r.deadline else None,
+                "deadline_time": r.deadline_time.strftime('%H:%M') if r.deadline_time else None,
                 "effective_deadline": str(eff_date),
+                "effective_deadline_time": eff_time.strftime('%H:%M') if eff_time else None,
                 "is_overdue": is_overdue,
                 "is_today": is_today,
                 "is_needs_revision": is_needs_revision,
@@ -709,8 +761,11 @@ class ReminderAlertsAPIView(APIView):
                 "enable_sound": setting.enable_sound if setting else True,
                 "interval_minutes": setting.interval_minutes if setting else 30,
                 "notify_start_date": str(setting.notify_start_date) if (setting and setting.notify_start_date) else None,
+                "notify_start_time": setting.notify_start_time.strftime('%H:%M') if (setting and setting.notify_start_time) else None,
                 "lead_days": setting.lead_days if setting else 0,
             })
+
+        next_alert_in_seconds = min(upcoming_seconds_list) if upcoming_seconds_list else None
 
         return Response({
             "total_alerts": len(alerts_data),
@@ -718,6 +773,7 @@ class ReminderAlertsAPIView(APIView):
             "today_count": today_count,
             "pending_approval_count": pending_approval_count,
             "has_critical": overdue_count > 0 or today_count > 0,
+            "next_alert_in_seconds": next_alert_in_seconds,
             "alerts": alerts_data,
         })
 
@@ -739,6 +795,7 @@ class ReminderNotificationSettingAPIView(APIView):
                 'is_enabled': True,
                 'interval_minutes': 30,
                 'notify_start_date': reminder.reminder_date,
+                'notify_start_time': reminder.reminder_time,
             }
         )
         serializer = ReminderNotificationSettingSerializer(setting)
@@ -755,6 +812,7 @@ class ReminderNotificationSettingAPIView(APIView):
                 'is_enabled': True,
                 'interval_minutes': 30,
                 'notify_start_date': reminder.reminder_date,
+                'notify_start_time': reminder.reminder_time,
             }
         )
         serializer = ReminderNotificationSettingSerializer(setting, data=request.data, partial=True)
@@ -779,6 +837,7 @@ class ReminderNotificationTestAPIView(APIView):
                 'is_enabled': True,
                 'interval_minutes': 30,
                 'notify_start_date': reminder.reminder_date,
+                'notify_start_time': reminder.reminder_time,
             }
         )
 
@@ -804,6 +863,9 @@ class ReminderNotificationTestAPIView(APIView):
                     "title": f"🔔 TEST: {reminder.title}",
                     "priority": reminder.priority,
                     "deadline": eff_deadline,
+                    "reminder_time": reminder.reminder_time.strftime('%H:%M') if reminder.reminder_time else None,
+                    "effective_deadline": eff_deadline,
+                    "effective_deadline_time": (reminder.deadline_time or reminder.reminder_time).strftime('%H:%M') if (reminder.deadline_time or reminder.reminder_time) else None,
                     "is_overdue": reminder.is_overdue,
                     "is_test": True,
                     "enable_sound": setting.enable_sound,

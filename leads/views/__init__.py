@@ -1,6 +1,6 @@
 from .leads import LeadListView, LeadCreateView, LeadDetailView, LeadProcessingTimelineView, UpdateLeadView, TodayLeadsAPI, MyTeamLeadsView, LeadConversionDetailView, WebhookLogListView, ConvertWebhookToLeadAPIView, ExportLeadsExcelView, UnifiedTimelineAPIView, LeadDocumentListCreateView, LeadCommandCentreStatsView
 from .assignments import LeadAssignView, BulkLeadAssignView, LeadAssignmentHistoryView, AvailableUsersForAssignmentView, UnassignLeadView, BulkLeadCloseView, EmployeeFollowUpSummaryView, BulkRescheduleFollowUpsView
-from .followups import FollowUpListCreateAPIView, FollowUpDetailAPIView, TodayFollowUpsAPIView, OverdueFollowUpsAPIView
+from .followups import FollowUpListCreateAPIView, FollowUpDetailAPIView, TodayFollowUpsAPIView, OverdueFollowUpsAPIView, FollowUpAlertsAPIView
 from .uploads import BulkLeadUploadView, BulkUploadPreviewView, BulkUploadConfirmView
 from .bulk_paste import BulkPasteLeadsView
 from .staff_analysis import StaffAnalysisAPIView, StaffAnalysisLeadsAPIView, StaffAnalysisFollowUpsAPIView

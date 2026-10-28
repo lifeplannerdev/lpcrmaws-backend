@@ -340,7 +340,7 @@ CELERY_BEAT_SCHEDULE = {
     },
     'check_due_reminders_periodic': {
         'task': 'reminders.tasks.check_due_reminders_and_notify',
-        'schedule': crontab(minute='*/30'),
+        'schedule': crontab(minute='*'),  # Every minute check for precise reminder alerts
     },
 }
 

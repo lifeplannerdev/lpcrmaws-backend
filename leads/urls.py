@@ -20,6 +20,7 @@ from .views import (
     FollowUpDetailAPIView,
     TodayFollowUpsAPIView,
     OverdueFollowUpsAPIView,
+    FollowUpAlertsAPIView,
     LeadConversionDetailView,
     ConvertWebhookToLeadAPIView,
     WebhookLogListView,
@@ -70,6 +71,7 @@ urlpatterns = [
     path('today-leads/', TodayLeadsAPI.as_view(), name='today-leads'),
 
     # ── Follow-ups — specific paths BEFORE <int:pk> ──────────
+    path('followups/alerts/', FollowUpAlertsAPIView.as_view(), name='followups-alerts'),
     path('followups/', FollowUpListCreateAPIView.as_view(), name='followup-list-create'),
     path('followups/today/', TodayFollowUpsAPIView.as_view(), name='followups-today'),
     path('followups/overdue/', OverdueFollowUpsAPIView.as_view(), name='followups-overdue'),

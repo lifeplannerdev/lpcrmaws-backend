@@ -66,6 +66,7 @@ class ReminderNotificationSettingSerializer(serializers.ModelSerializer):
             'reminder',
             'is_enabled',
             'notify_start_date',
+            'notify_start_time',
             'lead_days',
             'interval_minutes',
             'interval_display',
@@ -116,7 +117,9 @@ class ReminderSerializer(serializers.ModelSerializer):
             'company',
             'category',
             'reminder_date',
+            'reminder_time',
             'deadline',
+            'deadline_time',
             'priority',
             'status',
             'checklist',
@@ -207,6 +210,7 @@ class ReminderSerializer(serializers.ModelSerializer):
                         'is_enabled': True,
                         'interval_minutes': 30,
                         'notify_start_date': obj.reminder_date,
+                        'notify_start_time': obj.reminder_time,
                     }
                 )
             except Exception:

@@ -304,3 +304,78 @@ class OverdueFollowUpsAPIView(APIView):
         serializer = FollowUpSerializer(queryset, many=True)
         return Response(serializer.data)
 
+
+
+
+class FollowUpAlertsAPIView(APIView):
+    """
+    Active alerts endpoint for global CRM popup, big modal, and Windows/desktop notifications.
+    Returns categorized active follow-ups: overdue, today, tomorrow, upcoming, and imminent.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        now_dt = timezone.localtime(timezone.now())
+        today = now_dt.date()
+        tomorrow = today + timezone.timedelta(days=1)
+
+        # Base queryset: only pending and not closed/converted
+        base_qs = FollowUp.objects.filter(
+            status='pending'
+        ).exclude(
+            lead__status__in=['CLOSED', 'CONVERTED']
+        ).select_related(
+            'lead', 'assigned_to', 'processing_student'
+        )
+
+        if not is_full_access(user):
+            base_qs = base_qs.filter(assigned_to=user)
+
+        # Allow admin to optionally filter by a specific staff member
+        assigned_to_param = request.query_params.get('assigned_to')
+        if assigned_to_param and assigned_to_param != 'all' and is_full_access(user):
+            base_qs = base_qs.filter(assigned_to_id=assigned_to_param)
+
+        overdue_qs = base_qs.filter(follow_up_date__lt=today).order_by('follow_up_date', 'follow_up_time', 'id')
+        today_qs = base_qs.filter(follow_up_date=today).order_by('follow_up_time', 'id')
+        tomorrow_qs = base_qs.filter(follow_up_date=tomorrow).order_by('follow_up_time', 'id')
+        upcoming_qs = base_qs.filter(follow_up_date__gt=tomorrow).order_by('follow_up_date', 'follow_up_time', 'id')
+
+        # Imminent alerts: overdue OR today with time <= now or within next 30 minutes
+        imminent_list = []
+        for fu in overdue_qs[:20]:
+            imminent_list.append(fu)
+
+        current_time_str = now_dt.strftime('%H:%M:%S')
+        for fu in today_qs:
+            if not fu.follow_up_time or str(fu.follow_up_time) <= current_time_str:
+                if fu not in imminent_list:
+                    imminent_list.append(fu)
+            else:
+                try:
+                    target_dt = timezone.datetime.combine(today, fu.follow_up_time)
+                    if timezone.is_naive(target_dt):
+                        target_dt = timezone.make_aware(target_dt, timezone.get_current_timezone())
+                    diff = (target_dt - now_dt).total_seconds()
+                    if 0 <= diff <= 1800:
+                        if fu not in imminent_list:
+                            imminent_list.append(fu)
+                except Exception:
+                    pass
+
+        return Response({
+            'counts': {
+                'total_active': base_qs.count(),
+                'overdue': overdue_qs.count(),
+                'today': today_qs.count(),
+                'tomorrow': tomorrow_qs.count(),
+                'upcoming': upcoming_qs.count(),
+                'imminent': len(imminent_list),
+            },
+            'overdue': FollowUpSerializer(overdue_qs, many=True).data,
+            'today': FollowUpSerializer(today_qs, many=True).data,
+            'tomorrow': FollowUpSerializer(tomorrow_qs, many=True).data,
+            'upcoming': FollowUpSerializer(upcoming_qs, many=True).data,
+            'imminent': FollowUpSerializer(imminent_list, many=True).data,
+        })

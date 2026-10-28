@@ -15,7 +15,7 @@ def check_due_reminders_and_notify():
     per-reminder notification settings (custom start dates and intervals)
     and dispatch notification alerts across configured channels.
     """
-    now = timezone.now()
+    now = timezone.localtime()
     today = now.date()
 
     # Query active reminders
@@ -32,6 +32,7 @@ def check_due_reminders_and_notify():
                 'is_enabled': True,
                 'interval_minutes': 30,
                 'notify_start_date': reminder.reminder_date,
+                'notify_start_time': reminder.reminder_time,
             }
         )
 
@@ -40,9 +41,12 @@ def check_due_reminders_and_notify():
             logger.debug(f"[Reminder Task] Skipping #{reminder.id} '{reminder.title}': {reason}")
             continue
 
-        deadline_str = str(reminder.deadline) if reminder.deadline else str(reminder.reminder_date)
-        is_overdue = (reminder.deadline and reminder.deadline < today) or (reminder.reminder_date < today)
-        urgency_prefix = "OVERDUE" if is_overdue else "DUE TODAY" if (reminder.deadline == today or reminder.reminder_date == today) else "UPCOMING"
+        eff_date = reminder.deadline or reminder.reminder_date
+        eff_time = reminder.deadline_time if reminder.deadline else reminder.reminder_time
+        time_str = f" at {eff_time.strftime('%I:%M %p')}" if eff_time else ""
+        deadline_str = f"{eff_date}{time_str}"
+        is_overdue = reminder.is_overdue
+        urgency_prefix = "OVERDUE" if is_overdue else "DUE NOW" if (eff_date == today) else "UPCOMING"
         
         message = f"[{urgency_prefix}] Reminder: \"{reminder.title}\" (Due: {deadline_str})"
         if reminder.student:
@@ -69,7 +73,11 @@ def check_due_reminders_and_notify():
                 "reminder_id": reminder.id,
                 "title": reminder.title,
                 "priority": reminder.priority,
-                "deadline": deadline_str,
+                "deadline": str(eff_date),
+                "deadline_time": eff_time.strftime('%H:%M') if eff_time else None,
+                "reminder_time": reminder.reminder_time.strftime('%H:%M') if reminder.reminder_time else None,
+                "effective_deadline": str(eff_date),
+                "effective_deadline_time": eff_time.strftime('%H:%M') if eff_time else None,
                 "is_overdue": is_overdue,
                 "enable_sound": setting.enable_sound,
                 "enable_desktop": setting.enable_desktop,
