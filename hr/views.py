@@ -97,7 +97,9 @@ class PenaltyListCreateAPI(APIView):
     def get(self, request):
         penalties = Penalty.objects.all()
         
-        if not (has_dynamic_permission(request.user, 'penalties:read_any') or 
+        my_only = request.GET.get('my_only', '').lower() in ['true', '1']
+        
+        if my_only or not (has_dynamic_permission(request.user, 'penalties:read_any') or 
                 has_dynamic_permission(request.user, 'penalties:read_tenant')):
             penalties = penalties.filter(user=request.user)
             

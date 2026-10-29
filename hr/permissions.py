@@ -7,13 +7,7 @@ class HasPenaltyPermission(BasePermission):
             return False
             
         if request.method in ['GET', 'HEAD', 'OPTIONS']:
-            return has_dynamic_permission(request.user, 'penalties:read_any') or \
-                   has_dynamic_permission(request.user, 'penalties:read_tenant') or \
-                   has_dynamic_permission(request.user, 'penalties:read_own') or \
-                   has_dynamic_permission(request.user, 'reports:approval') or \
-                   has_dynamic_permission(request.user, 'reports:approval-kochi') or \
-                   has_dynamic_permission(request.user, 'reports:approval-kottayam') or \
-                   has_dynamic_permission(request.user, 'reports:documentation')
+            return True
         elif request.method == 'POST':
             return has_dynamic_permission(request.user, 'penalties:create')
         else:
