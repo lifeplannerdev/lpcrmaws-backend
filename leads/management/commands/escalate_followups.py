@@ -11,7 +11,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         now = timezone.now()
         
-        overdue_followups = FollowUp.objects.filter(status='pending', follow_up_date__lte=now.date())
+        overdue_followups = FollowUp.objects.filter(status='pending', follow_up_date__lte=now.date(), assigned_to__is_active=True)
         
         for fu in overdue_followups:
             # Combine date and time to create aware datetime

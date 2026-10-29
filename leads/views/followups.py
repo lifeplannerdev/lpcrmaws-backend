@@ -57,8 +57,12 @@ class FollowUpListCreateAPIView(APIView):
         user = request.user
 
         from accounts.permissions import has_dynamic_permission
+        include_inactive = request.query_params.get('include_inactive') == 'true'
+
         if is_full_access(user):
             queryset = FollowUp.objects.all()
+            if not include_inactive:
+                queryset = queryset.filter(assigned_to__is_active=True)
         else:
             queryset = FollowUp.objects.filter(assigned_to=user)
 
@@ -270,8 +274,12 @@ class TodayFollowUpsAPIView(APIView):
         today = timezone.localtime(timezone.now()).date()
 
         from accounts.permissions import has_dynamic_permission
+        include_inactive = request.query_params.get('include_inactive') == 'true'
+
         if is_full_access(request.user):
             queryset = FollowUp.objects.filter(follow_up_date=today)
+            if not include_inactive:
+                queryset = queryset.filter(assigned_to__is_active=True)
         else:
             queryset = FollowUp.objects.filter(
                 assigned_to=request.user,
@@ -289,11 +297,15 @@ class OverdueFollowUpsAPIView(APIView):
         today = timezone.localtime(timezone.now()).date()
 
         from accounts.permissions import has_dynamic_permission
+        include_inactive = request.query_params.get('include_inactive') == 'true'
+
         if is_full_access(request.user):
             queryset = FollowUp.objects.filter(
                 follow_up_date__lt=today,
                 status='pending'
             ).exclude(lead__status__in=['CLOSED', 'CONVERTED'])
+            if not include_inactive:
+                queryset = queryset.filter(assigned_to__is_active=True)
         else:
             queryset = FollowUp.objects.filter(
                 assigned_to=request.user,
@@ -320,6 +332,8 @@ class FollowUpAlertsAPIView(APIView):
         today = now_dt.date()
         tomorrow = today + timezone.timedelta(days=1)
 
+        include_inactive = request.query_params.get('include_inactive') == 'true'
+
         # Base queryset: only pending and not closed/converted
         base_qs = FollowUp.objects.filter(
             status='pending'
@@ -331,6 +345,8 @@ class FollowUpAlertsAPIView(APIView):
 
         if not is_full_access(user):
             base_qs = base_qs.filter(assigned_to=user)
+        elif not include_inactive:
+            base_qs = base_qs.filter(assigned_to__is_active=True)
 
         # Allow admin to optionally filter by a specific staff member
         assigned_to_param = request.query_params.get('assigned_to')
