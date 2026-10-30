@@ -140,8 +140,26 @@ class GmailClient:
 
     def _execute(self, request):
         from googleapiclient.errors import HttpError
+        from google.auth.exceptions import RefreshError
         try:
-            return request.execute()
+            res = request.execute()
+            # Persist updated token/expiry if googleapiclient refreshed it in-flight
+            try:
+                if self._service and hasattr(self._service, '_http') and hasattr(self._service._http, 'credentials'):
+                    c = self._service._http.credentials
+                    data = self.account.credentials or {}
+                    if c.token and c.token != data.get('token'):
+                        merged = _creds_to_dict(c)
+                        if not merged.get('refresh_token'):
+                            merged['refresh_token'] = data.get('refresh_token')
+                        self.account.credentials = merged
+                        self.account.save(update_fields=['credentials'])
+            except Exception:
+                pass
+            return res
+        except RefreshError as exc:
+            self._mark_reconnect(str(exc)[:240])
+            raise GmailAuthError('Google access for this mailbox expired or was revoked. Reconnect it from the Mail Center.')
         except HttpError as exc:
             status = getattr(exc.resp, 'status', None)
             text = str(exc).lower()

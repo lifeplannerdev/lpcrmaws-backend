@@ -725,13 +725,47 @@ class EmailAttachmentViewSet(MailPermissionMixin, mixins.CreateModelMixin, mixin
 
         from django.http import HttpResponse, HttpResponseRedirect
         if attachment.gmail_attachment_id and not attachment.file:
-            from .gmail_client import GmailClient
+            from django.core.files.base import ContentFile
+            from .gmail_client import GmailAuthError, GmailClient
+            account = attachment.message.account if attachment.message else None
+            if not account and attachment.message:
+                # Fallback to an active connected account in the same scope
+                account = MailAccount.objects.filter(
+                    is_active=True,
+                    status=MailAccount.STATUS_CONNECTED,
+                    module_scope=attachment.message.context_module or MailAccount.SCOPE_PROCESSING,
+                ).first()
+            if not account:
+                return HttpResponse("No connected mailbox found to download this Gmail attachment.", status=400)
             try:
-                client = GmailClient(attachment.message.account)
+                client = GmailClient(account)
                 data = client.get_attachment(attachment.message.gmail_message_id, attachment.gmail_attachment_id)
+                # Cache the attachment file locally so future views do not require a Gmail API call
+                try:
+                    safe_name = os.path.basename(attachment.filename or f'attachment_{attachment.id}')
+                    attachment.file.save(safe_name, ContentFile(data), save=True)
+                except Exception as cache_err:
+                    logger.warning("Could not cache Gmail attachment %s locally: %s", attachment.id, cache_err)
                 response = HttpResponse(data, content_type=attachment.content_type or 'application/octet-stream')
                 response['Content-Disposition'] = f'inline; filename="{attachment.filename}"'
                 return response
+            except GmailAuthError as e:
+                email_label = account.email if account else 'the mailbox'
+                html_err = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Mailbox Reconnection Required</title>
+<style>body{{font-family:system-ui,-apple-system,sans-serif;background:#f8fafc;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;color:#1e293b}}
+.card{{background:#fff;border:1px solid #fecdd3;border-radius:16px;padding:32px;max-width:480px;box-shadow:0 10px 25px rgba(0,0,0,0.05);text-align:center}}
+.badge{{display:inline-block;background:#fff1f2;color:#be123c;font-weight:700;font-size:12px;padding:6px 12px;border-radius:999px;margin-bottom:12px;border:1px solid #fecdd3}}
+h2{{margin:0 0 8px;font-size:20px;color:#0f172a}}
+p{{margin:0 0 20px;font-size:14px;color:#475569;line-height:1.6}}
+a.btn{{display:inline-block;background:#4f46e5;color:#fff;text-decoration:none;font-weight:700;font-size:13px;padding:10px 20px;border-radius:10px}}
+</style></head><body><div class="card">
+<div class="badge">GMAIL OAUTH EXPIRED (invalid_grant)</div>
+<h2>Reconnect {email_label}</h2>
+<p>Google's OAuth token for <strong>{email_label}</strong> has expired or was revoked, so Gmail could not stream <strong>{attachment.filename}</strong>.<br><br>Please go to <strong>Mail Control Center &rarr; Accounts &amp; Settings</strong> and click <strong>Reconnect</strong> on <strong>{email_label}</strong>.</p>
+<a class="btn" href="{settings.FRONTEND_URL}/mail-settings">Open Mail Settings to Reconnect</a>
+</div></body></html>"""
+                return HttpResponse(html_err, content_type='text/html', status=400)
             except Exception as e:
                 return HttpResponse(f"Failed to fetch attachment: {str(e)}", status=400)
 
@@ -840,13 +874,17 @@ def gmail_callback(request):
             else:
                 module_scope = get_user_default_module_scope(request.user)
 
+        old_account = MailAccount.objects.filter(email=email_address).first()
+        old_refresh = (old_account.credentials or {}).get('refresh_token') if old_account else None
+
         creds_data = {
             'token': credentials.token,
-            'refresh_token': credentials.refresh_token,
+            'refresh_token': credentials.refresh_token or old_refresh,
             'token_uri': credentials.token_uri,
             'client_id': credentials.client_id,
             'client_secret': credentials.client_secret,
-            'scopes': credentials.scopes
+            'scopes': list(credentials.scopes or []),
+            'expiry': credentials.expiry.isoformat() if getattr(credentials, 'expiry', None) else None,
         }
 
         defaults = {

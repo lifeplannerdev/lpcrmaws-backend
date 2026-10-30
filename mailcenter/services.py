@@ -681,12 +681,10 @@ def sync_account_threads(account, target_email=None, max_results=35):
 
 
 def get_gmail_attachment(attachment):
-    import base64
     from django.core.files.base import ContentFile
     from .gmail_client import GmailClient
 
     client = GmailClient(attachment.message.account)
-    res = client.get_attachment(attachment.message.gmail_message_id, attachment.gmail_attachment_id)
-    data = base64.urlsafe_b64decode(res['data'])
+    data = client.get_attachment(attachment.message.gmail_message_id, attachment.gmail_attachment_id)
     attachment.file.save(attachment.filename, ContentFile(data))
     attachment.save()
