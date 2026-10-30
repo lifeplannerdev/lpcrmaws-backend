@@ -806,7 +806,11 @@ def get_template_variables(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def gmail_authorize(request):
-    if not (has_dynamic_permission(request.user, 'mail:manage') or has_dynamic_permission(request.user, 'fees:manage')):
+    if not (
+        is_mail_admin(request.user)
+        or has_mail_access(request.user)
+        or has_dynamic_permission(request.user, 'fees:manage')
+    ):
         return Response({"detail": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
 
     module_scope = (
@@ -838,7 +842,11 @@ def gmail_authorize(request):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def gmail_callback(request):
-    if not (has_dynamic_permission(request.user, 'mail:manage') or has_dynamic_permission(request.user, 'fees:manage')):
+    if not (
+        is_mail_admin(request.user)
+        or has_mail_access(request.user)
+        or has_dynamic_permission(request.user, 'fees:manage')
+    ):
         return Response({"detail": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
 
     state = request.data.get('state')
@@ -875,6 +883,14 @@ def gmail_callback(request):
                 module_scope = get_user_default_module_scope(request.user)
 
         old_account = MailAccount.objects.filter(email=email_address).first()
+        admin = is_mail_admin(request.user) or has_dynamic_permission(request.user, 'fees:manage')
+        if not admin:
+            own_qs = get_user_own_accounts_queryset(request.user)
+            if not old_account or not own_qs.filter(pk=old_account.pk).exists():
+                return Response(
+                    {"detail": "You can only reconnect a mailbox assigned to your role."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
         old_refresh = (old_account.credentials or {}).get('refresh_token') if old_account else None
 
         creds_data = {
@@ -886,6 +902,20 @@ def gmail_callback(request):
             'scopes': list(credentials.scopes or []),
             'expiry': credentials.expiry.isoformat() if getattr(credentials, 'expiry', None) else None,
         }
+
+        if not admin and old_account:
+            # Non-admin mail:use users reconnecting their own role's mailbox ONLY refresh OAuth credentials/status
+            old_account.credentials = creds_data
+            old_account.status = MailAccount.STATUS_CONNECTED
+            old_account.status_message = ''
+            old_account.save(update_fields=['credentials', 'status', 'status_message'])
+            return Response({
+                "detail": "Mailbox reconnected successfully",
+                "email": email_address,
+                "send_as_email": old_account.send_as_email,
+                "module_scope": old_account.module_scope,
+                "company": old_account.company,
+            })
 
         defaults = {
             'credentials': creds_data,
