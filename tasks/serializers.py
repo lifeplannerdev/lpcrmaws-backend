@@ -26,7 +26,11 @@ class EmployeeSerializer(serializers.ModelSerializer):
 class TaskSerializer(serializers.ModelSerializer):
     assigned_by = serializers.PrimaryKeyRelatedField(read_only=True)
     assigned_by_name = serializers.CharField(source='assigned_by.username', read_only=True)
+    assigned_by_email = serializers.EmailField(source='assigned_by.email', read_only=True)
+    assigned_by_full_name = serializers.SerializerMethodField()
     assigned_to_name = serializers.CharField(source='assigned_to.username', read_only=True)
+    assigned_to_email = serializers.EmailField(source='assigned_to.email', read_only=True)
+    assigned_to_full_name = serializers.SerializerMethodField()
     assigned_to_location = serializers.CharField(source='assigned_to.location', read_only=True)
     assigned_to_roles = serializers.SerializerMethodField()
     
@@ -45,6 +49,16 @@ class TaskSerializer(serializers.ModelSerializer):
         if obj.assigned_to:
             return list(obj.assigned_to.db_roles.values_list('name', flat=True))
         return []
+
+    def get_assigned_to_full_name(self, obj):
+        if obj.assigned_to:
+            return obj.assigned_to.get_full_name() or obj.assigned_to.username
+        return ''
+
+    def get_assigned_by_full_name(self, obj):
+        if obj.assigned_by:
+            return obj.assigned_by.get_full_name() or obj.assigned_by.username
+        return ''
     
     def get_overdue_days(self, obj):
         if obj.status in ['COMPLETED', 'CANCELLED']:

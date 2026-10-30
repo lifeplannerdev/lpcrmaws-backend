@@ -1218,6 +1218,34 @@ class FeeReceiptSendEmailAPIView(APIView):
                 gmail_thread_id = gmail_resp.get('threadId', '')
                 delivery_channel = f"GMAIL_API ({from_email})"
                 sent_ok = True
+                try:
+                    from mailcenter.models import EmailMessage as CrmEmailMessage
+                    CrmEmailMessage.objects.update_or_create(
+                        gmail_message_id=gmail_message_id or None,
+                        defaults={
+                            'student': receipt.processing_student,
+                            'account': fee_account,
+                            'sender_alias_email': from_email,
+                            'sender_display_name': display_name,
+                            'context_module': 'FEES',
+                            'context_id': str(receipt.id),
+                            'context_label': f"Receipt {receipt.receipt_number} • {receipt.recipient_name}",
+                            'direction': CrmEmailMessage.DIRECTION_OUT,
+                            'state': CrmEmailMessage.STATE_SENT,
+                            'gmail_thread_id': gmail_thread_id or None,
+                            'from_email': from_header,
+                            'to': [to_email],
+                            'subject': subject,
+                            'body_html': html_body,
+                            'body_text': text_body,
+                            'snippet': text_body[:280],
+                            'created_by': request.user,
+                            'sent_by': request.user,
+                            'sent_at': timezone.now(),
+                        }
+                    )
+                except Exception:
+                    pass
             except Exception as exc:
                 import logging
                 logging.getLogger(__name__).warning("Gmail API send failed, falling back to SMTP: %s", exc)

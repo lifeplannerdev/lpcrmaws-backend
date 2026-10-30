@@ -479,6 +479,7 @@ class MissingReportsView(APIView):
             {
                 "id": u.id,
                 "name": u.get_full_name() or u.username,
+                "email": u.email or "",
                 "role": ", ".join([r.name for r in u.db_roles.all()]) if hasattr(u, 'db_roles') else ""
             }
             for u in missing_users

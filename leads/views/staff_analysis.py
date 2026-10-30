@@ -570,10 +570,16 @@ class StaffAnalysisLeadsAPIView(generics.ListAPIView):
                 }
 
             assigned_name = ''
+            assigned_id = None
+            assigned_email = ''
             if lead.assigned_to:
                 assigned_name = lead.assigned_to.get_full_name() or lead.assigned_to.username
+                assigned_id = lead.assigned_to.id
+                assigned_email = lead.assigned_to.email or ''
             elif lead.sub_assigned_to:
                 assigned_name = lead.sub_assigned_to.get_full_name() or lead.sub_assigned_to.username
+                assigned_id = lead.sub_assigned_to.id
+                assigned_email = lead.sub_assigned_to.email or ''
                 
             return {
                 'id': lead.id,
@@ -591,7 +597,9 @@ class StaffAnalysisLeadsAPIView(generics.ListAPIView):
                 'lead_tag': lead_tag,
                 'lead_tag_display': lead_tag_display,
                 'latest_followup': latest_fup_data,
+                'assigned_to_id': assigned_id,
                 'assigned_to_name': assigned_name,
+                'assigned_to_email': assigned_email,
                 'followups': [
                     {
                         'id': f.id,
@@ -665,12 +673,17 @@ class StaffAnalysisFollowUpsAPIView(generics.ListAPIView):
             if f.follow_up_time:
                 follow_up_time_str = f.follow_up_time.isoformat() if hasattr(f.follow_up_time, 'isoformat') else str(f.follow_up_time)
             assigned_name = ''
+            assigned_id = None
+            assigned_email = ''
             if f.assigned_to:
                 assigned_name = f.assigned_to.get_full_name() or f.assigned_to.username
+                assigned_id = f.assigned_to.id
+                assigned_email = f.assigned_to.email or ''
             return {
                 'id': f.id,
                 'name': f.name or (f.lead.name if f.lead else ''),
                 'phone': f.phone_number or (f.lead.phone if f.lead else ''),
+                'email': f.lead.email if f.lead else '',
                 'follow_up_date': f.follow_up_date.isoformat() if hasattr(f.follow_up_date, 'isoformat') else (str(f.follow_up_date) if f.follow_up_date else None),
                 'follow_up_time': follow_up_time_str,
                 'status': f.status,
@@ -679,11 +692,14 @@ class StaffAnalysisFollowUpsAPIView(generics.ListAPIView):
                 'notes': f.notes,
                 'recording_url': _extract_recording_url(f.notes),
                 'is_overdue': is_overdue,
+                'assigned_to_id': assigned_id,
                 'assigned_to_name': assigned_name,
+                'assigned_to_email': assigned_email,
                 'lead': {
                     'id': f.lead.id,
                     'name': f.lead.name,
                     'phone': f.lead.phone,
+                    'email': f.lead.email,
                     'status': f.lead.status,
                     'program': f.lead.program,
                 } if f.lead else None,

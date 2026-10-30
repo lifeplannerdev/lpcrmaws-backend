@@ -5,9 +5,8 @@ from storages.backends.s3boto3 import S3Boto3Storage
 
 class MailAccount(models.Model):
     """
-    A shared Gmail mailbox connected to the CRM. Any staff member holding the
-    `mail:use` permission can send from any active account - sending is never tied
-    to the student's "Assigned To" user.
+    A shared or role/user-assigned Gmail / Google Workspace mailbox connected to the CRM.
+    Supports strict role & user isolation, multi-alias webmail sending, and per-page assignment.
     """
     STATUS_CONNECTED = 'connected'
     STATUS_NEEDS_RECONNECT = 'needs_reconnect'
@@ -18,18 +17,49 @@ class MailAccount(models.Model):
 
     SCOPE_PROCESSING = 'PROCESSING'
     SCOPE_FEES = 'FEES'
+    SCOPE_EXECUTIVE = 'EXECUTIVE'
+    SCOPE_HR = 'HR'
+    SCOPE_SALES = 'SALES'
     SCOPE_GLOBAL = 'GLOBAL'
     SCOPE_CHOICES = [
         (SCOPE_PROCESSING, 'Processing & Admissions'),
         (SCOPE_FEES, 'Fees & Accounts'),
+        (SCOPE_EXECUTIVE, 'Executive & Management (MD)'),
+        (SCOPE_HR, 'HR & Administration'),
+        (SCOPE_SALES, 'Sales & Leads'),
         (SCOPE_GLOBAL, 'Global / All Modules'),
     ]
 
     email = models.EmailField(unique=True)
-    display_name = models.CharField(max_length=150, blank=True, help_text="Shown as the sender name, e.g. 'FLAG Accounts & Finance'")
-    send_as_email = models.EmailField(blank=True, help_text="Optional custom alias/webmail (e.g. accounts@lifeplanneruniversal.com) configured in Gmail 'Send As'")
+    display_name = models.CharField(
+        max_length=150, blank=True, help_text="Shown as the sender name, e.g. 'FLAG Accounts & Finance'"
+    )
+    send_as_email = models.EmailField(
+        blank=True,
+        help_text="Primary custom alias/webmail (e.g. accounts@lifeplanneruniversal.com) configured in Gmail 'Send As'",
+    )
+    custom_aliases = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Additional sender aliases [{email, display_name, is_default}] available in the From selector",
+    )
     module_scope = models.CharField(max_length=20, choices=SCOPE_CHOICES, default=SCOPE_PROCESSING, db_index=True)
     company = models.CharField(max_length=20, default='FLAG', db_index=True)
+
+    # Strict Role, Employee & Page Assignment
+    assigned_roles = models.ManyToManyField(
+        'accounts.Role', blank=True, related_name='mail_accounts',
+        help_text="Roles permitted to view and send from this mailbox"
+    )
+    assigned_users = models.ManyToManyField(
+        settings.AUTH_USER_MODEL, blank=True, related_name='assigned_mail_accounts',
+        help_text="Specific employees permitted to use this mailbox irrespective of role"
+    )
+    allowed_pages = models.JSONField(
+        default=list, blank=True,
+        help_text="CRM page keys where this mailbox is enabled (e.g. ['tasks', 'penalties', 'reports', 'staff_analysis', 'processing_students', 'receipts'])"
+    )
+
     credentials = models.JSONField(default=dict, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_CONNECTED)
     status_message = models.CharField(max_length=255, blank=True)
@@ -50,16 +80,25 @@ class MailAccount(models.Model):
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
         if self.is_default:
-            MailAccount.objects.exclude(pk=self.pk).filter(is_default=True).update(is_default=False)
+            MailAccount.objects.exclude(pk=self.pk).filter(
+                module_scope=self.module_scope, is_default=True
+            ).update(is_default=False)
 
 
 class EmailSignature(models.Model):
-    """A manually written signature. Shared ones (owner=None) are visible to everyone."""
+    """A signature that can be personal (owner set) or scoped to specific roles/module."""
     name = models.CharField(max_length=120)
     body_html = models.TextField()
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.CASCADE,
-        related_name='mail_signatures', help_text="Empty = shared with all mail users"
+        related_name='mail_signatures', help_text="Empty = shared within role/module scope"
+    )
+    module_scope = models.CharField(
+        max_length=20, choices=MailAccount.SCOPE_CHOICES, default=MailAccount.SCOPE_PROCESSING, db_index=True
+    )
+    scope_roles = models.ManyToManyField('accounts.Role', blank=True, related_name='mail_signatures')
+    account = models.ForeignKey(
+        MailAccount, null=True, blank=True, on_delete=models.SET_NULL, related_name='signatures'
     )
     is_default = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -75,6 +114,10 @@ class EmailSignature(models.Model):
 class EmailTemplate(models.Model):
     name = models.CharField(max_length=150)
     category = models.CharField(max_length=80, blank=True, default='General')
+    module_scope = models.CharField(
+        max_length=20, choices=MailAccount.SCOPE_CHOICES, default=MailAccount.SCOPE_PROCESSING, db_index=True
+    )
+    scope_roles = models.ManyToManyField('accounts.Role', blank=True, related_name='mail_templates')
     subject = models.CharField(max_length=300, blank=True)
     body_html = models.TextField(blank=True)
     is_active = models.BooleanField(default=True)
@@ -109,10 +152,28 @@ class EmailMessage(models.Model):
         (STATE_FAILED, 'Failed'),
     ]
 
+    # Nullable student FK so messages can also belong to Staff, Leads, Tasks, Penalties, Reports, or General threads
     student = models.ForeignKey(
-        'trainers.ProcessingStudent', on_delete=models.CASCADE, related_name='mail_messages'
+        'trainers.ProcessingStudent', null=True, blank=True, on_delete=models.CASCADE, related_name='mail_messages'
     )
+    recipient_staff = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='received_crm_emails'
+    )
+    lead = models.ForeignKey(
+        'leads.Lead', null=True, blank=True, on_delete=models.SET_NULL, related_name='mail_messages'
+    )
+    context_module = models.CharField(
+        max_length=40, blank=True, default='', db_index=True,
+        help_text="e.g. PROCESSING, FEES, TASKS, PENALTIES, REPORTS, STAFF_ANALYSIS, GENERAL"
+    )
+    context_id = models.CharField(max_length=64, blank=True, default='', db_index=True)
+    context_label = models.CharField(max_length=255, blank=True, default='')
+    custom_variables = models.JSONField(default=dict, blank=True)
+
     account = models.ForeignKey(MailAccount, null=True, blank=True, on_delete=models.SET_NULL, related_name='messages')
+    sender_alias_email = models.EmailField(blank=True, default='')
+    sender_display_name = models.CharField(max_length=150, blank=True, default='')
+
     direction = models.CharField(max_length=3, choices=DIRECTION_CHOICES, default=DIRECTION_OUT)
     state = models.CharField(max_length=10, choices=STATE_CHOICES, default=STATE_DRAFT, db_index=True)
 
@@ -147,7 +208,12 @@ class EmailMessage(models.Model):
 
     class Meta:
         ordering = ['-created_at']
-        indexes = [models.Index(fields=['student', 'state'])]
+        indexes = [
+            models.Index(fields=['student', 'state']),
+            models.Index(fields=['recipient_staff', 'state']),
+            models.Index(fields=['lead', 'state']),
+            models.Index(fields=['context_module', 'context_id']),
+        ]
         constraints = [
             models.UniqueConstraint(
                 fields=['gmail_message_id'], condition=models.Q(gmail_message_id__isnull=False),
