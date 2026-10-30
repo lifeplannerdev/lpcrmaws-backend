@@ -33,30 +33,80 @@ class StaffPagination(PageNumberPagination):
     max_page_size = 100
 
 
-# Dashboard Stats View
+from .dashboard_service import DashboardAggregationService
+
+
+# Dashboard Stats & Aggregation Views
 class DashboardStatsAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
         user = request.user
-        is_admin = user.db_roles.filter(name="ADMIN").exists()
+        has_admin_dash = has_dynamic_permission(user, 'admin:dashboard') or user.is_superuser
+        is_admin = user.db_roles.filter(name="ADMIN").exists() or has_admin_dash
+        has_leads = is_admin or has_dynamic_permission(user, 'leads:read_tenant') or has_dynamic_permission(user, 'leads:read_all')
+        has_staff = is_admin or has_dynamic_permission(user, 'staff:read_tenant')
+        has_students = is_admin or has_dynamic_permission(user, 'students:read_tenant')
+
         data = {}
 
-        if is_admin or has_dynamic_permission(user, 'leads:read_tenant'):
+        if has_leads:
             data["total_leads"] = Lead.objects.count()
 
-        if is_admin or has_dynamic_permission(user, 'staff:read_tenant'):
+        if has_staff:
             data["active_staff"] = User.objects.filter(is_active=True).count()
             data["staff_on_leave"] = User.objects.filter(is_on_leave=True).count()
             data["pending_candidates"] = Candidate.objects.filter(status='applied').count()
 
-        if is_admin or has_dynamic_permission(user, 'students:read_tenant'):
+        if has_students:
             data["total_students"] = Student.objects.count()
 
-        if not data:
+        if not data and not has_admin_dash:
             raise PermissionDenied("You are not allowed to view dashboard stats")
 
+        company = request.query_params.get('company', getattr(user, 'company', None))
+
+        # Operational CRM aggregations via DashboardAggregationService
+        agg_data = DashboardAggregationService.get_dashboard_data(user, company=company)
+
+        # Attach aggregated metrics while preserving legacy top-level keys
+        data["user_role"] = agg_data["user_role"]
+        data["has_admin_dashboard"] = agg_data["has_admin_dashboard"]
+        data["user"] = agg_data["user"]
+        data["metrics"] = agg_data["metrics"]
+        data["lead_pipeline"] = agg_data["lead_pipeline"]
+        data["followup_stats"] = agg_data["followup_stats"]
+        data["task_stats"] = agg_data["task_stats"]
+        data["recent_activities"] = agg_data["recent_activities"]
+        data["role_sections"] = agg_data["role_sections"]
+        data["leads_change"] = 0
+        data["staff_change"] = 0
+        data["students_change"] = 0
+
         return Response(data)
+
+
+class DashboardAggregationAPIView(APIView):
+    """
+    Dedicated endpoint for operational CRM dashboard aggregations (/api/dashboard/stats/)
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        has_admin_dash = has_dynamic_permission(user, 'admin:dashboard') or user.is_superuser
+        is_admin = user.db_roles.filter(name="ADMIN").exists() or has_admin_dash
+        has_leads = is_admin or has_dynamic_permission(user, 'leads:read_tenant') or has_dynamic_permission(user, 'leads:read_all')
+        has_staff = is_admin or has_dynamic_permission(user, 'staff:read_tenant')
+        has_students = is_admin or has_dynamic_permission(user, 'students:read_tenant')
+
+        if not (is_admin or has_leads or has_staff or has_students):
+            raise PermissionDenied("You are not allowed to view dashboard stats")
+
+        company = request.query_params.get('company', getattr(user, 'company', None))
+        agg_data = DashboardAggregationService.get_dashboard_data(user, company=company)
+        return Response(agg_data)
+
 
 
 # Recent Activities View

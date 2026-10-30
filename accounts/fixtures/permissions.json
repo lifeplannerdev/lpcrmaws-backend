@@ -1,0 +1,1010 @@
+[
+  {
+    "model": "accounts.apppermission",
+    "pk": 155,
+    "fields": {
+      "name": "admin:dashboard",
+      "description": "Full administrative access to CRM overview dashboard, metrics, analytics, and operational aggregations"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 40,
+    "fields": {
+      "name": "assets:create",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 14,
+    "fields": {
+      "name": "assets:delete_any",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 66,
+    "fields": {
+      "name": "assets:delete_tenant",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 23,
+    "fields": {
+      "name": "assets:edit_any",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 72,
+    "fields": {
+      "name": "assets:edit_tenant",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 21,
+    "fields": {
+      "name": "assets:manage",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 26,
+    "fields": {
+      "name": "assets:read_any",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 61,
+    "fields": {
+      "name": "assets:read_own",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 50,
+    "fields": {
+      "name": "assets:read_tenant",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 116,
+    "fields": {
+      "name": "attendance:approvals",
+      "description": "Can approve strict fee attendance dues"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 53,
+    "fields": {
+      "name": "attendance:create",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 22,
+    "fields": {
+      "name": "attendance:edit_any",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 117,
+    "fields": {
+      "name": "attendance:edit_own",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 68,
+    "fields": {
+      "name": "attendance:edit_tenant",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 65,
+    "fields": {
+      "name": "attendance:mark",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 70,
+    "fields": {
+      "name": "attendance:view_docs",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 4,
+    "fields": {
+      "name": "candidates:edit_any",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 69,
+    "fields": {
+      "name": "candidates:read_any",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 75,
+    "fields": {
+      "name": "credentials:manage",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 95,
+    "fields": {
+      "name": "credentials:read_tenant",
+      "description": "Can view all credentials"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 77,
+    "fields": {
+      "name": "credentials:share",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 76,
+    "fields": {
+      "name": "credentials:view",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 27,
+    "fields": {
+      "name": "dashboard:read",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 123,
+    "fields": {
+      "name": "fds:admin",
+      "description": "FDS Admin Access"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 127,
+    "fields": {
+      "name": "fds:admin_own",
+      "description": "FDS Admin (Own Data) Access"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 136,
+    "fields": {
+      "name": "fds:management",
+      "description": "Read-only management view of FDS â€” full cross-branch visibility across Kochi and Kottayam with analytics dashboard. Assign manually to management roles via Role Management page."
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 124,
+    "fields": {
+      "name": "fds:view",
+      "description": "FDS View Access"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 153,
+    "fields": {
+      "name": "fds_fees:manage",
+      "description": "Manage FDS fees, collections, and receipt settings"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 125,
+    "fields": {
+      "name": "fds_fees:view",
+      "description": "View FDS student fee accounts and payment ledgers"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 107,
+    "fields": {
+      "name": "feeds:admin",
+      "description": "Can manage all feeds and delete any posts/comments"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 108,
+    "fields": {
+      "name": "feeds:post",
+      "description": "Can create new posts on feeds"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 149,
+    "fields": {
+      "name": "fees:accounts",
+      "description": "Full authority to access, generate receipts, and manage settings across ALL companies (FLAG, FDS, LP)"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 118,
+    "fields": {
+      "name": "fees:analytics",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 150,
+    "fields": {
+      "name": "fees:fds",
+      "description": "Access, generate receipts, and manage settings for FDS (Filmaatic Dance Studio)"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 151,
+    "fields": {
+      "name": "fees:flag",
+      "description": "Access, generate receipts, and manage settings for FLAG (German Language Academy)"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 42,
+    "fields": {
+      "name": "fees:issue_notice",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 152,
+    "fields": {
+      "name": "fees:lp",
+      "description": "Access, generate receipts, and manage settings for LP (Life Planner Universal)"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 28,
+    "fields": {
+      "name": "fees:manage",
+      "description": "Full administrative access to manage student fees, plans, and receipts"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 20,
+    "fields": {
+      "name": "fees:partial_payment",
+      "description": "Record partial fee installments and generate interim receipts"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 120,
+    "fields": {
+      "name": "fees:read_own",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 31,
+    "fields": {
+      "name": "fees:read_tenant",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 5,
+    "fields": {
+      "name": "fees:restructure",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 154,
+    "fields": {
+      "name": "fees:view",
+      "description": "View fee accounts, ledgers, and digital receipts"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 44,
+    "fields": {
+      "name": "fees:view_reports",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 109,
+    "fields": {
+      "name": "fees_grid:view",
+      "description": "Can view the dynamic fees grid / spreadsheet UI"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 130,
+    "fields": {
+      "name": "flag:admin",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 131,
+    "fields": {
+      "name": "flag:fees",
+      "description": "Access and manage FLAG language academy fee accounts and receipts"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 129,
+    "fields": {
+      "name": "flag:trainer",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 128,
+    "fields": {
+      "name": "flag:view",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 12,
+    "fields": {
+      "name": "leads:create",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 39,
+    "fields": {
+      "name": "leads:delete_any",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 51,
+    "fields": {
+      "name": "leads:delete_tenant",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 16,
+    "fields": {
+      "name": "leads:edit_any",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 58,
+    "fields": {
+      "name": "leads:edit_own",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 49,
+    "fields": {
+      "name": "leads:edit_tenant",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 19,
+    "fields": {
+      "name": "leads:read",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 63,
+    "fields": {
+      "name": "leads:read_own",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 57,
+    "fields": {
+      "name": "leads:read_tenant",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 135,
+    "fields": {
+      "name": "license:admin",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 138,
+    "fields": {
+      "name": "mail:manage",
+      "description": "Can connect Gmail accounts and manage shared templates/signatures"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 137,
+    "fields": {
+      "name": "mail:use",
+      "description": "Can send and view emails in the Mail Control Center"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 32,
+    "fields": {
+      "name": "penalties:create",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 15,
+    "fields": {
+      "name": "penalties:delete_any",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 74,
+    "fields": {
+      "name": "penalties:delete_tenant",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 37,
+    "fields": {
+      "name": "penalties:edit_any",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 71,
+    "fields": {
+      "name": "penalties:edit_tenant",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 46,
+    "fields": {
+      "name": "penalties:read_any",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 59,
+    "fields": {
+      "name": "penalties:read_own",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 55,
+    "fields": {
+      "name": "penalties:read_tenant",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 146,
+    "fields": {
+      "name": "processing:reminders_admin",
+      "description": "Full admin access to all employee reminders, approvals, updates, and checklist management"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 147,
+    "fields": {
+      "name": "processing:reminders_users",
+      "description": "Employee access to create personal reminders, checklists, mark complete for approval, and post updates"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 85,
+    "fields": {
+      "name": "processing_students:edit_any",
+      "description": "Can edit all processing students"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 86,
+    "fields": {
+      "name": "processing_students:edit_own",
+      "description": "Can edit own processing students"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 89,
+    "fields": {
+      "name": "processing_students:manage_fees",
+      "description": "Manage LP processing student fee payments and receipts"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 83,
+    "fields": {
+      "name": "processing_students:read_any",
+      "description": "Can view all processing students"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 84,
+    "fields": {
+      "name": "processing_students:read_own",
+      "description": "Can view own processing students"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 24,
+    "fields": {
+      "name": "profile:edit_own",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 2,
+    "fields": {
+      "name": "profile:read",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 111,
+    "fields": {
+      "name": "programs:manage",
+      "description": "Full CRUD access to Programs"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 112,
+    "fields": {
+      "name": "programs:view",
+      "description": "Read access to Programs"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 78,
+    "fields": {
+      "name": "report_settings:manage",
+      "description": "Manage Report Settings"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 139,
+    "fields": {
+      "name": "reports:approval",
+      "description": "Approve or reject staff daily reports and agendas"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 144,
+    "fields": {
+      "name": "reports:approval-kochi",
+      "description": "Approve and reject daily reports for Kochi staff (cannot approve or reject own reports)"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 145,
+    "fields": {
+      "name": "reports:approval-kottayam",
+      "description": "Approve and reject daily reports for Kottayam staff (cannot approve or reject own reports)"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 94,
+    "fields": {
+      "name": "reports:create",
+      "description": "Can create reports"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 126,
+    "fields": {
+      "name": "reports:documentation",
+      "description": "View reports from DOCUMENTATION role"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 132,
+    "fields": {
+      "name": "reports:kochi",
+      "description": "View staff reports for staff with location assigned KOCHI"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 25,
+    "fields": {
+      "name": "reports:read_all",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 47,
+    "fields": {
+      "name": "reports:read_own",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 133,
+    "fields": {
+      "name": "reports:sales_all",
+      "description": "View sales staff reports (ADM_COUNSELLOR, ADM_MANAGER, BMCO, FLAG COORDINATOR)"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 79,
+    "fields": {
+      "name": "roles:manage",
+      "description": "Manage Roles"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 7,
+    "fields": {
+      "name": "staff:access_flag",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 41,
+    "fields": {
+      "name": "staff:create",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 33,
+    "fields": {
+      "name": "staff:delete_any",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 67,
+    "fields": {
+      "name": "staff:delete_tenant",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 18,
+    "fields": {
+      "name": "staff:edit_any",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 29,
+    "fields": {
+      "name": "staff:edit_contact_logic",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 48,
+    "fields": {
+      "name": "staff:edit_tenant",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 34,
+    "fields": {
+      "name": "staff:read",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 62,
+    "fields": {
+      "name": "staff:read_own",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 52,
+    "fields": {
+      "name": "staff:read_tenant",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 134,
+    "fields": {
+      "name": "staff_analysis:admin",
+      "description": "Full access to the Staff Analysis page â€” view all employee leads, followups and performance metrics."
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 142,
+    "fields": {
+      "name": "staff_analysis:kochi",
+      "description": "View staff analysis, team members and leads for Kochi staff (no access to lead command center)"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 143,
+    "fields": {
+      "name": "staff_analysis:kottayam",
+      "description": "View staff analysis, team members and leads for Kottayam staff (no access to lead command center)"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 119,
+    "fields": {
+      "name": "students:admin",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 115,
+    "fields": {
+      "name": "students:batch_manage",
+      "description": "Can manage academic batches and grades"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 8,
+    "fields": {
+      "name": "students:edit_any",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 99,
+    "fields": {
+      "name": "students:edit_own",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 98,
+    "fields": {
+      "name": "students:edit_tenant",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 121,
+    "fields": {
+      "name": "students:read_own",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 30,
+    "fields": {
+      "name": "students:read_tenant",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 114,
+    "fields": {
+      "name": "students:registry_manage",
+      "description": "Can add/edit students and manage their registry packages"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 148,
+    "fields": {
+      "name": "tasks:documentation",
+      "description": "Assign, approve and view all tasks for staff with DOCUMENTATION role (cannot approve own task)"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 13,
+    "fields": {
+      "name": "tasks:edit_any",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 93,
+    "fields": {
+      "name": "tasks:edit_own",
+      "description": "Can edit own tasks"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 140,
+    "fields": {
+      "name": "tasks:kochi",
+      "description": "Assign, approve and view all tasks for staff with location Kochi (cannot approve own task)"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 141,
+    "fields": {
+      "name": "tasks:kottayam",
+      "description": "Assign, approve and view all tasks for staff with location Kottayam (cannot approve own task)"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 1,
+    "fields": {
+      "name": "tasks:read_all",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 54,
+    "fields": {
+      "name": "tasks:read_own",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 82,
+    "fields": {
+      "name": "voxbay:admin",
+      "description": "Can manage unique missed Voxbay calls"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 10,
+    "fields": {
+      "name": "voxbay:read",
+      "description": ""
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 81,
+    "fields": {
+      "name": "voxbay:read_all",
+      "description": "Can read all Voxbay calls"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 80,
+    "fields": {
+      "name": "voxbay:read_own",
+      "description": "Can read own Voxbay calls"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 113,
+    "fields": {
+      "name": "voxbay_ai:admin",
+      "description": "Admin access to Voxbay AI Dashboard"
+    }
+  },
+  {
+    "model": "accounts.apppermission",
+    "pk": 122,
+    "fields": {
+      "name": "voxbay_ai:read_own",
+      "description": "Read own Voxbay AI stats"
+    }
+  }
+]

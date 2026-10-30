@@ -44,3 +44,8 @@ class PermissionService:
             permissions_dict[resource] = list(permissions_dict[resource])
 
         return permissions_dict
+
+
+# Re-export DashboardAggregationService for backwards compatibility
+from .dashboard_service import DashboardAggregationService
+
