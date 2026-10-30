@@ -99,14 +99,41 @@ class PenaltyListCreateAPI(APIView):
         
         my_only = request.GET.get('my_only', '').lower() in ['true', '1']
         
-        if my_only or not (has_dynamic_permission(request.user, 'penalties:read_any') or 
-                has_dynamic_permission(request.user, 'penalties:read_tenant')):
+        can_read_any = (
+            request.user.is_superuser or
+            has_dynamic_permission(request.user, 'penalties:read_any') or 
+            has_dynamic_permission(request.user, 'penalties:edit_any')
+        )
+        can_read_tenant = (
+            has_dynamic_permission(request.user, 'penalties:read_tenant') or
+            has_dynamic_permission(request.user, 'penalties:edit_tenant')
+        )
+        
+        if my_only or not (can_read_any or can_read_tenant):
             penalties = penalties.filter(user=request.user)
+        elif not can_read_any and can_read_tenant:
+            if hasattr(request.user, 'company') and request.user.company:
+                penalties = penalties.filter(user__company=request.user.company)
             
         # Filter by month
         month = request.GET.get("month")
-        if month:
-            penalties = penalties.filter(month=month)
+        if month and month.lower() not in ['all', '']:
+            if '-' in month:
+                try:
+                    y, m = month.split('-')
+                    import calendar
+                    month_name = calendar.month_name[int(m)]
+                    month_abbr = calendar.month_abbr[int(m)]
+                    penalties = penalties.filter(
+                        Q(month=month) | 
+                        Q(month__icontains=month_name) |
+                        Q(month__icontains=month_abbr) |
+                        Q(date__year=int(y), date__month=int(m))
+                    )
+                except Exception:
+                    penalties = penalties.filter(month=month)
+            else:
+                penalties = penalties.filter(Q(month=month) | Q(month__icontains=month))
         
         # Filter by user
         user_id = request.GET.get("user")
@@ -150,9 +177,20 @@ class PenaltyDetailAPI(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        if not (has_dynamic_permission(request.user, 'penalties:read_any') or 
-                has_dynamic_permission(request.user, 'penalties:read_tenant')):
+        can_read_any = (
+            request.user.is_superuser or
+            has_dynamic_permission(request.user, 'penalties:read_any') or 
+            has_dynamic_permission(request.user, 'penalties:edit_any')
+        )
+        can_read_tenant = (
+            has_dynamic_permission(request.user, 'penalties:read_tenant') or
+            has_dynamic_permission(request.user, 'penalties:edit_tenant')
+        )
+        if not (can_read_any or can_read_tenant):
             if penalty.user != request.user:
+                return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        elif not can_read_any and can_read_tenant:
+            if hasattr(request.user, 'company') and request.user.company and penalty.company != request.user.company:
                 return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
                 
         serializer = PenaltySerializer(penalty)
