@@ -6,6 +6,7 @@ from django.db import models, transaction
 from django.db.models import Count, Max, Q as DQ
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, filters, status
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.pagination import PageNumberPagination
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.response import Response
@@ -72,20 +73,43 @@ class LeadAssignView(APIView):
             if assignee.company != request.user.company:
                 raise PermissionDenied(f"You do not have permission to assign leads to staff in {assignee.company}.")
 
+        now = timezone.now()
+        now_str = timezone.localtime(now).strftime("%d/%m/%Y %H:%M")
+        actor_name = request.user.get_full_name() or request.user.username
+        assignee_name = assignee.get_full_name() or assignee.username
+        prev_remarks = lead.remarks or ''
+
         if assignment_type == 'PRIMARY':
+            old_name = (lead.assigned_to.get_full_name() or lead.assigned_to.username) if lead.assigned_to else 'Unassigned'
             lead.assigned_to       = assignee
             lead.assigned_by       = request.user
-            lead.assigned_date     = timezone.now()
+            lead.assigned_date     = now
             lead.sub_assigned_to   = None
             lead.sub_assigned_by   = None
             lead.sub_assigned_date = None
 
         elif assignment_type == 'SUB':
+            old_name = (lead.sub_assigned_to.get_full_name() or lead.sub_assigned_to.username) if lead.sub_assigned_to else 'Unassigned'
             lead.sub_assigned_to   = assignee
             lead.sub_assigned_by   = request.user
-            lead.sub_assigned_date = timezone.now()
+            lead.sub_assigned_date = now
+
+        transfer_msg = f"[{now_str}] Transferred from {old_name} to {assignee_name} by {actor_name}"
+        if notes and notes.strip():
+            transfer_msg += f" (Note: {notes.strip()})"
+        new_remarks = f"{prev_remarks}\n\n{transfer_msg}".strip() if prev_remarks else transfer_msg
+        lead.remarks = new_remarks
 
         lead.save()
+
+        RemarkHistory.objects.create(
+            lead=lead,
+            previous_remarks=prev_remarks or None,
+            new_remarks=new_remarks,
+            changed_by=request.user,
+        )
+
+        FollowUp.objects.filter(lead=lead, status='pending').update(assigned_to=assignee)
 
         LeadAssignment.objects.create(
             lead=lead,
@@ -259,37 +283,57 @@ class BulkLeadAssignView(APIView):
                 # Fetch necessary metadata for assignment notes and follow-ups
                 batch_leads = list(
                     Lead.objects.filter(id__in=batch_ids)
-                    .select_related('assigned_to')
-                    .only('id', 'name', 'phone', 'priority', 'assigned_to__first_name', 'assigned_to__last_name', 'assigned_to__username')
+                    .select_related('assigned_to', 'sub_assigned_to')
                 )
 
-                # 1. Bulk update Lead ownership
-                if assignment_type == 'SUB':
-                    Lead.objects.filter(id__in=batch_ids).update(
-                        sub_assigned_to=assignee,
-                        sub_assigned_by=user,
-                        sub_assigned_date=now,
-                    )
-                else:
-                    Lead.objects.filter(id__in=batch_ids).update(
-                        assigned_to=assignee,
-                        assigned_by=user,
-                        assigned_date=now,
-                        sub_assigned_to=None,
-                        sub_assigned_by=None,
-                        sub_assigned_date=None,
-                    )
+                now_str = timezone.localtime(now).strftime("%d/%m/%Y %H:%M")
+                actor_name = user.get_full_name() or user.username
+                assignee_name = assignee.get_full_name() or assignee.username
 
-                # 2. Bulk create LeadAssignment audit entries
+                leads_to_update = []
+                remark_history_to_create = []
                 assignments_to_create = []
+
                 for lead in batch_leads:
+                    prev_remarks = lead.remarks or ''
                     current_notes = notes
-                    if assignment_type == 'PRIMARY' and lead.assigned_to:
-                        old_name = lead.assigned_to.get_full_name() or lead.assigned_to.username
-                        current_notes = f"{current_notes} [Transferred from {old_name}]".strip()
-                    elif assignment_type == 'SUB' and lead.sub_assigned_to:
-                        old_name = lead.sub_assigned_to.get_full_name() or lead.sub_assigned_to.username
-                        current_notes = f"{current_notes} [Transferred from {old_name}]".strip()
+
+                    if assignment_type == 'PRIMARY':
+                        old_name = (lead.assigned_to.get_full_name() or lead.assigned_to.username) if lead.assigned_to else 'Unassigned'
+                        if lead.assigned_to:
+                            current_notes = f"{current_notes} [Transferred from {old_name}]".strip()
+                    else:
+                        old_name = (lead.sub_assigned_to.get_full_name() or lead.sub_assigned_to.username) if lead.sub_assigned_to else 'Unassigned'
+                        if lead.sub_assigned_to:
+                            current_notes = f"{current_notes} [Transferred from {old_name}]".strip()
+
+                    transfer_msg = f"[{now_str}] Transferred from {old_name} to {assignee_name} by {actor_name}"
+                    if notes and notes.strip() and notes.strip() != 'Bulk transfer via Lead Command Centre':
+                        transfer_msg += f" (Note: {notes.strip()})"
+
+                    new_remarks = f"{prev_remarks}\n\n{transfer_msg}".strip() if prev_remarks else transfer_msg
+                    lead.remarks = new_remarks
+
+                    if assignment_type == 'SUB':
+                        lead.sub_assigned_to = assignee
+                        lead.sub_assigned_by = user
+                        lead.sub_assigned_date = now
+                    else:
+                        lead.assigned_to = assignee
+                        lead.assigned_by = user
+                        lead.assigned_date = now
+                        lead.sub_assigned_to = None
+                        lead.sub_assigned_by = None
+                        lead.sub_assigned_date = None
+
+                    leads_to_update.append(lead)
+
+                    remark_history_to_create.append(RemarkHistory(
+                        lead_id=lead.id,
+                        previous_remarks=prev_remarks or None,
+                        new_remarks=new_remarks,
+                        changed_by=user,
+                    ))
 
                     assignments_to_create.append(LeadAssignment(
                         lead_id=lead.id,
@@ -306,6 +350,19 @@ class BulkLeadAssignView(APIView):
                             'priority':  lead.priority,
                         })
 
+                # 1. Bulk update Lead ownership and remarks
+                if assignment_type == 'SUB':
+                    update_fields = ['sub_assigned_to', 'sub_assigned_by', 'sub_assigned_date', 'remarks']
+                else:
+                    update_fields = [
+                        'assigned_to', 'assigned_by', 'assigned_date',
+                        'sub_assigned_to', 'sub_assigned_by', 'sub_assigned_date',
+                        'remarks'
+                    ]
+                Lead.objects.bulk_update(leads_to_update, update_fields, batch_size=BATCH_SIZE)
+
+                # 2. Bulk create RemarkHistory and LeadAssignment audit entries
+                RemarkHistory.objects.bulk_create(remark_history_to_create, batch_size=BATCH_SIZE)
                 LeadAssignment.objects.bulk_create(assignments_to_create, batch_size=BATCH_SIZE)
 
                 # 3. Follow-up scheduling strategy
