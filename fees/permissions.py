@@ -136,6 +136,21 @@ def can_manage_company_receipt_settings(user, company):
     return False
 
 
+class CanAccessCompanyFees(BasePermission):
+    """
+    Grants access if the user has global fee access (fees:accounts, superuser, executive)
+    or has company-scoped fee authority for at least one company (FLAG, FDS, LP).
+    """
+    def has_permission(self, request, view):
+        user = getattr(request, 'user', None)
+        if not user or not user.is_authenticated:
+            return False
+        if has_global_fee_access(user):
+            return True
+        allowed = get_allowed_fee_companies(user, action='view')
+        return len(allowed) > 0
+
+
 class CanViewFees(BasePermission):
     def has_permission(self, request, view):
         if has_global_fee_access(request.user):

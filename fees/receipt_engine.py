@@ -940,7 +940,7 @@ def get_or_create_receipt_settings(company='FLAG', campus=None):
     if not settings_obj:
         defs = COMPANY_DEFAULTS.get(company, COMPANY_DEFAULTS['FLAG'])
         opts = dict(DEFAULT_DISPLAY_OPTIONS)
-        if company in ('FDS', 'LP'):
+        if company in ('FLAG', 'FDS', 'LP'):
             opts['compact_fy'] = True
         try:
             with transaction.atomic():
@@ -1001,7 +1001,7 @@ def allocate_receipt_number(company='FLAG', campus=None, issue_date=None, compac
 
         # Determine whether to use compact FY (e.g. 26-27 vs 2026-27)
         is_compact = compact if compact is not None else (
-            bool(opts.get('compact_fy')) or (company in ('FDS', 'LP'))
+            bool(opts.get('compact_fy')) or (company in ('FLAG', 'FDS', 'LP'))
         )
         fy_token = fy[-5:] if (is_compact and len(fy) == 7 and fy[4] == '-') else fy
 

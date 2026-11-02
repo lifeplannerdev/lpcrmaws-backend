@@ -280,7 +280,7 @@ class DigitalReceiptSystemTests(APITestCase):
         )
         self.assertEqual(gen_res.status_code, 201)
         receipt_id = gen_res.data['id']
-        self.assertTrue(gen_res.data['receipt_number'].startswith('FLAG/2026-27/'))
+        self.assertTrue(gen_res.data['receipt_number'].startswith('FLAG/26-27/'))
         self.assertEqual(gen_res.data['recipient_name'], 'Aditi Menon')
         self.assertEqual(str(gen_res.data['total_amount']), '21240.00')
         self.assertEqual(str(gen_res.data['taxable_amount']), '18000.00')
@@ -463,18 +463,18 @@ class DigitalReceiptSystemTests(APITestCase):
         r1, fy1, _, _ = allocate_receipt_number('FLAG', issue_date=date(2026, 5, 1))
         r2, fy2, _, _ = allocate_receipt_number('FLAG', issue_date=date(2026, 5, 2))
         self.assertEqual(fy1, '2026-27')
-        self.assertEqual(r1, 'FLAG/2026-27/0001')
-        self.assertEqual(r2, 'FLAG/2026-27/0002')
+        self.assertEqual(r1, 'FLAG/26-27/0001')
+        self.assertEqual(r2, 'FLAG/26-27/0002')
 
         # Next FY resets to 0001
         r_next_fy, fy_next, _, _ = allocate_receipt_number('FLAG', issue_date=date(2027, 4, 1))
         self.assertEqual(fy_next, '2027-28')
-        self.assertEqual(r_next_fy, 'FLAG/2027-28/0001')
+        self.assertEqual(r_next_fy, 'FLAG/27-28/0001')
 
         # Backdated receipt in 2026-27 continues from 0003
         r3, fy3, _, _ = allocate_receipt_number('FLAG', issue_date=date(2026, 6, 1))
         self.assertEqual(fy3, '2026-27')
-        self.assertEqual(r3, 'FLAG/2026-27/0003')
+        self.assertEqual(r3, 'FLAG/26-27/0003')
 
     def test_lifecycle_guards_draft_verification_and_proforma_badge(self):
         self.client.force_authenticate(user=self.accounts_user)
@@ -852,7 +852,7 @@ class DigitalReceiptSystemTests(APITestCase):
 
         # 1. Positional date argument on allocate_receipt_number works cleanly
         r1, fy1, seq1, _ = allocate_receipt_number(date(2026, 4, 10))
-        self.assertEqual(r1, 'FLAG/2026-27/0001')
+        self.assertEqual(r1, 'FLAG/26-27/0001')
         self.assertEqual(fy1, '2026-27')
         self.assertEqual(seq1, 1)
 
@@ -872,7 +872,7 @@ class DigitalReceiptSystemTests(APITestCase):
 
         # Next allocated number in 2026-27 must continue from 0002 (not reset to 0001)
         r2, _, seq2, _ = allocate_receipt_number('FLAG', issue_date=date(2026, 4, 11))
-        self.assertEqual(r2, 'FLAG/2026-27/0002')
+        self.assertEqual(r2, 'FLAG/26-27/0002')
         self.assertEqual(seq2, 2)
 
         # 3. Manual receipt with sequence_number=None at 0005 is respected by allocate_receipt_number
@@ -880,7 +880,7 @@ class DigitalReceiptSystemTests(APITestCase):
             reverse('fee-receipt-list-create'),
             {
                 'company': 'FLAG',
-                'receipt_number': 'FLAG/2026-27/0005',
+                'receipt_number': 'FLAG/26-27/0005',
                 'recipient_name': 'Manual Seq Student',
                 'subtotal_amount': '5000.00',
                 'issue_date': '2026-04-12T10:00:00Z',
@@ -892,7 +892,7 @@ class DigitalReceiptSystemTests(APITestCase):
         self.assertNotIn('active_fy', create_manual.data['display_options'])
 
         r_after_manual, _, seq_after, _ = allocate_receipt_number('FLAG', issue_date=date(2026, 4, 15))
-        self.assertEqual(r_after_manual, 'FLAG/2026-27/0006')
+        self.assertEqual(r_after_manual, 'FLAG/26-27/0006')
         self.assertEqual(seq_after, 6)
 
         # 4. PUT on FeeReceiptDetailAPIView and PROFORMA payment_status_badge override

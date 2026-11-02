@@ -6,10 +6,11 @@ from django.urls import reverse
 from django.utils import timezone
 from rest_framework.test import APITestCase
 
-from fees.models import FeeReceipt, ReceiptSettings
+from fees.models import FeeReceipt, ReceiptSettings, StudentFeeAccount
 from fees.receipt_engine import allocate_receipt_number, verify_receipt_signature
-from fds.models import FdsStudent, FdsFeesCollection, FdsFeeStructure, FdsWeddingGroup
+from fds.models import FdsStudent, FdsFeesCollection, FdsFeeStructure, FdsWeddingGroup, FdsStudentFeeAccount
 from trainers.models import ProcessingStudent, ProcessingFeePayment
+from students.models import Student, Campus, AcademicPackage, Grade
 
 User = get_user_model()
 
@@ -136,8 +137,49 @@ class MultiCompanyFeePermissionsAndReceiptTests(APITestCase):
             notes='Initial 50% application advance',
         )
 
+        # Seed FLAG Campus, Grade, AcademicPackage, Student & StudentFeeAccount
+        self.flag_grade = Grade.objects.create(code='A1', name='A1 - Beginner', order=1)
+        self.flag_campus = Campus.objects.create(name='Kochi Campus', code='FLG-KOC')
+        self.flag_package = AcademicPackage.objects.create(
+            name='FLAG German A1 Beginner Package',
+            starting_grade=self.flag_grade,
+            ending_grade=self.flag_grade,
+        )
+        self.flag_student = Student.objects.create(
+            name='Ananya Sen',
+            phone='+919876500001',
+            email='ananya.sen@example.com',
+            campus=self.flag_campus,
+            academic_package=self.flag_package,
+            status='active',
+        )
+        self.flag_account = StudentFeeAccount.objects.create(
+            student=self.flag_student,
+            company='FLAG',
+            total_due=Decimal('50000.00'),
+            total_paid=Decimal('25000.00'),
+            balance_due=Decimal('25000.00'),
+            status='PARTIAL',
+        )
+
+        # Seed FDS Student Fee Account
+        self.fds_account = FdsStudentFeeAccount.objects.create(
+            student=self.fds_student,
+            active_package=self.fds_package,
+            total_due=Decimal('6000.00'),
+            total_paid=Decimal('3500.00'),
+            balance_due=Decimal('2500.00'),
+            status='PARTIAL',
+        )
+
     def test_compact_fy_numbering_for_fds_and_lp(self):
-        """Verify CBIC Rule 46 compact FY numbering (<=16 chars) for FDS and LP."""
+        """Verify CBIC Rule 46 compact FY numbering (<=16 chars) for FLAG, FDS and LP."""
+        flag_num, flag_fy, flag_seq, _ = allocate_receipt_number('FLAG', issue_date=date(2026, 6, 15))
+        self.assertEqual(flag_num, 'FLAG/26-27/0001')
+        self.assertEqual(flag_fy, '2026-27')
+        self.assertEqual(flag_seq, 1)
+        self.assertLessEqual(len(flag_num), 16)
+
         fds_num, fds_fy, fds_seq, _ = allocate_receipt_number('FDS', issue_date=date(2026, 6, 15))
         self.assertEqual(fds_num, 'FDS/26-27/0001')
         self.assertEqual(fds_fy, '2026-27')
@@ -371,3 +413,248 @@ class MultiCompanyFeePermissionsAndReceiptTests(APITestCase):
         self.assertEqual(patch_ok.status_code, 200)
         self.processing_student.refresh_from_db()
         self.assertEqual(self.processing_student.processing_fee_amount, Decimal('55000.00'))
+
+    def test_fee_company_registry_global_user(self):
+        """User with fees:accounts can retrieve all 3 companies with complete branding/division specs."""
+        self.client.force_authenticate(user=self.global_user)
+        url = reverse('fee-companies')
+        res = self.client.get(url, format='json')
+        self.assertEqual(res.status_code, 200)
+        self.assertIn('companies', res.data)
+        self.assertIn('default_company', res.data)
+        self.assertEqual(res.data['default_company'], 'FLAG')
+
+        company_codes = [c['code'] for c in res.data['companies']]
+        self.assertEqual(company_codes, ['FLAG', 'FDS', 'LP'])
+
+        flag_co = next(c for c in res.data['companies'] if c['code'] == 'FLAG')
+        self.assertEqual(flag_co['name'], 'FLAG German Language Academy')
+        self.assertEqual(flag_co['prefix'], 'FLAG')
+        self.assertEqual(flag_co['brand_color'], '#312e81')
+        self.assertIn('FLG-KOC', flag_co['divisions'])
+        self.assertTrue(flag_co['is_active'])
+
+        fds_co = next(c for c in res.data['companies'] if c['code'] == 'FDS')
+        self.assertEqual(fds_co['name'], 'FILMAATIC Dance Studio')
+        self.assertEqual(fds_co['prefix'], 'FDS')
+        self.assertEqual(fds_co['brand_color'], '#4f46e5')
+        self.assertTrue(fds_co['is_active'])
+
+        lp_co = next(c for c in res.data['companies'] if c['code'] == 'LP')
+        self.assertEqual(lp_co['name'], 'Life Planner Universal')
+        self.assertEqual(lp_co['prefix'], 'LP')
+        self.assertEqual(lp_co['brand_color'], '#0f766e')
+        self.assertTrue(lp_co['is_active'])
+
+    def test_fee_company_registry_denies_unauthorized_user(self):
+        """User without fee permissions is denied access to company registry (403)."""
+        self.client.force_authenticate(user=self.unauth_user)
+        url = reverse('fee-companies')
+        res = self.client.get(url, format='json')
+        self.assertEqual(res.status_code, 403)
+
+    def test_fee_company_registry_company_scoped_user(self):
+        """FDS-scoped user receives only FDS in company registry."""
+        self.client.force_authenticate(user=self.fds_user)
+        url = reverse('fee-companies')
+        res = self.client.get(url, format='json')
+        self.assertEqual(res.status_code, 200)
+        codes = [c['code'] for c in res.data['companies']]
+        self.assertEqual(codes, ['FDS'])
+        self.assertEqual(res.data['default_company'], 'FDS')
+
+    def test_student_fees_endpoint_flag_isolation(self):
+        """
+        When company=FLAG, returns only FLAG students with complete isolation.
+        Zero FDS or LP records, names, or IDs can bleed into the response.
+        """
+        self.client.force_authenticate(user=self.global_user)
+        url = reverse('fee-students')
+        res = self.client.get(url, {'company': 'FLAG'}, format='json')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data['company'], 'FLAG')
+        self.assertGreaterEqual(res.data['count'], 1)
+
+        names = [s['student_name'] for s in res.data['results']]
+        self.assertIn('Ananya Sen', names)
+        # Strict zero-bleed check
+        self.assertNotIn('Aarav Menon', names)
+        self.assertNotIn('Diya Nair', names)
+
+        student_rec = next(s for s in res.data['results'] if s['student_name'] == 'Ananya Sen')
+        self.assertEqual(student_rec['student_id'], f"STU-{self.flag_student.id:04d}")
+        self.assertEqual(student_rec['email'], 'ananya.sen@example.com')
+        self.assertEqual(student_rec['division'], 'FLG-KOC')
+        self.assertEqual(student_rec['total_fee'], 50000.0)
+        self.assertEqual(student_rec['total_paid'], 25000.0)
+        self.assertEqual(student_rec['balance_due'], 25000.0)
+        self.assertEqual(student_rec['fee_account_id'], self.flag_account.id)
+        self.assertEqual(student_rec['status'], 'PARTIAL')
+
+    def test_student_fees_endpoint_fds_isolation(self):
+        """
+        When company=FDS, returns only FDS students from fds.models.FdsStudent.
+        Zero FLAG or LP records can bleed into the response.
+        """
+        self.client.force_authenticate(user=self.global_user)
+        url = reverse('fee-students')
+        res = self.client.get(url, {'company': 'FDS'}, format='json')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data['company'], 'FDS')
+        self.assertGreaterEqual(res.data['count'], 1)
+
+        names = [s['student_name'] for s in res.data['results']]
+        self.assertIn('Aarav Menon', names)
+        # Strict zero-bleed check
+        self.assertNotIn('Ananya Sen', names)
+        self.assertNotIn('Diya Nair', names)
+
+        student_rec = next(s for s in res.data['results'] if s['student_name'] == 'Aarav Menon')
+        self.assertEqual(student_rec['student_id'], 'FDS-STU-001')
+        self.assertEqual(student_rec['phone'], '+919876543210')
+        self.assertEqual(student_rec['division'], 'KOTTAYAM')
+        self.assertEqual(student_rec['total_fee'], 6000.0)
+        self.assertEqual(student_rec['total_paid'], 3500.0)
+        self.assertEqual(student_rec['balance_due'], 2500.0)
+        self.assertEqual(student_rec['fee_account_id'], self.fds_account.id)
+        self.assertEqual(student_rec['status'], 'PARTIAL')
+
+    def test_student_fees_endpoint_lp_isolation(self):
+        """
+        CRITICAL USER DIRECTIVE:
+        When company=LP, students, fee balances, and payment records MUST be
+        fetched directly from trainers.models.ProcessingStudent and ProcessingFeePayment.
+        Zero records, IDs, foreign keys, or references to FLAG students can appear.
+        """
+        self.client.force_authenticate(user=self.global_user)
+        url = reverse('fee-students')
+        res = self.client.get(url, {'company': 'LP'}, format='json')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data['company'], 'LP')
+        self.assertGreaterEqual(res.data['count'], 1)
+
+        names = [s['student_name'] for s in res.data['results']]
+        self.assertIn('Diya Nair', names)
+        # Strict zero-bleed check against FLAG and FDS
+        self.assertNotIn('Ananya Sen', names)
+        self.assertNotIn('Aarav Menon', names)
+
+        student_rec = next(s for s in res.data['results'] if s['student_name'] == 'Diya Nair')
+        self.assertEqual(student_rec['student_id'], f"LP-{self.processing_student.id:04d}")
+        self.assertEqual(student_rec['email'], 'diya.nair@example.com')
+        self.assertEqual(student_rec['phone'], '+919811223344')
+        self.assertEqual(student_rec['division'], 'STUDY_ABROAD')
+        # Total fee = 50,000 (processing) + 25,000 (admission) = 75,000.00
+        # Total paid = 25,000.00
+        # Balance due = 50,000.00
+        self.assertEqual(student_rec['total_fee'], 75000.0)
+        self.assertEqual(student_rec['total_paid'], 25000.0)
+        self.assertEqual(student_rec['balance_due'], 50000.0)
+        self.assertIsNone(student_rec['fee_account_id'])
+        self.assertEqual(student_rec['status'], 'PARTIAL')
+
+    def test_student_fees_search_filter(self):
+        """Search query filters results within the selected company domain."""
+        self.client.force_authenticate(user=self.global_user)
+        url = reverse('fee-students')
+
+        # 1. Search matching Diya in LP
+        res_diya = self.client.get(url, {'company': 'LP', 'search': 'Diya'}, format='json')
+        self.assertEqual(res_diya.status_code, 200)
+        self.assertEqual(res_diya.data['count'], 1)
+        self.assertEqual(res_diya.data['results'][0]['student_name'], 'Diya Nair')
+
+        # 2. Search non-matching in LP
+        res_none = self.client.get(url, {'company': 'LP', 'search': 'NonExistentXYZ'}, format='json')
+        self.assertEqual(res_none.status_code, 200)
+        self.assertEqual(res_none.data['count'], 0)
+
+        # 3. Search matching phone in FDS
+        res_fds_phone = self.client.get(url, {'company': 'FDS', 'search': '9876543210'}, format='json')
+        self.assertEqual(res_fds_phone.status_code, 200)
+        self.assertEqual(res_fds_phone.data['count'], 1)
+        self.assertEqual(res_fds_phone.data['results'][0]['student_name'], 'Aarav Menon')
+
+    def test_student_fees_permission_enforcement(self):
+        """Verify role-based access control and company authorization on /api/fees/students/."""
+        url = reverse('fee-students')
+
+        # 1. Unauthorized user denied on all companies
+        self.client.force_authenticate(user=self.unauth_user)
+        self.assertEqual(self.client.get(url, {'company': 'FLAG'}).status_code, 403)
+        self.assertEqual(self.client.get(url, {'company': 'FDS'}).status_code, 403)
+        self.assertEqual(self.client.get(url, {'company': 'LP'}).status_code, 403)
+
+        # 2. FDS fee user allowed on FDS, denied on FLAG and LP
+        self.client.force_authenticate(user=self.fds_user)
+        self.assertEqual(self.client.get(url, {'company': 'FDS'}).status_code, 200)
+        self.assertEqual(self.client.get(url, {'company': 'FLAG'}).status_code, 403)
+        self.assertEqual(self.client.get(url, {'company': 'LP'}).status_code, 403)
+
+        # 3. LP fee user allowed on LP, denied on FLAG and FDS
+        self.client.force_authenticate(user=self.lp_user)
+        self.assertEqual(self.client.get(url, {'company': 'LP'}).status_code, 200)
+        self.assertEqual(self.client.get(url, {'company': 'FLAG'}).status_code, 403)
+        self.assertEqual(self.client.get(url, {'company': 'FDS'}).status_code, 403)
+
+    def test_student_fees_invalid_company_rejected(self):
+        """Invalid company code returns 400 Bad Request."""
+        self.client.force_authenticate(user=self.global_user)
+        url = reverse('fee-students')
+        res = self.client.get(url, {'company': 'INVALID_CO'}, format='json')
+        self.assertEqual(res.status_code, 400)
+        self.assertIn('Invalid company', res.data['detail'])
+
+    def test_student_fees_legacy_pending_only_fallback(self):
+        """When pending_only is passed without company, retains legacy list format."""
+        self.client.force_authenticate(user=self.global_user)
+        url = reverse('fee-students')
+        res = self.client.get(url, {'pending_only': 'true'}, format='json')
+        self.assertEqual(res.status_code, 200)
+        self.assertIsInstance(res.data, list)
+
+    def test_student_fees_latest_receipt_isolation(self):
+        """Verify latest receipt numbers are populated accurately per company without cross-company leakage."""
+        self.client.force_authenticate(user=self.global_user)
+
+        # Issue an explicit LP receipt
+        FeeReceipt.objects.create(
+            company='LP',
+            processing_student=self.processing_student,
+            processing_payment=self.processing_payment,
+            receipt_number='LP/26-27/0099',
+            total_amount=Decimal('25000.00'),
+            recipient_name='Diya Nair',
+            financial_year='2026-27',
+            status='ISSUED',
+        )
+
+        # Issue an explicit FLAG receipt
+        FeeReceipt.objects.create(
+            company='FLAG',
+            student=self.flag_student,
+            account=self.flag_account,
+            receipt_number='FLAG/26-27/0088',
+            total_amount=Decimal('25000.00'),
+            recipient_name='Ananya Sen',
+            financial_year='2026-27',
+            status='ISSUED',
+        )
+
+        url = reverse('fee-students')
+
+        # Check LP endpoint returns LP/26-27/0099 for Diya Nair
+        res_lp = self.client.get(url, {'company': 'LP'}, format='json')
+        diya_rec = next(s for s in res_lp.data['results'] if s['student_name'] == 'Diya Nair')
+        self.assertEqual(diya_rec['latest_receipt_number'], 'LP/26-27/0099')
+
+        # Check FLAG endpoint returns FLAG/26-27/0088 for Ananya Sen
+        res_flag = self.client.get(url, {'company': 'FLAG'}, format='json')
+        ananya_rec = next(s for s in res_flag.data['results'] if s['student_name'] == 'Ananya Sen')
+        self.assertEqual(ananya_rec['latest_receipt_number'], 'FLAG/26-27/0088')
+
+        # Check FDS endpoint does not leak either receipt
+        res_fds = self.client.get(url, {'company': 'FDS'}, format='json')
+        aarav_rec = next(s for s in res_fds.data['results'] if s['student_name'] == 'Aarav Menon')
+        self.assertNotEqual(aarav_rec['latest_receipt_number'], 'LP/26-27/0099')
+        self.assertNotEqual(aarav_rec['latest_receipt_number'], 'FLAG/26-27/0088')

@@ -14,10 +14,19 @@ from django.http import HttpResponse
 
 from accounts.models import ActivityLog, User
 from notifications.models import Notification
-from students.models import Student
+from students.models import Student, Campus
+from fds.models import FdsStudent, FdsStudentFeeAccount, FdsFeesCollection, FDS_BRANCH_CHOICES
+from trainers.models import ProcessingStudent, ProcessingFeePayment
 
-from .models import FeePlanTemplate, StudentFeeAccount, FeeInstallment, FeePayment, FeeAdjustment
-from .permissions import CanViewFees, CanManageFees, CanRestructureFees, CanRecordPartialPayment, CanIssueFeeNotice
+from .models import (
+    FeePlanTemplate, StudentFeeAccount, FeeInstallment, FeePayment, FeeAdjustment,
+    ReceiptSettings, FeeReceipt,
+)
+from .permissions import (
+    CanViewFees, CanManageFees, CanRestructureFees, CanRecordPartialPayment, CanIssueFeeNotice,
+    CanAccessCompanyFees, has_global_fee_access, get_allowed_fee_companies, is_trainer_user,
+)
+from .receipt_engine import COMPANY_DEFAULTS
 from .serializers import (
     FeePlanTemplateSerializer,
     StudentFeeAccountSerializer,
@@ -523,32 +532,339 @@ class FeeCatalogSeedAPIView(APIView):
         return Response(FeePlanTemplateSerializer(created, many=True).data, status=status.HTTP_201_CREATED)
 
 
-class FeeStudentsAPIView(APIView):
-    permission_classes = [IsAuthenticated, CanViewFees]
+class FeeCompanyRegistryAPIView(APIView):
+    """
+    Dynamic Company Registry API:
+    Returns active companies (FLAG, FDS, LP), legal names, subtitles,
+    brand colors, receipt prefixes, and division lists per PROJECT.md interface contract.
+    Protected by CanAccessCompanyFees.
+    """
+    permission_classes = [IsAuthenticated, CanAccessCompanyFees]
 
     def get(self, request):
-        qs = Student.objects.filter(status='active').select_related('academic_package', 'batch', 'campus')
-        if not has_dynamic_permission(request.user, 'fees:read_tenant') and not has_dynamic_permission(request.user, 'fees:manage') and not has_dynamic_permission(request.user, 'fees:view_reports'):
-            qs = qs.filter(trainer=request.user)
+        if has_global_fee_access(request.user):
+            allowed_codes = ['FLAG', 'FDS', 'LP']
+        else:
+            allowed_codes = get_allowed_fee_companies(request.user, action='view')
 
-        search = request.GET.get('search')
-        if search:
-            qs = qs.filter(Q(name__icontains=search) | Q(phone__icontains=search) | Q(email__icontains=search))
-            
-        pending_only = request.GET.get('pending_only', 'false').lower() == 'true'
-        if pending_only:
-            qs = qs.filter(fee_accounts__isnull=True)
+        companies_data = []
 
-        data = []
-        for s in qs.order_by('name')[:500]:
-            data.append({
-                'id': s.id,
-                'name': s.name,
-                'branch_name': s.campus.name if hasattr(s, 'campus') and s.campus else '',
-                'batch_name': s.batch.name if s.batch else '',
-                'phone': getattr(s, 'phone', ''),
+        # 1. FLAG divisions (Campuses)
+        flag_campuses = list(Campus.objects.exclude(code='').values_list('code', flat=True))
+        if not flag_campuses:
+            flag_campuses = ["FLG-KOC", "FLG-KTM"]
+
+        # 2. FDS divisions (Branches)
+        fds_divisions = [label for val, label in FDS_BRANCH_CHOICES]
+        if not fds_divisions:
+            fds_divisions = ["Kottayam", "Kochi"]
+
+        # 3. LP divisions (Processing Categories)
+        lp_categories = list(
+            ProcessingStudent.objects.exclude(category__in=['', 'All Students'])
+            .values_list('category', flat=True).distinct()
+        )
+        if not lp_categories:
+            lp_categories = ["Study Abroad", "GCC Students"]
+
+        divisions_map = {
+            'FLAG': flag_campuses,
+            'FDS': fds_divisions,
+            'LP': lp_categories,
+        }
+
+        settings_map = {
+            s.company: s for s in ReceiptSettings.objects.filter(company__in=['FLAG', 'FDS', 'LP'])
+        }
+
+        for code in ['FLAG', 'FDS', 'LP']:
+            if code not in allowed_codes:
+                continue
+
+            default_info = COMPANY_DEFAULTS.get(code, {})
+            custom_setting = settings_map.get(code)
+
+            name = (custom_setting.organization_name if custom_setting and custom_setting.organization_name else default_info.get('organization_name', code))
+            subtitle = (custom_setting.subtitle if custom_setting and custom_setting.subtitle else default_info.get('subtitle', ''))
+            prefix = (custom_setting.receipt_prefix if custom_setting and custom_setting.receipt_prefix else default_info.get('receipt_prefix', code))
+            brand_color = (custom_setting.brand_color if custom_setting and custom_setting.brand_color else default_info.get('brand_color', '#312e81'))
+
+            companies_data.append({
+                "code": code,
+                "name": name,
+                "subtitle": subtitle,
+                "prefix": prefix,
+                "brand_color": brand_color,
+                "divisions": divisions_map.get(code, []),
+                "currency": "INR",
+                "is_active": True,
             })
-        return Response(data)
+
+        default_company = "FLAG" if "FLAG" in allowed_codes else (allowed_codes[0] if allowed_codes else "FLAG")
+
+        return Response({
+            "companies": companies_data,
+            "default_company": default_company,
+        })
+
+
+class FeeStudentsAPIView(APIView):
+    """
+    Unified Multi-Company Student Fees API:
+    Supports ?company=FLAG|FDS|LP with search and pending_only filtering.
+    Guarantees strict data isolation across FLAG, FDS, and LP.
+    """
+    permission_classes = [IsAuthenticated, CanAccessCompanyFees]
+
+    def get(self, request):
+        company_param = request.GET.get('company')
+
+        # Backward compatibility for legacy callers expecting plain list with pending_only
+        pending_only = request.GET.get('pending_only', 'false').lower() == 'true'
+        if not company_param and pending_only:
+            qs = Student.objects.filter(status='active').select_related('academic_package', 'batch', 'campus')
+            if not has_dynamic_permission(request.user, 'fees:read_tenant') and not has_dynamic_permission(request.user, 'fees:manage') and not has_dynamic_permission(request.user, 'fees:view_reports'):
+                qs = qs.filter(trainer=request.user)
+
+            search = request.GET.get('search')
+            if search:
+                qs = qs.filter(Q(name__icontains=search) | Q(phone__icontains=search) | Q(email__icontains=search))
+            qs = qs.filter(fee_accounts__isnull=True)
+            data = []
+            for s in qs.order_by('name')[:500]:
+                data.append({
+                    'id': s.id,
+                    'name': s.name,
+                    'branch_name': s.campus.name if hasattr(s, 'campus') and s.campus else '',
+                    'batch_name': s.batch.name if s.batch else '',
+                    'phone': getattr(s, 'phone', ''),
+                })
+            return Response(data)
+
+        # Multi-company normalized path (defaulting to FLAG if omitted)
+        company = (company_param or 'FLAG').strip().upper()
+        if company not in ('FLAG', 'FDS', 'LP'):
+            return Response(
+                {'detail': f'Invalid company: {company}. Valid options are FLAG, FDS, LP.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Strict company-level permission authorization
+        if not has_global_fee_access(request.user):
+            allowed = get_allowed_fee_companies(request.user, action='view')
+            if company not in allowed:
+                return Response(
+                    {'detail': f'You do not have permission to access fee records for {company}.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
+        search = request.GET.get('search', '').strip()
+        results = []
+
+        if company == 'FLAG':
+            qs = Student.objects.filter(status='active').select_related('campus')
+            if is_trainer_user(request.user):
+                qs = qs.filter(trainer=request.user)
+            elif not has_global_fee_access(request.user) and not has_dynamic_permission(request.user, 'fees:read_tenant') and not has_dynamic_permission(request.user, 'fees:manage') and not has_dynamic_permission(request.user, 'fees:view_reports') and not has_dynamic_permission(request.user, 'fees:flag'):
+                qs = qs.filter(trainer=request.user)
+
+            if search:
+                qs = qs.filter(Q(name__icontains=search) | Q(phone__icontains=search) | Q(email__icontains=search))
+
+            students = list(qs.order_by('name')[:500])
+            student_ids = [s.id for s in students]
+
+            receipt_map = {}
+            if student_ids:
+                flag_receipts = (
+                    FeeReceipt.objects.filter(company='FLAG', student_id__in=student_ids)
+                    .order_by('student_id', '-created_at')
+                    .values('student_id', 'receipt_number')
+                )
+                for r in flag_receipts:
+                    sid = r['student_id']
+                    if sid not in receipt_map:
+                        receipt_map[sid] = r['receipt_number']
+
+            account_map = {}
+            if student_ids:
+                accounts = StudentFeeAccount.objects.filter(student_id__in=student_ids, company='FLAG').order_by('student_id', '-created_at')
+                for acc in accounts:
+                    if acc.student_id not in account_map:
+                        account_map[acc.student_id] = acc
+
+            for s in students:
+                acc = account_map.get(s.id)
+                if acc:
+                    total_fee_dec = Decimal(str(acc.total_due or '0.00'))
+                    paid_dec = Decimal(str(acc.total_paid or '0.00'))
+                    balance_dec = Decimal(str(acc.balance_due or '0.00'))
+                    fee_account_id = acc.id
+                    status_str = acc.status
+                else:
+                    total_fee_dec = Decimal('0.00')
+                    paid_dec = Decimal('0.00')
+                    balance_dec = Decimal('0.00')
+                    fee_account_id = None
+                    status_str = 'NO_ACCOUNT'
+
+                div = s.campus.code if (s.campus and s.campus.code) else (s.campus.name if s.campus else '')
+                results.append({
+                    'id': s.id,
+                    'student_name': s.name,
+                    'student_id': f"STU-{s.id:04d}",
+                    'email': s.email or '',
+                    'phone': s.phone or '',
+                    'division': div,
+                    'total_fee': float(total_fee_dec),
+                    'total_paid': float(paid_dec),
+                    'balance_due': float(balance_dec),
+                    'fee_account_id': fee_account_id,
+                    'latest_receipt_number': receipt_map.get(s.id),
+                    'status': status_str,
+                })
+
+        elif company == 'FDS':
+            qs = FdsStudent.objects.filter(is_active=True).select_related('fee_account', 'fee_structure')
+            if search:
+                qs = qs.filter(Q(name__icontains=search) | Q(contact_no__icontains=search) | Q(student_id__icontains=search))
+
+            students = list(qs.order_by('name')[:500])
+            student_ids = [s.id for s in students]
+
+            receipt_map = {}
+            if student_ids:
+                fds_receipts = (
+                    FeeReceipt.objects.filter(company='FDS', fds_student_id__in=student_ids)
+                    .order_by('fds_student_id', '-created_at')
+                    .values('fds_student_id', 'receipt_number')
+                )
+                for r in fds_receipts:
+                    sid = r['fds_student_id']
+                    if sid not in receipt_map:
+                        receipt_map[sid] = r['receipt_number']
+
+            collection_paid_map = {}
+            if student_ids:
+                collections = FdsFeesCollection.objects.filter(student_id__in=student_ids).values('student_id').annotate(total=Sum('paid_amount'))
+                collection_paid_map = {c['student_id']: (c['total'] or Decimal('0.00')) for c in collections}
+
+            for s in students:
+                acc = getattr(s, 'fee_account', None)
+                if acc:
+                    total_fee_dec = Decimal(str(acc.total_due or '0.00'))
+                    paid_dec = Decimal(str(acc.total_paid or '0.00'))
+                    balance_dec = Decimal(str(acc.balance_due or '0.00'))
+                    status_str = acc.status
+                    fee_account_id = acc.id
+                else:
+                    struct_amount = Decimal('0.00')
+                    if s.fee_structure:
+                        struct_amount = Decimal(str(s.fee_structure.amount or '0.00')) + Decimal(str(s.fee_structure.admission_fee or '0.00'))
+                    total_fee_dec = struct_amount
+                    paid_dec = collection_paid_map.get(s.id, Decimal('0.00'))
+                    if total_fee_dec == Decimal('0.00') and paid_dec > Decimal('0.00'):
+                        total_fee_dec = paid_dec
+                    balance_dec = max(Decimal('0.00'), total_fee_dec - paid_dec)
+                    fee_account_id = None
+                    if total_fee_dec > Decimal('0.00') and balance_dec <= Decimal('0.00'):
+                        status_str = 'SETTLED'
+                    elif paid_dec > Decimal('0.00'):
+                        status_str = 'PARTIAL'
+                    else:
+                        status_str = 'ACTIVE'
+
+                results.append({
+                    'id': s.id,
+                    'student_name': s.name,
+                    'student_id': s.student_id or f"FDS-{s.id:04d}",
+                    'email': getattr(s, 'email', '') or '',
+                    'phone': s.contact_no or s.whatsapp_no or '',
+                    'division': s.branch or 'Kottayam',
+                    'total_fee': float(total_fee_dec),
+                    'total_paid': float(paid_dec),
+                    'balance_due': float(balance_dec),
+                    'fee_account_id': fee_account_id,
+                    'latest_receipt_number': receipt_map.get(s.id),
+                    'status': status_str,
+                })
+
+        elif company == 'LP':
+            # Strictly isolate LP: direct query from ProcessingStudent and ProcessingFeePayment
+            qs = ProcessingStudent.objects.all()
+            if search:
+                qs = qs.filter(Q(name__icontains=search) | Q(mobile_number__icontains=search) | Q(email__icontains=search))
+
+            students = list(qs.order_by('name')[:500])
+            student_ids = [s.id for s in students]
+
+            receipt_map = {}
+            if student_ids:
+                lp_receipts = (
+                    FeeReceipt.objects.filter(company='LP', processing_student_id__in=student_ids)
+                    .order_by('processing_student_id', '-created_at')
+                    .values('processing_student_id', 'receipt_number')
+                )
+                for r in lp_receipts:
+                    sid = r['processing_student_id']
+                    if sid not in receipt_map:
+                        receipt_map[sid] = r['receipt_number']
+
+            paid_map = {}
+            if student_ids:
+                payments = (
+                    ProcessingFeePayment.objects.filter(student_id__in=student_ids)
+                    .values('student_id')
+                    .annotate(total=Sum('amount'))
+                )
+                paid_map = {p['student_id']: (p['total'] or Decimal('0.00')) for p in payments}
+
+            for s in students:
+                total_fee_dec = Decimal('0.00')
+                for field in ('processing_fee_amount', 'fee_admission_amount', 'fee_language_amount', 'fee_visa_amount', 'fee_ministry_amount'):
+                    val = getattr(s, field, None)
+                    if val:
+                        total_fee_dec += Decimal(str(val))
+
+                paid_dec = paid_map.get(s.id, Decimal('0.00'))
+                if paid_dec == Decimal('0.00'):
+                    for field in ('processing_fee_paid', 'fee_admission_paid', 'fee_language_paid', 'fee_visa_paid', 'fee_ministry_paid'):
+                        val = getattr(s, field, None)
+                        if val:
+                            paid_dec += Decimal(str(val))
+
+                if total_fee_dec == Decimal('0.00') and paid_dec > Decimal('0.00'):
+                    total_fee_dec = paid_dec
+
+                balance_dec = max(Decimal('0.00'), total_fee_dec - paid_dec)
+
+                if total_fee_dec > Decimal('0.00') and balance_dec <= Decimal('0.00'):
+                    status_str = 'SETTLED'
+                elif paid_dec > Decimal('0.00'):
+                    status_str = 'PARTIAL'
+                else:
+                    status_str = 'ACTIVE'
+
+                results.append({
+                    'id': s.id,
+                    'student_name': s.name,
+                    'student_id': f"LP-{s.id:04d}",
+                    'email': s.email or '',
+                    'phone': s.mobile_number or s.whatsapp_number or '',
+                    'division': s.category or 'Study Abroad',
+                    'total_fee': float(total_fee_dec),
+                    'total_paid': float(paid_dec),
+                    'balance_due': float(balance_dec),
+                    'fee_account_id': None,
+                    'latest_receipt_number': receipt_map.get(s.id),
+                    'status': status_str,
+                })
+
+        return Response({
+            'company': company,
+            'count': len(results),
+            'results': results,
+        })
 
 class ExportAdmissionsReportAPIView(APIView):
     permission_classes = [IsAuthenticated, CanViewFees]

@@ -28,12 +28,15 @@ from .views import (
     FeeRestructureAPIView,
     FeeSummaryAPIView,
     FeeCatalogSeedAPIView,
+    FeeCompanyRegistryAPIView,
     FeeStudentsAPIView,
     ExportAdmissionsReportAPIView,
     FeePolicyAPIView,
 )
 
 urlpatterns = [
+    path('fees/companies/', FeeCompanyRegistryAPIView.as_view(), name='fee-companies'),
+    path('companies/', FeeCompanyRegistryAPIView.as_view(), name='fee-companies-direct'),
     path('fees/policy/', FeePolicyAPIView.as_view(), name='fee-policy'),
     path('fees/catalog/', FeePlanTemplateListCreateAPIView.as_view(), name='fee-catalog-list-create'),
     path('fees/catalog/<int:pk>/', FeePlanTemplateDetailAPIView.as_view(), name='fee-catalog-detail'),
@@ -48,6 +51,7 @@ urlpatterns = [
     path('fees/accounts/<int:pk>/restructure/', FeeRestructureAPIView.as_view(), name='fee-restructure'),
     path('fees/summary/', FeeSummaryAPIView.as_view(), name='fee-summary'),
     path('fees/students/', FeeStudentsAPIView.as_view(), name='fee-students'),
+    path('students/', FeeStudentsAPIView.as_view(), name='fee-students-direct'),
     path('fees/export/admissions/', ExportAdmissionsReportAPIView.as_view(), name='export-admissions-report'),
 
     path('fees/analytics/overview/', FeeAnalyticsOverviewAPIView.as_view(), name='fee-analytics-overview'),
