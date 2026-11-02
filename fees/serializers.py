@@ -574,6 +574,30 @@ class FeeReceiptSerializer(serializers.ModelSerializer):
     def get_signature_prefix(self, obj):
         return (obj.signature_hash or '')[:16].upper()
 
+    def to_internal_value(self, data):
+        data = data.copy() if hasattr(data, 'copy') else dict(data)
+        comp = str(data.get('company') or getattr(self.instance, 'company', None) or 'FLAG').upper()
+        if comp == 'LP':
+            # LP uses ProcessingStudent, not FLAG StudentFeeAccount / Student
+            if not data.get('processing_student'):
+                candidate = data.get('student') or data.get('account')
+                if candidate:
+                    data['processing_student'] = candidate
+            data.pop('account', None)
+            data.pop('student', None)
+            data.pop('payment', None)
+        elif comp == 'FDS':
+            if not data.get('fds_student') and data.get('student'):
+                data['fds_student'] = data.get('student')
+            if not data.get('fds_account') and data.get('account'):
+                data['fds_account'] = data.get('account')
+            if not data.get('fds_payment') and data.get('payment'):
+                data['fds_payment'] = data.get('payment')
+            data.pop('account', None)
+            data.pop('student', None)
+            data.pop('payment', None)
+        return super().to_internal_value(data)
+
     def validate(self, attrs):
         from rest_framework.exceptions import PermissionDenied
 
