@@ -716,6 +716,21 @@ class FeeReceiptSerializer(serializers.ModelSerializer):
             processing_student = processing_payment.student
             attrs['processing_student'] = processing_student
 
+        target_company = attrs.get('company', getattr(instance, 'company', None))
+        if target_company == 'LP':
+            if attrs.get('student'):
+                if not processing_student:
+                    from trainers.models import ProcessingStudent
+                    raw_id = attrs['student'].id if hasattr(attrs['student'], 'id') else attrs['student']
+                    try:
+                        processing_student = ProcessingStudent.objects.get(pk=raw_id)
+                        attrs['processing_student'] = processing_student
+                    except (ProcessingStudent.DoesNotExist, ValueError):
+                        pass
+                attrs['student'] = None
+            if attrs.get('account'):
+                attrs['account'] = None
+
         # Source-company consistency
         target_company = attrs.get('company', getattr(instance, 'company', None))
         if payment and target_company and target_company != 'FLAG':

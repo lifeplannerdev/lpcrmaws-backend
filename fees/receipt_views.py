@@ -846,6 +846,20 @@ class FeeReceiptCalculatePreviewAPIView(APIView):
         processing_payment_id = data.get('processing_payment')
         processing_student_id = data.get('processing_student')
 
+        target_comp = (data.get('company') or '').upper()
+        if target_comp == 'LP':
+            if student_id not in (None, '') and processing_student_id in (None, ''):
+                processing_student_id = student_id
+            student_id = None
+            account_id = None
+            payment_id = None
+        elif target_comp == 'FDS':
+            if student_id not in (None, '') and fds_student_id in (None, ''):
+                fds_student_id = student_id
+            student_id = None
+            account_id = None
+            payment_id = None
+
         payment = (
             get_object_or_404(FeePayment.objects.select_related('account', 'account__student', 'installment'), pk=payment_id)
             if payment_id not in (None, '')
