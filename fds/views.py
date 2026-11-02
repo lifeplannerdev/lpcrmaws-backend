@@ -317,11 +317,14 @@ class FdsEnquiryViewSet(viewsets.ModelViewSet):
     def perform_update(self, serializer):
         student = serializer.save()
         if hasattr(student, 'fee_account'):
-            if student.fee_account.active_package != student.fee_structure:
-                student.fee_account.active_package = student.fee_structure
-                # If package changed, we might want to update total_due? 
-                # For simplicity, we just change the active_package. Recalculate handles past invoices.
-                student.fee_account.save(update_fields=['active_package'])
+            acc = student.fee_account
+            if acc.active_package != student.fee_structure:
+                acc.active_package = student.fee_structure
+                if student.fee_structure and student.fee_structure.amount > 0:
+                    acc.monthly_fee = student.fee_structure.amount
+                acc.save(update_fields=['active_package', 'monthly_fee'])
+                acc.sync_monthly_schedule()
+                acc.recalculate(save=True)
 
     def update(self, request, *args, **kwargs):
         if not fds_write(self.request.user):
@@ -524,11 +527,14 @@ class FdsTrialViewSet(viewsets.ModelViewSet):
     def perform_update(self, serializer):
         student = serializer.save()
         if hasattr(student, 'fee_account'):
-            if student.fee_account.active_package != student.fee_structure:
-                student.fee_account.active_package = student.fee_structure
-                # If package changed, we might want to update total_due? 
-                # For simplicity, we just change the active_package. Recalculate handles past invoices.
-                student.fee_account.save(update_fields=['active_package'])
+            acc = student.fee_account
+            if acc.active_package != student.fee_structure:
+                acc.active_package = student.fee_structure
+                if student.fee_structure and student.fee_structure.amount > 0:
+                    acc.monthly_fee = student.fee_structure.amount
+                acc.save(update_fields=['active_package', 'monthly_fee'])
+                acc.sync_monthly_schedule()
+                acc.recalculate(save=True)
 
     def update(self, request, *args, **kwargs):
         if not fds_write(self.request.user):
@@ -663,23 +669,30 @@ class FdsStudentViewSet(viewsets.ModelViewSet):
             
         # Automatically create FdsStudentFeeAccount based on their selected fee package
         from .models import FdsStudentFeeAccount
+        m_fee = student.fee_structure.amount if (student.fee_structure and student.fee_structure.amount > 0) else Decimal('1600.00')
         account = FdsStudentFeeAccount.objects.create(
             student=student,
-            active_package=student.fee_structure
+            active_package=student.fee_structure,
+            plan_type='MONTHLY',
+            monthly_fee=m_fee,
+            start_date=student.joining_date or timezone.localdate().replace(day=1),
+            plan_name=student.fee_structure.get_category_display() if student.fee_structure else 'Monthly Dance Tuition',
+            plan_code=student.fee_structure.category if student.fee_structure else 'MONTHLY',
         )
-        if student.fee_structure:
-            account.total_due = student.fee_structure.amount
-            account.balance_due = student.fee_structure.amount
-            account.save(update_fields=['total_due', 'balance_due'])
+        account.sync_monthly_schedule()
+        account.recalculate(save=True)
 
     def perform_update(self, serializer):
         student = serializer.save()
         if hasattr(student, 'fee_account'):
-            if student.fee_account.active_package != student.fee_structure:
-                student.fee_account.active_package = student.fee_structure
-                # If package changed, we might want to update total_due? 
-                # For simplicity, we just change the active_package. Recalculate handles past invoices.
-                student.fee_account.save(update_fields=['active_package'])
+            acc = student.fee_account
+            if acc.active_package != student.fee_structure:
+                acc.active_package = student.fee_structure
+                if student.fee_structure and student.fee_structure.amount > 0:
+                    acc.monthly_fee = student.fee_structure.amount
+                acc.save(update_fields=['active_package', 'monthly_fee'])
+                acc.sync_monthly_schedule()
+                acc.recalculate(save=True)
 
     def update(self, request, *args, **kwargs):
         if not fds_write(self.request.user):
@@ -843,11 +856,14 @@ class FdsWeddingGroupViewSet(viewsets.ModelViewSet):
     def perform_update(self, serializer):
         student = serializer.save()
         if hasattr(student, 'fee_account'):
-            if student.fee_account.active_package != student.fee_structure:
-                student.fee_account.active_package = student.fee_structure
-                # If package changed, we might want to update total_due? 
-                # For simplicity, we just change the active_package. Recalculate handles past invoices.
-                student.fee_account.save(update_fields=['active_package'])
+            acc = student.fee_account
+            if acc.active_package != student.fee_structure:
+                acc.active_package = student.fee_structure
+                if student.fee_structure and student.fee_structure.amount > 0:
+                    acc.monthly_fee = student.fee_structure.amount
+                acc.save(update_fields=['active_package', 'monthly_fee'])
+                acc.sync_monthly_schedule()
+                acc.recalculate(save=True)
 
     def update(self, request, *args, **kwargs):
         if not fds_write(self.request.user):
@@ -914,11 +930,14 @@ class FdsAttendanceViewSet(viewsets.ModelViewSet):
     def perform_update(self, serializer):
         student = serializer.save()
         if hasattr(student, 'fee_account'):
-            if student.fee_account.active_package != student.fee_structure:
-                student.fee_account.active_package = student.fee_structure
-                # If package changed, we might want to update total_due? 
-                # For simplicity, we just change the active_package. Recalculate handles past invoices.
-                student.fee_account.save(update_fields=['active_package'])
+            acc = student.fee_account
+            if acc.active_package != student.fee_structure:
+                acc.active_package = student.fee_structure
+                if student.fee_structure and student.fee_structure.amount > 0:
+                    acc.monthly_fee = student.fee_structure.amount
+                acc.save(update_fields=['active_package', 'monthly_fee'])
+                acc.sync_monthly_schedule()
+                acc.recalculate(save=True)
 
     def update(self, request, *args, **kwargs):
         if not fds_write(self.request.user):
@@ -1139,11 +1158,27 @@ class FdsStudentFeeAccountViewSet(viewsets.ModelViewSet):
             self.permission_denied(request, message="FDS write permission required.")
         return super().destroy(request, *args, **kwargs)
 
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if not instance.installments.exists() and instance.plan_type in ['MONTHLY', 'PACKAGE']:
+            instance.sync_monthly_schedule()
+            instance.recalculate(save=True)
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
+
     @action(detail=True, methods=['post'])
     def recalculate(self, request, pk=None):
         account = self.get_object()
+        account.sync_monthly_schedule()
         account.recalculate(save=True)
         return Response({'status': 'recalculated', 'balance_due': account.balance_due, 'total_due': account.total_due, 'total_paid': account.total_paid})
+
+    @action(detail=True, methods=['post'], url_path='sync-schedule')
+    def sync_schedule(self, request, pk=None):
+        account = self.get_object()
+        account.sync_monthly_schedule()
+        account.recalculate(save=True)
+        return Response(FdsStudentFeeAccountSerializer(account).data)
 
     @action(detail=True, methods=['post'], url_path='payments')
     def record_payment(self, request, pk=None):
@@ -1182,6 +1217,25 @@ class FdsStudentFeeAccountViewSet(viewsets.ModelViewSet):
         pdf_link = data.get('pdf_link') or ''
         fee_month = data.get('fee_month')
         fee_year = data.get('fee_year')
+        if not installment and fee_month and fee_year:
+            installment = account.installments.filter(
+                due_date__year=fee_year,
+                due_date__month=fee_month
+            ).first()
+
+        if installment and not fee_month:
+            fee_month = installment.due_date.month
+            fee_year = installment.due_date.year
+        elif not fee_month:
+            next_unpaid = account.installments.filter(status__in=['PENDING', 'PARTIAL', 'OVERDUE']).order_by('due_date').first()
+            if next_unpaid:
+                fee_month = next_unpaid.due_date.month
+                fee_year = next_unpaid.due_date.year
+            else:
+                import datetime
+                p_date = pay_date if isinstance(pay_date, datetime.date) else timezone.localdate()
+                fee_month = p_date.month
+                fee_year = p_date.year
 
         with transaction.atomic():
             payment = FdsFeesCollection.objects.create(

@@ -97,6 +97,13 @@ class FdsFeeStructure(models.Model):
         title = self.name or dict(self.FEE_CATEGORY_CHOICES).get(self.category, self.category)
         return f"{title} — ₹{self.amount}"
 
+    @property
+    def is_recurring(self):
+        cat = (self.category or '').upper()
+        if 'WEDDING' in cat or cat in ['ADMISSION', 'TRIAL']:
+            return False
+        return True
+
 
 # ────────────────────────────────────────────────────────────────
 # 2. Batch
@@ -523,6 +530,7 @@ class FdsStudentFeeAccount(models.Model):
     plan_name = models.CharField(max_length=150, blank=True)
     plan_type = models.CharField(max_length=20, choices=PLAN_TYPE_CHOICES, default='PACKAGE')
     status = models.CharField(max_length=20, choices=ACCOUNT_STATUS_CHOICES, default='ACTIVE', db_index=True)
+    monthly_fee = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('1600.00'))
     total_due = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     total_paid = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     balance_due = models.DecimalField(max_digits=12, decimal_places=2, default=0)
@@ -544,6 +552,176 @@ class FdsStudentFeeAccount(models.Model):
     def __str__(self):
         return f"{self.student.name} - Account"
 
+    def is_wedding_or_one_time(self):
+        cat = (self.active_package.category if self.active_package else '') or (self.student.class_category if self.student else '')
+        cat_upper = (cat or '').upper()
+        if 'WEDDING' in cat_upper or cat_upper.startswith('WEDDING'):
+            return True
+        if self.plan_code and 'WEDDING' in self.plan_code.upper():
+            return True
+        if self.plan_name and 'WEDDING' in self.plan_name.upper():
+            return True
+        if self.student and getattr(self.student, 'student_type', None) == 'WEDDING_MEMBER':
+            return True
+        if self.plan_type in ['ONE_TIME', 'CUSTOM'] or cat_upper in ['ADMISSION', 'TRIAL']:
+            return True
+        return False
+
+    def get_effective_monthly_fee(self):
+        if self.is_wedding_or_one_time():
+            if self.active_package and self.active_package.amount:
+                return self.active_package.amount
+            return Decimal('0.00')
+
+        # 1. Package amount from active package or student fee structure takes priority
+        if self.active_package and self.active_package.amount and self.active_package.amount > 0:
+            return self.active_package.amount
+        if self.student and self.student.fee_structure and self.student.fee_structure.amount and self.student.fee_structure.amount > 0:
+            return self.student.fee_structure.amount
+
+        # 2. Explicit custom monthly fee override on the account
+        if self.monthly_fee and self.monthly_fee > 0 and self.monthly_fee != Decimal('1600.00'):
+            return self.monthly_fee
+
+        # 3. Dynamic lookup from FdsFeeStructure active policies matching student category
+        class_cat = self.student.class_category if self.student else None
+        if class_cat:
+            cat_match = FdsFeeStructure.objects.filter(category=class_cat, is_active=True).first()
+            if cat_match and cat_match.amount > 0:
+                return cat_match.amount
+
+        # 4. Active MONTHLY policy from fee structure catalog
+        monthly_policy = FdsFeeStructure.objects.filter(category='MONTHLY', is_active=True).first()
+        if monthly_policy and monthly_policy.amount > 0:
+            return monthly_policy.amount
+
+        # 5. Account monthly fee if set
+        if self.monthly_fee and self.monthly_fee > 0:
+            return self.monthly_fee
+
+        # 6. Any active non-wedding policy structure
+        any_policy = FdsFeeStructure.objects.filter(is_active=True).exclude(category__startswith='WEDDING').first()
+        if any_policy and any_policy.amount > 0:
+            return any_policy.amount
+
+        return Decimal('1600.00')
+
+    def sync_monthly_schedule(self, months_ahead=1):
+        """
+        Generates and syncs recurring monthly installments from start_date
+        up to current month plus months_ahead, allocating total paid sequentially.
+        Wedding packages and one-time fees do NOT recur.
+        """
+        if self.is_wedding_or_one_time():
+            if self.installments.exists():
+                self.installments.all().delete()
+            return
+
+        import datetime
+        from calendar import monthrange
+        from dateutil.relativedelta import relativedelta
+
+        eff_monthly = self.get_effective_monthly_fee()
+        if not self.monthly_fee or self.monthly_fee <= 0:
+            self.monthly_fee = eff_monthly
+
+        today = timezone.localdate()
+        if hasattr(today, 'date') and callable(getattr(today, 'date')):
+            today = today.date()
+
+        base_date = self.start_date or (self.student.joining_date if self.student else None) or today
+        if hasattr(base_date, 'date') and callable(getattr(base_date, 'date')):
+            base_date = base_date.date()
+        if not self.start_date:
+            self.start_date = base_date
+
+        due_day = self.due_day or 10
+
+        # Link any existing unlinked payments for this student
+        if self.student and self.student.fds_payments.exists():
+            self.student.fds_payments.filter(account__isnull=True).update(account=self)
+
+        # Anchor past window: if no payments and joining date is over 6 months ago, clamp to last month
+        earliest_payment = self.payments.order_by('pay_date').first() if self.payments.exists() else None
+        earliest_date = base_date
+        if earliest_payment:
+            p_date = earliest_payment.pay_date
+            if hasattr(p_date, 'date') and callable(getattr(p_date, 'date')):
+                p_date = p_date.date()
+            if p_date < earliest_date:
+                earliest_date = p_date
+
+        if hasattr(earliest_date, 'date') and callable(getattr(earliest_date, 'date')):
+            earliest_date = earliest_date.date()
+
+        if (today - earliest_date).days > 180 and not earliest_payment:
+            earliest_date = today.replace(day=1) - relativedelta(months=1)
+
+        start_month_date = earliest_date.replace(day=1)
+        end_month_date = today.replace(day=1) + relativedelta(months=months_ahead)
+
+        existing_insts = {
+            (inst.due_date.year, inst.due_date.month): inst
+            for inst in self.installments.all()
+        }
+
+        current_cursor = start_month_date
+        seq = 1
+        while current_cursor <= end_month_date:
+            yr = current_cursor.year
+            mo = current_cursor.month
+            days_in_m = monthrange(yr, mo)[1]
+            inst_due = datetime.date(yr, mo, min(due_day, days_in_m))
+            month_label = inst_due.strftime('%B %Y')
+
+            if (yr, mo) not in existing_insts:
+                inst = FdsFeeInstallment.objects.create(
+                    account=self,
+                    sequence_number=seq,
+                    label=f"{month_label} Tuition",
+                    due_date=inst_due,
+                    scheduled_amount=eff_monthly,
+                    paid_amount=Decimal('0.00'),
+                    balance_amount=eff_monthly,
+                    status='PENDING'
+                )
+                existing_insts[(yr, mo)] = inst
+            else:
+                inst = existing_insts[(yr, mo)]
+                updated_fields = []
+                if inst.sequence_number != seq:
+                    inst.sequence_number = seq
+                    updated_fields.append('sequence_number')
+                if not inst.scheduled_amount or inst.scheduled_amount <= 0:
+                    inst.scheduled_amount = eff_monthly
+                    updated_fields.append('scheduled_amount')
+                if updated_fields:
+                    inst.save(update_fields=updated_fields)
+
+            current_cursor = current_cursor + relativedelta(months=1)
+            seq += 1
+
+        # Re-allocate cumulative total payments in chronological order
+        total_paid = self.payments.aggregate(t=models.Sum('paid_amount')).get('t') or Decimal('0.00')
+        remaining = total_paid
+
+        for inst in self.installments.all().order_by('due_date', 'sequence_number'):
+            if remaining <= 0:
+                inst.paid_amount = Decimal('0.00')
+                inst.balance_amount = inst.scheduled_amount
+                inst.status = 'OVERDUE' if inst.due_date < today else 'PENDING'
+            elif remaining >= inst.scheduled_amount:
+                inst.paid_amount = inst.scheduled_amount
+                inst.balance_amount = Decimal('0.00')
+                inst.status = 'PAID'
+                remaining -= inst.scheduled_amount
+            else:
+                inst.paid_amount = remaining
+                inst.balance_amount = inst.scheduled_amount - remaining
+                inst.status = 'PARTIAL'
+                remaining = Decimal('0.00')
+            inst.save(update_fields=['paid_amount', 'balance_amount', 'status'])
+
     def recalculate(self, save=True):
         # 1. Total paid from collections
         if self.payments.exists():
@@ -553,15 +731,59 @@ class FdsStudentFeeAccount(models.Model):
         else:
             payments_qs = FdsFeesCollection.objects.none()
 
-        self.total_paid = payments_qs.aggregate(t=models.Sum('paid_amount')).get('t') or Decimal('0')
+        self.total_paid = payments_qs.aggregate(t=models.Sum('paid_amount')).get('t') or Decimal('0.00')
         latest_payment = payments_qs.order_by('-pay_date').first()
         self.last_payment_date = latest_payment.pay_date if latest_payment else None
 
-        # 2. Check installments vs non-installment accounts
+        # Handle Wedding packages and One-Time fees: strictly fixed, non-recurring
+        if self.is_wedding_or_one_time():
+            if self.installments.exists():
+                self.installments.all().delete()
+            pkg_amt = (
+                self.active_package.amount if (self.active_package and self.active_package.amount > 0) else (
+                    self.student.fee_structure.amount if (self.student and self.student.fee_structure and self.student.fee_structure.amount > 0) else (self.total_due or Decimal('0.00'))
+                )
+            ) or Decimal('0.00')
+            self.total_due = max(pkg_amt, self.total_paid)
+            self.balance_due = max(Decimal('0.00'), self.total_due - self.total_paid)
+            self.overdue_amount = Decimal('0.00')
+
+            adj_total = self.adjustments.aggregate(t=models.Sum('amount_delta')).get('t') or Decimal('0.00')
+            if adj_total:
+                self.total_due = max(self.total_paid, self.total_due + adj_total)
+                self.balance_due = max(Decimal('0.00'), self.total_due - self.total_paid)
+
+            if self.balance_due <= 0 and self.total_paid > 0:
+                self.status = 'SETTLED'
+            elif self.balance_due > 0 and self.total_paid > 0:
+                self.status = 'PARTIAL'
+            else:
+                self.status = 'ACTIVE'
+
+            if save:
+                self.save(update_fields=[
+                    'total_paid', 'total_due', 'balance_due',
+                    'overdue_amount', 'next_due_date', 'last_payment_date',
+                    'status', 'start_date', 'updated_at'
+                ])
+            return
+
+        # 2. Check if this is a recurring monthly studio account
+        is_monthly = self.plan_type in ['MONTHLY', 'PACKAGE'] or (
+            self.student and (
+                self.student.class_category in ['DANCE', 'ZUMBA', 'YOGA', 'MONTHLY'] or
+                (self.active_package and self.active_package.category in ['DANCE', 'ZUMBA', 'YOGA', 'MONTHLY'])
+            )
+        )
+
+        if is_monthly and not self.installments.exists():
+            self.sync_monthly_schedule()
+
+        # 3. Check installments vs non-installment accounts
         inst_qs = self.installments.all()
         if inst_qs.exists():
             today = timezone.localdate()
-            overdue_inst = Decimal('0')
+            overdue_inst = Decimal('0.00')
             for inst in inst_qs:
                 inst.recalculate(save=True)
                 if inst.due_date < today and inst.balance_amount > 0:
@@ -573,64 +795,52 @@ class FdsStudentFeeAccount(models.Model):
                 sched=models.Sum('scheduled_amount'),
                 bal=models.Sum('balance_amount')
             )
-            total_scheduled = inst_total['sched'] or Decimal('0')
-            installment_balance = inst_total['bal'] or Decimal('0')
+            total_scheduled = inst_total['sched'] or Decimal('0.00')
+            installment_balance = inst_total['bal'] or Decimal('0.00')
+
             self.total_due = max(self.total_paid, total_scheduled)
-            self.balance_due = max(Decimal('0'), installment_balance)
+            self.balance_due = max(Decimal('0.00'), installment_balance)
             self.overdue_amount = overdue_inst
 
+            # Find next due date: earliest unpaid installment
             next_inst = self.installments.filter(status__in=['PENDING', 'PARTIAL', 'OVERDUE']).order_by('due_date').first()
             if next_inst:
                 self.next_due_date = next_inst.due_date
-        else:
-            # Non-installment account (PACKAGE, ONE_TIME, MONTHLY, CUSTOM)
-            if self.active_package and self.active_package.amount:
-                if self.status == 'RESTRUCTURED' and self.total_due:
-                    base_due = self.total_due
-                else:
-                    if self.plan_type in ['PACKAGE', 'MONTHLY'] and self.start_date and getattr(self.active_package, 'duration_months', 0):
-                        from dateutil.relativedelta import relativedelta
-                        today = timezone.localdate()
-                        if today < self.start_date:
-                            cycles = 1
-                            self.next_due_date = self.start_date
-                        else:
-                            cycles = 0
-                            current_due = self.start_date
-                            while current_due <= today:
-                                cycles += 1
-                                current_due = current_due + relativedelta(months=self.active_package.duration_months)
-                            self.next_due_date = current_due
-                        base_due = Decimal(str(cycles * self.active_package.amount))
-                    else:
-                        base_due = self.active_package.amount
-            elif self.total_due:
-                base_due = self.total_due
             else:
-                base_due = self.total_paid
-
+                from dateutil.relativedelta import relativedelta
+                from calendar import monthrange
+                next_m = today.replace(day=1) + relativedelta(months=1)
+                days_in_m = monthrange(next_m.year, next_m.month)[1]
+                self.next_due_date = next_m.replace(day=min(self.due_day or 10, days_in_m))
+        else:
+            eff_amount = self.get_effective_monthly_fee()
+            base_due = self.total_due if self.total_due > 0 else eff_amount
             self.total_due = max(base_due, self.total_paid)
-            self.balance_due = max(Decimal('0'), self.total_due - self.total_paid)
-            self.overdue_amount = Decimal('0')
+            self.balance_due = max(Decimal('0.00'), self.total_due - self.total_paid)
+            self.overdue_amount = Decimal('0.00')
 
-        # 3. Apply adjustments if any
-        adj_total = self.adjustments.aggregate(t=models.Sum('amount_delta')).get('t') or Decimal('0')
+        # 4. Apply adjustments if any
+        adj_total = self.adjustments.aggregate(t=models.Sum('amount_delta')).get('t') or Decimal('0.00')
         if adj_total:
             self.total_due = max(self.total_paid, self.total_due + adj_total)
-            self.balance_due = max(Decimal('0'), self.total_due - self.total_paid)
+            self.balance_due = max(Decimal('0.00'), self.total_due - self.total_paid)
 
-        # 4. Update status
-        if self.balance_due <= 0 and self.total_due > 0:
-            self.status = 'SETTLED'
-        elif self.overdue_amount > 0:
+        # 5. Update status
+        if self.overdue_amount > 0:
             self.status = 'OVERDUE'
         elif self.balance_due > 0 and self.total_paid > 0:
             self.status = 'PARTIAL'
         elif self.balance_due > 0:
             self.status = 'ACTIVE'
+        else:
+            self.status = 'ACTIVE'
 
         if save:
-            self.save(update_fields=['total_paid', 'total_due', 'balance_due', 'overdue_amount', 'next_due_date', 'last_payment_date', 'status', 'updated_at'])
+            self.save(update_fields=[
+                'monthly_fee', 'total_paid', 'total_due', 'balance_due',
+                'overdue_amount', 'next_due_date', 'last_payment_date',
+                'status', 'start_date', 'updated_at'
+            ])
 
 
 class FdsFeeInstallment(models.Model):

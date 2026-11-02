@@ -973,22 +973,32 @@ class FeeReceiptCalculatePreviewAPIView(APIView):
             data.get('subtotal_amount')
             or data.get('total_amount')
             or (payment.amount if payment else None)
+            or (getattr(fds_payment, 'paid_amount', None) if fds_payment else None)
             or (getattr(fds_payment, 'amount', None) if fds_payment else None)
             or (getattr(processing_payment, 'amount', None) if processing_payment else None)
             or Decimal('0.00')
         )
+        fee_month_str = ""
+        fee_period_str = ""
+        if fds_payment and fds_payment.fee_month and fds_payment.fee_year:
+            import calendar
+            fee_month_str = f" - {calendar.month_name[fds_payment.fee_month]} {fds_payment.fee_year}"
+            fee_period_str = f"{calendar.month_name[fds_payment.fee_month]} {fds_payment.fee_year}"
+
         fallback_title = (
             data.get('course_or_package_name')
+            or (f"Dance Tuition Fee{fee_month_str}" if company == 'FDS' else None)
             or student_meta.get('course_or_package_name')
             or (account.plan_name if account else '')
             or (f"FDS Fee - {fds_payment.fee_type}" if (fds_payment and getattr(fds_payment, 'fee_type', None)) else '')
             or (f"Processing Fee - {processing_payment.get_fee_head_display()}" if processing_payment else '')
-            or ('FDS Course Fee' if company == 'FDS' else '')
+            or ('Dance Tuition Fee' if company == 'FDS' else '')
             or ('Processing Student Fee' if company == 'LP' else '')
             or 'Course Tuition Fee'
         )
         fallback_period = (
             data.get('installment_label')
+            or fee_period_str
             or (payment.installment.label if (payment and payment.installment) else '')
             or (f"FDS #{fds_payment.id}" if fds_payment else '')
             or (f"{processing_payment.get_fee_head_display()} Fee" if processing_payment else '')

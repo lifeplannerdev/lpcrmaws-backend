@@ -13,7 +13,7 @@ class FdsFeeStructureMinSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = FdsFeeStructure
-        fields = ['id', 'name', 'category', 'category_display', 'batch_type', 'batch_type_display', 'admission_fee', 'amount', 'duration_months', 'sessions_per_week']
+        fields = ['id', 'name', 'category', 'category_display', 'batch_type', 'batch_type_display', 'admission_fee', 'amount', 'duration_months', 'sessions_per_week', 'is_recurring']
 
     def get_category_display(self, obj):
         choices = dict(FdsFeeStructure.FEE_CATEGORY_CHOICES)
@@ -39,6 +39,7 @@ class FdsFeeStructureSerializer(serializers.ModelSerializer):
     category_display = serializers.SerializerMethodField()
     batch_type_display = serializers.SerializerMethodField()
     category = serializers.CharField(max_length=50, default='DANCE', required=False)
+    is_recurring = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = FdsFeeStructure
@@ -260,6 +261,7 @@ class FdsFeesCollectionSerializer(serializers.ModelSerializer):
     wedding_group_name = serializers.SerializerMethodField()
     collected_by_name = serializers.SerializerMethodField()
     fee_month_display = serializers.SerializerMethodField()
+    amount = serializers.DecimalField(source='paid_amount', max_digits=10, decimal_places=2, read_only=True)
     latest_receipt_id = serializers.SerializerMethodField()
     latest_receipt_number = serializers.SerializerMethodField()
     latest_receipt_token = serializers.SerializerMethodField()
@@ -328,6 +330,11 @@ class FdsStudentFeeAccountSerializer(serializers.ModelSerializer):
     batch_name = serializers.CharField(source='student.batch.name', read_only=True, default=None)
     trainer_name = serializers.SerializerMethodField()
     coordinator_name = serializers.SerializerMethodField()
+    is_wedding = serializers.SerializerMethodField()
+    current_month_status = serializers.SerializerMethodField()
+    current_month_label = serializers.SerializerMethodField()
+    paid_until_label = serializers.SerializerMethodField()
+    effective_monthly_fee = serializers.SerializerMethodField()
     installments = FdsFeeInstallmentSerializer(many=True, read_only=True)
     payments = FdsFeesCollectionSerializer(many=True, read_only=True)
     adjustments = FdsFeeAdjustmentSerializer(many=True, read_only=True)
@@ -349,6 +356,47 @@ class FdsStudentFeeAccountSerializer(serializers.ModelSerializer):
             return f"{c.first_name} {c.last_name}".strip() or c.username
         return None
 
+    def get_effective_monthly_fee(self, obj):
+        return str(obj.get_effective_monthly_fee())
+
+    def get_current_month_label(self, obj):
+        from django.utils import timezone
+        return timezone.localdate().strftime('%B %Y')
+
+    def get_is_wedding(self, obj):
+        return obj.is_wedding_or_one_time()
+
+    def get_current_month_status(self, obj):
+        if obj.is_wedding_or_one_time():
+            if obj.balance_due <= 0 and obj.total_paid > 0:
+                return 'SETTLED'
+            return 'ACTIVE'
+        from django.utils import timezone
+        today = timezone.localdate()
+        current_inst = obj.installments.filter(
+            due_date__year=today.year,
+            due_date__month=today.month
+        ).first()
+        if current_inst:
+            return current_inst.status
+        if obj.balance_due <= 0 and obj.total_paid > 0:
+            return 'PAID'
+        if obj.overdue_amount > 0:
+            return 'OVERDUE'
+        return 'PENDING'
+
+    def get_paid_until_label(self, obj):
+        if obj.is_wedding_or_one_time():
+            return "Package Settled" if obj.balance_due <= 0 and obj.total_paid > 0 else None
+        latest_paid = obj.installments.filter(status='PAID').order_by('-due_date').first()
+        if latest_paid and latest_paid.due_date:
+            return latest_paid.due_date.strftime('%B %Y')
+        latest_payment = obj.payments.order_by('-pay_date').first()
+        if latest_payment and latest_payment.fee_month and latest_payment.fee_year:
+            import calendar
+            return f"{calendar.month_name[latest_payment.fee_month]} {latest_payment.fee_year}"
+        return None
+
 class FdsStudentFeeAccountCreateSerializer(serializers.ModelSerializer):
     first_installment_date = serializers.DateField(required=False, allow_null=True, write_only=True)
     installment_count = serializers.IntegerField(required=False, allow_null=True, write_only=True)
@@ -358,7 +406,7 @@ class FdsStudentFeeAccountCreateSerializer(serializers.ModelSerializer):
         model = FdsStudentFeeAccount
         fields = [
             'student', 'active_package', 'plan_code', 'plan_name', 'plan_type',
-            'total_due', 'registration_amount', 'due_day', 'start_date', 'next_due_date',
+            'monthly_fee', 'total_due', 'registration_amount', 'due_day', 'start_date', 'next_due_date',
             'notes', 'status', 'first_installment_date', 'installment_count', 'installment_amount'
         ]
         extra_kwargs = {
