@@ -740,7 +740,10 @@ class FeeStudentsAPIView(APIView):
                 div = s.campus.code if (s.campus and s.campus.code) else (s.campus.name if s.campus else '')
                 results.append({
                     'id': s.id,
+                    'name': s.name,
                     'student_name': s.name,
+                    'branch_name': div,
+                    'division': div,
                     'student_status': s.status,
                     'student_id': f"STU-{s.id:04d}",
                     'email': s.email or '',
@@ -808,7 +811,10 @@ class FeeStudentsAPIView(APIView):
 
                 results.append({
                     'id': s.id,
+                    'name': s.name,
                     'student_name': s.name,
+                    'branch_name': s.branch or '',
+                    'division': s.branch or '',
                     'student_id': s.student_id or f"FDS-{s.id:04d}",
                     'email': getattr(s, 'email', '') or '',
                     'phone': s.contact_no or s.whatsapp_no or '',
@@ -879,11 +885,13 @@ class FeeStudentsAPIView(APIView):
 
                 results.append({
                     'id': s.id,
+                    'name': s.name,
                     'student_name': s.name,
                     'student_id': f"LP-{s.id:04d}",
                     'email': s.email or '',
                     'phone': s.mobile_number or s.whatsapp_number or '',
                     'division': s.category or 'Study Abroad',
+                    'branch_name': s.category or 'Study Abroad',
                     'total_fee': float(total_fee_dec),
                     'total_paid': float(paid_dec),
                     'balance_due': float(balance_dec),
