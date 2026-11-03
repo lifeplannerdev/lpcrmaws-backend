@@ -195,7 +195,15 @@ class FeeReceiptListCreateAPIView(APIView):
         ).filter(company__in=allowed_companies)
 
         if not has_global_fee_access(request.user):
-            qs = qs.filter(Q(student__trainer=request.user) | Q(created_by=request.user))
+            if is_trainer_user(request.user):
+                qs = qs.filter(Q(student__trainer=request.user) | Q(created_by=request.user))
+            else:
+                qs = qs.filter(
+                    Q(student__trainer=request.user) |
+                    Q(created_by=request.user) |
+                    Q(processing_student__isnull=False) |
+                    Q(fds_student__isnull=False)
+                )
 
         company = request.GET.get('company')
         status_filter = request.GET.get('status')
@@ -281,6 +289,9 @@ class FeeReceiptDetailAPIView(APIView):
         if not has_global_fee_access(request.user):
             can_access = (
                 receipt.created_by_id == request.user.id
+                or can_access_company_receipts(request.user, receipt.company, action='manage')
+                or receipt.processing_student_id is not None
+                or receipt.fds_student_id is not None
                 or getattr(receipt.student, 'trainer_id', None) == request.user.id
                 or (getattr(receipt.student, 'batch', None) and getattr(receipt.student.batch, 'trainer_id', None) == request.user.id)
                 or (receipt.account and _can_view_fee_account(request.user, receipt.account))
