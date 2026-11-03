@@ -54,6 +54,7 @@ class StudentFeeAccount(models.Model):
         ('SETTLED', 'Settled'),
         ('RESTRUCTURED', 'Restructured'),
         ('WAIVED', 'Waived'),
+        ('EXITED', 'Exited'),
     ]
 
     student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name='fee_accounts')
@@ -117,7 +118,12 @@ class StudentFeeAccount(models.Model):
         overdue_total = self.installments.filter(status='OVERDUE').aggregate(total=models.Sum('balance_amount')).get('total') or Decimal('0')
         self.overdue_amount = overdue_total
 
-        if self.balance_due <= 0:
+        is_student_exited = bool(self.student and getattr(self.student, 'status', None) == 'exited')
+        if is_student_exited:
+            self.status = 'EXITED'
+            self.balance_due = Decimal('0.00')
+            self.overdue_amount = Decimal('0.00')
+        elif self.balance_due <= 0:
             self.status = 'SETTLED'
             self.closed_at = self.closed_at or timezone.now()
         elif self.overdue_amount > 0:
@@ -125,7 +131,7 @@ class StudentFeeAccount(models.Model):
         elif installment_paid > 0:
             self.status = 'PARTIAL'
         else:
-            self.status = 'ACTIVE'
+            self.status = 'ACTIVE' 
 
         if save:
             self.save(update_fields=['total_paid', 'total_due', 'balance_due', 'overdue_amount', 'status', 'closed_at', 'updated_at'])

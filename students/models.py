@@ -104,6 +104,9 @@ class Student(models.Model):
         else:
             self.trainer = None
         super().save(*args, **kwargs)
+        if self.id:
+            for acc in self.fee_accounts.all():
+                acc.recalculate(save=True)
 
     @property
     def current_grade(self):
@@ -117,6 +120,8 @@ class Student(models.Model):
         return self.fee_accounts.filter(overdue_amount__gt=0).exists()
     @property
     def fee_status(self):
+        if self.status == 'exited':
+            return 'EXITED'
         if self.fee_accounts.filter(status='OVERDUE').exists():
             return 'OVERDUE'
         account = self.fee_account
@@ -129,6 +134,9 @@ class Student(models.Model):
         return None
     @property
     def pending_fee_amount(self):
+        if self.status == 'exited':
+            from decimal import Decimal
+            return Decimal('0')
         from django.db.models import Sum
         from decimal import Decimal
         total = self.fee_accounts.aggregate(total=Sum('overdue_amount')).get('total')

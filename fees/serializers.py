@@ -177,6 +177,15 @@ class FeeAdjustmentSerializer(serializers.ModelSerializer):
 
 class StudentFeeAccountSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source='student.name', read_only=True)
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        student = getattr(instance, 'student', None)
+        if (student and getattr(student, 'status', None) == 'exited') or instance.status == 'EXITED':
+            data['status'] = 'EXITED'
+            data['balance_due'] = '0.00'
+            data['overdue_amount'] = '0.00'
+        return data
     student_status = serializers.CharField(source='student.status', read_only=True)
     trainer_name = serializers.SerializerMethodField()
     branch_name = serializers.SerializerMethodField()
@@ -228,6 +237,7 @@ class StudentFeeAccountSerializer(serializers.ModelSerializer):
 
 class FeeSummarySerializer(serializers.Serializer):
     student_id = serializers.IntegerField()
+    student_status = serializers.CharField(required=False, allow_blank=True, default='')
     student_name = serializers.CharField()
     company = serializers.CharField()
     plan_name = serializers.CharField(allow_blank=True, required=False)

@@ -538,10 +538,22 @@ class ProcessingFeePaymentSerializer(serializers.ModelSerializer):
 
     def _get_latest_receipt(self, obj):
         if not hasattr(obj, '_cached_latest_receipt'):
-            if hasattr(obj, 'fee_receipts'):
-                obj._cached_latest_receipt = obj.fee_receipts.order_by('-id').first()
-            else:
-                obj._cached_latest_receipt = None
+            receipt = None
+            if hasattr(obj, 'receipts'):
+                receipt = obj.receipts.exclude(status='VOID').order_by('-id').first() or obj.receipts.order_by('-id').first()
+            if not receipt and hasattr(obj, 'fee_receipts'):
+                receipt = obj.fee_receipts.exclude(status='VOID').order_by('-id').first() or obj.fee_receipts.order_by('-id').first()
+            if not receipt:
+                from fees.models import FeeReceipt
+                receipt = FeeReceipt.objects.filter(processing_payment=obj).exclude(status='VOID').order_by('-id').first()
+            if not receipt and obj.notes and 'official receipt ' in obj.notes:
+                from fees.models import FeeReceipt
+                r_num = obj.notes.split('official receipt ')[-1].strip()
+                receipt = FeeReceipt.objects.filter(receipt_number=r_num).first()
+                if receipt and not receipt.processing_payment_id:
+                    receipt.processing_payment = obj
+                    receipt.save(update_fields=['processing_payment'])
+            obj._cached_latest_receipt = receipt
         return obj._cached_latest_receipt
 
     def get_created_by_name(self, obj):

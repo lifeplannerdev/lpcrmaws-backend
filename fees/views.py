@@ -465,14 +465,15 @@ class FeeSummaryAPIView(APIView):
             {
                 'student_id': account.student_id,
                 'student_name': account.student.name,
+                'student_status': getattr(account.student, 'status', ''),
                 'company': account.company,
                 'plan_name': account.plan_name,
                 'plan_type': account.plan_type,
                 'total_due': account.total_due,
                 'total_paid': account.total_paid,
-                'balance_due': account.balance_due,
-                'overdue_amount': account.overdue_amount,
-                'status': account.status,
+                'balance_due': Decimal('0.00') if (account.status == 'EXITED' or (account.student and getattr(account.student, 'status', None) == 'exited')) else account.balance_due,
+                'overdue_amount': Decimal('0.00') if (account.status == 'EXITED' or (account.student and getattr(account.student, 'status', None) == 'exited')) else account.overdue_amount,
+                'status': 'EXITED' if (account.status == 'EXITED' or (account.student and getattr(account.student, 'status', None) == 'exited')) else account.status,
                 'next_due_date': account.next_due_date,
                 'last_payment_date': account.last_payment_date,
             }
@@ -694,14 +695,20 @@ class FeeStudentsAPIView(APIView):
 
             for s in students:
                 student_accounts = accounts_by_student.get(s.id, [])
+                is_student_exited = (s.status == 'exited')
                 if student_accounts:
                     # Aggregate financial metrics across all multiple accounts for this student
                     total_fee_dec = sum(Decimal(str(acc.total_due or '0.00')) for acc in student_accounts)
                     paid_dec = sum(Decimal(str(acc.total_paid or '0.00')) for acc in student_accounts)
-                    balance_dec = sum(Decimal(str(acc.balance_due or '0.00')) for acc in student_accounts)
+                    if is_student_exited:
+                        balance_dec = Decimal('0.00')
+                    else:
+                        balance_dec = sum(Decimal(str(acc.balance_due or '0.00')) for acc in student_accounts)
                     fee_account_id = student_accounts[0].id
 
-                    if balance_dec <= Decimal('0.00') and total_fee_dec > Decimal('0.00'):
+                    if is_student_exited:
+                        status_str = 'EXITED'
+                    elif balance_dec <= Decimal('0.00') and total_fee_dec > Decimal('0.00'):
                         status_str = 'PAID'
                     elif any(acc.status == 'OVERDUE' for acc in student_accounts):
                         status_str = 'OVERDUE'
@@ -717,8 +724,8 @@ class FeeStudentsAPIView(APIView):
                             'plan_code': acc.plan_code,
                             'total_due': float(Decimal(str(acc.total_due or '0.00'))),
                             'total_paid': float(Decimal(str(acc.total_paid or '0.00'))),
-                            'balance_due': float(Decimal(str(acc.balance_due or '0.00'))),
-                            'status': acc.status,
+                            'balance_due': float(Decimal('0.00') if is_student_exited or acc.status == 'EXITED' else Decimal(str(acc.balance_due or '0.00'))),
+                            'status': 'EXITED' if is_student_exited or acc.status == 'EXITED' else acc.status,
                         }
                         for acc in student_accounts
                     ]
@@ -727,13 +734,14 @@ class FeeStudentsAPIView(APIView):
                     paid_dec = Decimal('0.00')
                     balance_dec = Decimal('0.00')
                     fee_account_id = None
-                    status_str = 'NO_ACCOUNT'
+                    status_str = 'EXITED' if is_student_exited else 'NO_ACCOUNT'
                     fee_accounts_list = []
 
                 div = s.campus.code if (s.campus and s.campus.code) else (s.campus.name if s.campus else '')
                 results.append({
                     'id': s.id,
                     'student_name': s.name,
+                    'student_status': s.status,
                     'student_id': f"STU-{s.id:04d}",
                     'email': s.email or '',
                     'phone': s.phone or '',
@@ -913,7 +921,7 @@ class ExportAdmissionsReportAPIView(APIView):
                 "PACKAGE CHOSEN": account.plan_name or account.plan_type,
                 "TOTAL FEE": account.total_due,
                 "SPECIAL DISCOUNT": 0,
-                "PENDING": account.balance_due,
+                "PENDING": (Decimal("0.00") if (account.status == "EXITED" or (account.student and getattr(account.student, "status", None) == "exited")) else account.balance_due),
                 "RECEIPT GIVEN": "Yes" if account.payments.exists() else "No",
                 "STATUS OF FEE": account.get_status_display()
             }
@@ -1008,23 +1016,26 @@ class FeeAnalyticsOverviewAPIView(APIView):
 
         data = []
         for acc in qs:
-            overdue = acc.overdue_amount or Decimal('0.00')
+            is_exited = (acc.status == 'EXITED') or (acc.student and getattr(acc.student, 'status', None) == 'exited')
+            overdue = Decimal('0.00') if is_exited else (acc.overdue_amount or Decimal('0.00'))
             t_due = acc.total_due or Decimal('0.00')
             t_paid = acc.total_paid or Decimal('0.00')
+            status_val = 'EXITED' if is_exited else (acc.status or '')
             
             batch_name = acc.student.batch.name if hasattr(acc.student, 'batch') and acc.student.batch else ''
 
             data.append({
                 'id': acc.student_id,
                 'student_name': acc.student.name,
+                'student_status': getattr(acc.student, 'status', ''),
                 'branch_name': '',
                 'batch_name': batch_name,
                 'plan_name': acc.plan_name or '',
                 'total_due': t_due,
                 'total_paid': t_paid,
                 'overdue_amount': overdue,
-                'status': acc.status or '',
-                'is_on_track': overdue <= 0
+                'status': status_val,
+                'is_on_track': True if is_exited else (overdue <= 0)
             })
             
         summary = {

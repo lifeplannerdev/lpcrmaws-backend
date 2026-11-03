@@ -59,16 +59,33 @@ class FollowUpListCreateAPIView(APIView):
         from accounts.permissions import has_dynamic_permission
         include_inactive = request.query_params.get('include_inactive') == 'true'
 
+        lead_id       = request.query_params.get('lead')
+        processing_student_id = request.query_params.get('processing_student')
+
         if is_full_access(user):
             queryset = FollowUp.objects.all()
             if not include_inactive:
                 queryset = queryset.filter(assigned_to__is_active=True)
+        elif processing_student_id and (
+            has_dynamic_permission(user, 'processing_students:read_any') or
+            has_dynamic_permission(user, 'processing_students:edit_any') or
+            has_dynamic_permission(user, 'processing:reminders_users') or
+            has_dynamic_permission(user, 'processing:reminders_admin') or
+            user.is_staff or user.is_superuser
+        ):
+            queryset = FollowUp.objects.all()
+        elif processing_student_id and (
+            has_dynamic_permission(user, 'processing_students:read_own') or
+            has_dynamic_permission(user, 'processing_students:edit_own')
+        ):
+            queryset = FollowUp.objects.filter(
+                models.Q(assigned_to=user) |
+                models.Q(processing_student__assigned_to=user)
+            )
         else:
             queryset = FollowUp.objects.filter(assigned_to=user)
 
         # rest of your filters stay exactly the same ...
-        lead_id       = request.query_params.get('lead')
-        processing_student_id = request.query_params.get('processing_student')
         date          = request.query_params.get('date')
         start_date    = request.query_params.get('start_date')
         end_date      = request.query_params.get('end_date')
@@ -139,9 +156,28 @@ class FollowUpListCreateAPIView(APIView):
         data = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data)
         call_uuid = data.get('call_uuid') or data.get('callUuid')
         lead_id = data.get('lead')
+        processing_student_id = data.get('processing_student')
         user_notes = data.get('notes') or ''
         duration = data.get('duration')
         recording_url = data.get('recording_url')
+
+        # Normalize field names if sent without underscores
+        if 'followup_date' in data and not data.get('follow_up_date'):
+            data['follow_up_date'] = data['followup_date']
+        if 'followup_time' in data and not data.get('follow_up_time'):
+            data['follow_up_time'] = data['followup_time']
+
+        if processing_student_id:
+            try:
+                from trainers.models import ProcessingStudent
+                ps = ProcessingStudent.objects.filter(pk=processing_student_id).first()
+                if ps:
+                    if not data.get('name'):
+                        data['name'] = ps.name
+                    if not data.get('phone_number'):
+                        data['phone_number'] = getattr(ps, 'mobile_number', None) or getattr(ps, 'phone', None) or '0000000000'
+            except Exception:
+                pass
         
         # 1. Check if a FollowUp already exists for this call_uuid or recent call by this user
         existing_followup = None
@@ -229,6 +265,18 @@ class FollowUpListCreateAPIView(APIView):
             if lead_id and new_followup.status in ['contacted', 'completed', 'not_interested']:
                 FollowUp.objects.filter(lead_id=lead_id, status='pending').exclude(id=new_followup.id).update(status=new_followup.status)
 
+            if new_followup.processing_student:
+                try:
+                    ActivityLog.objects.create(
+                        user=request.user,
+                        action='PROCESSING_STUDENT_UPDATED',
+                        entity_type='ProcessingStudent',
+                        entity_id=new_followup.processing_student.id,
+                        description=f"Reminder scheduled for {new_followup.follow_up_date}" + (f" at {new_followup.follow_up_time}" if new_followup.follow_up_time else "") + (f": {new_followup.notes}" if new_followup.notes else "")
+                    )
+                except Exception:
+                    pass
+
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -239,6 +287,19 @@ class FollowUpDetailAPIView(APIView):
         from accounts.permissions import has_dynamic_permission
         if is_full_access(user):
             return get_object_or_404(FollowUp, pk=pk)
+        fu = get_object_or_404(FollowUp, pk=pk)
+        if fu.assigned_to == user:
+            return fu
+        if fu.processing_student:
+            if (
+                has_dynamic_permission(user, 'processing_students:edit_any') or
+                has_dynamic_permission(user, 'processing_students:read_any') or
+                has_dynamic_permission(user, 'processing:reminders_users') or
+                has_dynamic_permission(user, 'processing:reminders_admin') or
+                user.is_staff or user.is_superuser or
+                ((has_dynamic_permission(user, 'processing_students:edit_own') or has_dynamic_permission(user, 'processing_students:read_own')) and fu.processing_student.assigned_to == user)
+            ):
+                return fu
         return get_object_or_404(FollowUp, pk=pk, assigned_to=user)
 
     def get(self, request, pk):
@@ -248,13 +309,32 @@ class FollowUpDetailAPIView(APIView):
 
     def put(self, request, pk):
         followup = self.get_object(pk, request.user)
-        serializer = FollowUpSerializer(followup, data=request.data, partial=True)
+        data = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data)
+        if 'followup_date' in data and not data.get('follow_up_date'):
+            data['follow_up_date'] = data['followup_date']
+        if 'followup_time' in data and not data.get('follow_up_time'):
+            data['follow_up_time'] = data['followup_time']
+
+        serializer = FollowUpSerializer(followup, data=data, partial=True)
 
         if serializer.is_valid():
             saved_followup = serializer.save()
             # If status updated to completed/contacted/not_interested, auto-resolve other pending followups for this lead
             if saved_followup.lead_id and saved_followup.status in ['contacted', 'completed', 'not_interested']:
                 FollowUp.objects.filter(lead_id=saved_followup.lead_id, status='pending').exclude(id=saved_followup.id).update(status=saved_followup.status)
+
+            if saved_followup.processing_student and 'status' in data:
+                try:
+                    ActivityLog.objects.create(
+                        user=request.user,
+                        action='PROCESSING_STUDENT_UPDATED',
+                        entity_type='ProcessingStudent',
+                        entity_id=saved_followup.processing_student.id,
+                        description=f"Reminder marked {saved_followup.status}: {saved_followup.notes or 'Reminder'}"
+                    )
+                except Exception:
+                    pass
+
             return Response(serializer.data)
 
         return Response(serializer.errors, status=400)
@@ -264,7 +344,20 @@ class FollowUpDetailAPIView(APIView):
 
     def delete(self, request, pk):
         followup = self.get_object(pk, request.user)
+        student = followup.processing_student
+        notes = followup.notes
         followup.delete()
+        if student:
+            try:
+                ActivityLog.objects.create(
+                    user=request.user,
+                    action='PROCESSING_STUDENT_UPDATED',
+                    entity_type='ProcessingStudent',
+                    entity_id=student.id,
+                    description=f"Reminder deleted: {notes or 'Reminder'}"
+                )
+            except Exception:
+                pass
         return Response({"message": "Deleted successfully"}, status=204)
 
 class TodayFollowUpsAPIView(APIView):
