@@ -927,7 +927,7 @@ class FeeReceiptCalculatePreviewAPIView(APIView):
             student = account.student
 
         if student and not account:
-            account = getattr(student, 'fee_account', None)
+            account = getattr(student, 'fee_account', None) or (student.fee_accounts.order_by('-created_at').first() if hasattr(student, 'fee_accounts') else None)
 
         if account and not _can_view_fee_account(request.user, account):
             return Response({'detail': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
