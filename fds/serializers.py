@@ -274,9 +274,10 @@ class FdsFeesCollectionSerializer(serializers.ModelSerializer):
 
     def _get_latest_receipt(self, obj):
         if not hasattr(obj, '_cached_latest_receipt'):
-            # Only check if fee_receipts relation exists (i.e. fees app installed)
-            if hasattr(obj, 'fee_receipts'):
-                obj._cached_latest_receipt = obj.fee_receipts.order_by('-id').first()
+            # Check receipts relation on FdsFeesCollection (FeeReceipt.fds_payment related_name=\'receipts\')
+            receipts_rel = getattr(obj, 'receipts', None) or getattr(obj, 'fee_receipts', None)
+            if receipts_rel is not None:
+                obj._cached_latest_receipt = receipts_rel.exclude(status='VOID').order_by('-id').first() or receipts_rel.order_by('-id').first()
             else:
                 obj._cached_latest_receipt = None
         return obj._cached_latest_receipt

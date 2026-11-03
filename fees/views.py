@@ -760,7 +760,7 @@ class FeeStudentsAPIView(APIView):
                 })
 
         elif company == 'FDS':
-            qs = FdsStudent.objects.filter(is_active=True).select_related('fee_account', 'fee_structure')
+            qs = FdsStudent.objects.filter(is_active=True).select_related('fee_account', 'fee_structure', 'batch')
             if search:
                 qs = qs.filter(Q(name__icontains=search) | Q(contact_no__icontains=search) | Q(student_id__icontains=search))
 
@@ -780,9 +780,31 @@ class FeeStudentsAPIView(APIView):
                         receipt_map[sid] = r['receipt_number']
 
             collection_paid_map = {}
+            latest_pay_map = {}
             if student_ids:
                 collections = FdsFeesCollection.objects.filter(student_id__in=student_ids).values('student_id').annotate(total=Sum('paid_amount'))
                 collection_paid_map = {c['student_id']: (c['total'] or Decimal('0.00')) for c in collections}
+
+                pays = (
+                    FdsFeesCollection.objects.filter(student_id__in=student_ids)
+                    .order_by('student_id', '-pay_date', '-id')
+                    .values('student_id', 'id', 'paid_amount', 'pay_date', 'mode_of_pay', 'payment_id', 'remarks')
+                )
+                for p in pays:
+                    sid = p['student_id']
+                    if sid not in latest_pay_map:
+                        latest_pay_map[sid] = {
+                            'id': p['id'],
+                            'amount': float(p['paid_amount']),
+                            'paid_amount': float(p['paid_amount']),
+                            'payment_date': p['pay_date'].isoformat() if p['pay_date'] else None,
+                            'pay_date': p['pay_date'].isoformat() if p['pay_date'] else None,
+                            'payment_method': p['mode_of_pay'],
+                            'mode_of_pay': p['mode_of_pay'],
+                            'reference': p['payment_id'],
+                            'payment_id': p['payment_id'],
+                            'remarks': p['remarks'] or '',
+                        }
 
             for s in students:
                 acc = getattr(s, 'fee_account', None)
@@ -823,7 +845,11 @@ class FeeStudentsAPIView(APIView):
                     'total_paid': float(paid_dec),
                     'balance_due': float(balance_dec),
                     'fee_account_id': fee_account_id,
+                    'class_category': getattr(s, 'class_category', None) or '',
+                    'batch_name': s.batch.name if s.batch else '',
                     'latest_receipt_number': receipt_map.get(s.id),
+                    'latest_payment': latest_pay_map.get(s.id),
+                    'latest_payment_id': latest_pay_map.get(s.id, {}).get('id'),
                     'status': status_str,
                 })
 

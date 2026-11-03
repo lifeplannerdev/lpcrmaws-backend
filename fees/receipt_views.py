@@ -525,13 +525,18 @@ class FeeReceiptFromFdsPaymentAPIView(APIView):
             fallback_period=f"FDS #{payment.id}",
         )
         p_date = getattr(payment, 'pay_date', None) or getattr(payment, 'payment_date', None) or timezone.now()
+        acc_id = payment.account_id or (payment.student.fee_account.id if (payment.student and hasattr(payment.student, 'fee_account') and payment.student.fee_account) else None)
         return Response({
             'id': existing.id if (existing and is_preview_req) else None,
             'is_preview': True,
             'company': 'FDS',
             'fds_payment': payment.id,
+            'payment': payment.id,
             'fds_student': payment.student_id,
+            'student': payment.student_id,
             'fds_wedding_group': payment.wedding_group_id,
+            'fds_account': acc_id,
+            'account': acc_id,
             'recipient_name': student_meta.get('recipient_name') or '',
             'recipient_phone': student_meta.get('recipient_phone', ''),
             'recipient_email': student_meta.get('recipient_email', ''),
@@ -557,7 +562,8 @@ class FeeReceiptFromFdsPaymentAPIView(APIView):
             'total_amount': str(fin['total_amount']),
             'amount_in_words': fin['amount_in_words'],
             'payment_method': getattr(payment, 'mode_of_pay', 'UPI'),
-            'payment_reference': payment.remarks or '',
+            'payment_reference': payment.payment_id or '',
+            'notes': payment.remarks or '',
             'payment_date': p_date,
             'installment_label': f"FDS #{payment.id}",
             'payment_status_badge': 'PAID',
@@ -612,6 +618,16 @@ class FeeReceiptFromFdsPaymentAPIView(APIView):
                 payload['fds_student'] = payment.student_id
             if payment.wedding_group_id:
                 payload['fds_wedding_group'] = payment.wedding_group_id
+            if payment.account_id:
+                payload['fds_account'] = payment.account_id
+            elif payment.student and hasattr(payment.student, 'fee_account') and payment.student.fee_account:
+                payload['fds_account'] = payment.student.fee_account.id
+            if 'payment_reference' not in payload and payment.payment_id:
+                payload['payment_reference'] = payment.payment_id
+            if 'payment_method' not in payload and payment.mode_of_pay:
+                payload['payment_method'] = payment.mode_of_pay
+            if 'notes' not in payload and payment.remarks:
+                payload['notes'] = payment.remarks
             fds_pdate = getattr(payment, 'pay_date', None) or getattr(payment, 'payment_date', None)
             if 'payment_date' not in payload and fds_pdate:
                 import datetime as dt_mod
@@ -819,6 +835,14 @@ class FeeReceiptVoidAPIView(APIView):
                 receipt.save(update_fields=['processing_payment'])
                 pay.delete()
 
+            if receipt.company == 'FDS' and receipt.fds_payment:
+                pay = receipt.fds_payment
+                receipt.fds_payment = None
+                receipt.save(update_fields=['fds_payment'])
+                other_receipts = FeeReceipt.objects.filter(fds_payment=pay).exclude(id=receipt.id).exclude(status='VOID')
+                if not other_receipts.exists() and ('Auto-recorded payment for receipt' in (pay.remarks or '') or pay.remarks == receipt.receipt_number):
+                    pay.delete()
+
             ActivityLog.objects.create(
                 user=request.user,
                 company=receipt.company,
@@ -867,12 +891,18 @@ class FeeReceiptCalculatePreviewAPIView(APIView):
         if target_comp == 'LP':
             if student_id not in (None, '') and processing_student_id in (None, ''):
                 processing_student_id = student_id
+            if payment_id not in (None, '') and processing_payment_id in (None, ''):
+                processing_payment_id = payment_id
             student_id = None
             account_id = None
             payment_id = None
         elif target_comp == 'FDS':
             if student_id not in (None, '') and fds_student_id in (None, ''):
                 fds_student_id = student_id
+            if account_id not in (None, '') and fds_account_id in (None, ''):
+                fds_account_id = account_id
+            if payment_id not in (None, '') and fds_payment_id in (None, ''):
+                fds_payment_id = payment_id
             student_id = None
             account_id = None
             payment_id = None
@@ -1007,6 +1037,8 @@ class FeeReceiptCalculatePreviewAPIView(APIView):
             or (getattr(fds_payment, 'paid_amount', None) if fds_payment else None)
             or (getattr(fds_payment, 'amount', None) if fds_payment else None)
             or (getattr(processing_payment, 'amount', None) if processing_payment else None)
+            or (ledger_meta.get('ledger_balance_due') if (ledger_meta and ledger_meta.get('ledger_balance_due') and to_decimal(ledger_meta.get('ledger_balance_due')) > 0) else None)
+            or (ledger_meta.get('ledger_total_fee') if ledger_meta else None)
             or Decimal('0.00')
         )
         fee_month_str = ""

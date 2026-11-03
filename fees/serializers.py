@@ -745,13 +745,42 @@ class FeeReceiptSerializer(serializers.ModelSerializer):
             fds_wedding = fds_payment.wedding_group
             attrs['fds_wedding_group'] = fds_wedding
 
+        if fds_student and not fds_account and hasattr(fds_student, 'fee_account'):
+            fds_account = getattr(fds_student, 'fee_account', None)
+            if fds_account:
+                attrs['fds_account'] = fds_account
+        if fds_account and not fds_student and getattr(fds_account, 'student', None):
+            fds_student = fds_account.student
+            attrs['fds_student'] = fds_student
+
         # LP relations validation
         if processing_payment and not processing_student and processing_payment.student:
             processing_student = processing_payment.student
             attrs['processing_student'] = processing_student
 
         target_company = attrs.get('company', getattr(instance, 'company', None))
-        if target_company == 'LP':
+        if target_company == 'FDS':
+            if attrs.get('student'):
+                if not fds_student:
+                    from fds.models import FdsStudent
+                    raw_id = attrs['student'].id if hasattr(attrs['student'], 'id') else attrs['student']
+                    try:
+                        fds_student = FdsStudent.objects.get(pk=raw_id)
+                        attrs['fds_student'] = fds_student
+                    except (FdsStudent.DoesNotExist, ValueError):
+                        pass
+                attrs['student'] = None
+            if attrs.get('account'):
+                if not fds_account:
+                    from fds.models import FdsStudentFeeAccount
+                    raw_id = attrs['account'].id if hasattr(attrs['account'], 'id') else attrs['account']
+                    try:
+                        fds_account = FdsStudentFeeAccount.objects.get(pk=raw_id)
+                        attrs['fds_account'] = fds_account
+                    except (FdsStudentFeeAccount.DoesNotExist, ValueError):
+                        pass
+                attrs['account'] = None
+        elif target_company == 'LP':
             if attrs.get('student'):
                 if not processing_student:
                     from trainers.models import ProcessingStudent
@@ -1213,6 +1242,73 @@ class FeeReceiptSerializer(serializers.ModelSerializer):
                     created_by=user,
                 )
                 validated_data['processing_payment'] = payment_obj
+
+            if company == 'FDS' and (fds_student or fds_wedding_group or fds_account) and not fds_payment and validated_data.get('document_type') != 'PROFORMA':
+                from fds.models import FdsFeesCollection, FdsFeeStructure, FdsStudentFeeAccount
+                
+                if fds_account and not fds_student and getattr(fds_account, 'student', None):
+                    fds_student = fds_account.student
+                    validated_data['fds_student'] = fds_student
+                if fds_student and not fds_account and hasattr(fds_student, 'fee_account'):
+                    fds_account = fds_student.fee_account
+                    validated_data['fds_account'] = fds_account
+
+                fees_type = None
+                if fds_account and fds_account.active_package:
+                    fees_type = fds_account.active_package
+                elif fds_student and getattr(fds_student, 'fee_structure', None):
+                    fees_type = fds_student.fee_structure
+                elif fds_wedding_group and getattr(fds_wedding_group, 'fee_structure', None):
+                    fees_type = fds_wedding_group.fee_structure
+
+                line_titles = ' '.join([str(item.get('title', '')) for item in (validated_data.get('line_items') or [])]).upper()
+                inst_label = str(validated_data.get('installment_label') or '').upper()
+                combined_hint = f"{line_titles} {inst_label}"
+
+                if not fees_type:
+                    if 'ZUMBA' in combined_hint:
+                        fees_type = FdsFeeStructure.objects.filter(category='ZUMBA', is_active=True).first()
+                    elif 'WEDDING' in combined_hint:
+                        fees_type = FdsFeeStructure.objects.filter(category__startswith='WEDDING', is_active=True).first()
+                    elif fds_student and getattr(fds_student, 'class_category', None):
+                        fees_type = FdsFeeStructure.objects.filter(category=fds_student.class_category, is_active=True).first()
+                    if not fees_type:
+                        fees_type = FdsFeeStructure.objects.filter(is_active=True).first()
+
+                p_date = validated_data.get('payment_date') or validated_data.get('issue_date') or timezone.now()
+                p_date_val = p_date.date() if hasattr(p_date, 'date') else p_date
+
+                raw_mode = (validated_data.get('payment_method') or 'CASH').upper()
+                mode_map = {
+                    'CASH': 'CASH',
+                    'UPI': 'UPI',
+                    'BANK_TRANSFER': 'BANK_TRANSFER',
+                    'CHEQUE': 'CHEQUE',
+                    'ONLINE': 'ONLINE',
+                    'CARD': 'ONLINE',
+                    'NET_BANKING': 'BANK_TRANSFER',
+                    'NEFT': 'BANK_TRANSFER',
+                    'RTGS': 'BANK_TRANSFER',
+                    'IMPS': 'BANK_TRANSFER',
+                }
+                mode_of_pay = mode_map.get(raw_mode, 'CASH')
+                amt = validated_data.get('total_amount') or validated_data.get('subtotal_amount') or Decimal('0.00')
+
+                payment_obj = FdsFeesCollection.objects.create(
+                    student=fds_student,
+                    account=fds_account,
+                    wedding_group=fds_wedding_group,
+                    fees_type=fees_type,
+                    fee_month=p_date_val.month if p_date_val else None,
+                    fee_year=p_date_val.year if p_date_val else None,
+                    pay_date=p_date_val,
+                    paid_amount=amt,
+                    total_fees=amt,
+                    mode_of_pay=mode_of_pay,
+                    remarks=f"Auto-recorded payment for receipt {validated_data.get('receipt_number', '')}".strip() + (f" | {validated_data.get('notes') or validated_data.get('payment_reference')}" if (validated_data.get('notes') or validated_data.get('payment_reference')) else ""),
+                    collected_by=user,
+                )
+                validated_data['fds_payment'] = payment_obj
 
             rev = self._build_revision_snapshot(validated_data, user, action='CREATED', version=1)
             validated_data['snapshot_data'] = {'revisions': [rev]}

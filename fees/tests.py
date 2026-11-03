@@ -1032,3 +1032,92 @@ class DigitalReceiptSystemTests(APITestCase):
         )
         self.assertEqual(settings_res.status_code, 403)
 
+    def test_fds_receipt_auto_payment_and_preview(self):
+        from decimal import Decimal
+        from fds.models import FdsStudent, FdsFeeStructure, FdsFeesCollection, FdsStudentFeeAccount
+        fds_user = User.objects.create_user(
+            username='fds-tester',
+            password='pass',
+            company='FDS',
+            is_staff=True,
+            is_superuser=True,
+        )
+        self.client.force_authenticate(user=fds_user)
+
+        # 1. Setup FDS FeeStructure and Student
+        fee_struct = FdsFeeStructure.objects.create(
+            name='Regular Dance Batch',
+            category='DANCE',
+            amount=Decimal('4500.00'),
+            is_active=True,
+        )
+        fds_student = FdsStudent.objects.create(
+            name='Test Dancer',
+            contact_no='9876543210',
+            branch='KOTTAYAM',
+            fee_structure=fee_struct,
+        )
+        fee_account = FdsStudentFeeAccount.objects.create(
+            student=fds_student,
+            active_package=fee_struct,
+            monthly_fee=Decimal('4500.00'),
+            total_due=Decimal('4500.00'),
+            balance_due=Decimal('4500.00'),
+        )
+
+        # 2. Preview calculation tailored for FDS
+        prev_res = self.client.post(
+            reverse('fee-receipt-calculate-preview'),
+            {
+                'company': 'FDS',
+                'student': fds_student.id,
+            },
+            format='json',
+        )
+        self.assertEqual(prev_res.status_code, 200)
+        self.assertEqual(prev_res.data['issuer_snapshot']['company'], 'FDS')
+        self.assertIn('FILMAATIC Dance Studio', prev_res.data['issuer_snapshot']['organization_name'])
+        self.assertEqual(prev_res.data['student_metadata']['recipient_name'], 'Test Dancer')
+        self.assertEqual(prev_res.data['student_metadata']['campus_name'], 'KOTTAYAM')
+
+        # 3. Issue receipt for FDS student without existing payment -> auto-creates FdsFeesCollection
+        issue_res = self.client.post(
+            reverse('fee-receipt-list-create'),
+            {
+                'company': 'FDS',
+                'fds_student': fds_student.id,
+                'recipient_name': 'Test Dancer',
+                'total_amount': '4500.00',
+                'payment_method': 'UPI',
+                'payment_reference': 'UPI-REF-12345',
+                'line_items': [
+                    {'title': 'Dance Tuition Fee', 'rate': '4500.00', 'amount': '4500.00', 'quantity': 1}
+                ],
+            },
+            format='json',
+        )
+        self.assertEqual(issue_res.status_code, 201)
+        receipt_id = issue_res.data['id']
+        fds_pay_id = issue_res.data['fds_payment']
+        self.assertIsNotNone(fds_pay_id)
+
+        # Verify payment in DB
+        pay_obj = FdsFeesCollection.objects.get(pk=fds_pay_id)
+        self.assertEqual(pay_obj.student, fds_student)
+        self.assertEqual(str(pay_obj.paid_amount), '4500.00')
+        self.assertEqual(pay_obj.mode_of_pay, 'UPI')
+        self.assertTrue(pay_obj.payment_id.startswith('FDS-PAY-'))
+
+        # Verify latest receipt on serializer
+        from fds.serializers import FdsFeesCollectionSerializer
+        pay_ser = FdsFeesCollectionSerializer(pay_obj).data
+        self.assertEqual(pay_ser['latest_receipt_number'], issue_res.data['receipt_number'])
+
+        # 4. Void receipt -> deletes auto-recorded payment
+        void_res = self.client.post(
+            reverse('fee-receipt-void', kwargs={'pk': receipt_id}),
+            {'void_reason': 'Test voiding auto created payment'},
+            format='json',
+        )
+        self.assertEqual(void_res.status_code, 200)
+        self.assertFalse(FdsFeesCollection.objects.filter(pk=fds_pay_id).exists())
