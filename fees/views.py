@@ -662,7 +662,7 @@ class FeeStudentsAPIView(APIView):
         results = []
 
         if company == 'FLAG':
-            qs = Student.objects.filter(status='active').select_related('campus')
+            qs = Student.objects.filter(Q(status='active') | Q(fee_accounts__company='FLAG')).distinct().select_related('campus')
             if is_trainer_user(request.user):
                 qs = qs.filter(trainer=request.user)
             elif not has_global_fee_access(request.user) and not has_dynamic_permission(request.user, 'fees:read_tenant') and not has_dynamic_permission(request.user, 'fees:manage') and not has_dynamic_permission(request.user, 'fees:view_reports') and not has_dynamic_permission(request.user, 'fees:flag'):
@@ -686,27 +686,49 @@ class FeeStudentsAPIView(APIView):
                     if sid not in receipt_map:
                         receipt_map[sid] = r['receipt_number']
 
-            account_map = {}
+            accounts_by_student = {}
             if student_ids:
                 accounts = StudentFeeAccount.objects.filter(student_id__in=student_ids, company='FLAG').order_by('student_id', '-created_at')
                 for acc in accounts:
-                    if acc.student_id not in account_map:
-                        account_map[acc.student_id] = acc
+                    accounts_by_student.setdefault(acc.student_id, []).append(acc)
 
             for s in students:
-                acc = account_map.get(s.id)
-                if acc:
-                    total_fee_dec = Decimal(str(acc.total_due or '0.00'))
-                    paid_dec = Decimal(str(acc.total_paid or '0.00'))
-                    balance_dec = Decimal(str(acc.balance_due or '0.00'))
-                    fee_account_id = acc.id
-                    status_str = acc.status
+                student_accounts = accounts_by_student.get(s.id, [])
+                if student_accounts:
+                    # Aggregate financial metrics across all multiple accounts for this student
+                    total_fee_dec = sum(Decimal(str(acc.total_due or '0.00')) for acc in student_accounts)
+                    paid_dec = sum(Decimal(str(acc.total_paid or '0.00')) for acc in student_accounts)
+                    balance_dec = sum(Decimal(str(acc.balance_due or '0.00')) for acc in student_accounts)
+                    fee_account_id = student_accounts[0].id
+
+                    if balance_dec <= Decimal('0.00') and total_fee_dec > Decimal('0.00'):
+                        status_str = 'PAID'
+                    elif any(acc.status == 'OVERDUE' for acc in student_accounts):
+                        status_str = 'OVERDUE'
+                    elif paid_dec > Decimal('0.00'):
+                        status_str = 'PARTIAL'
+                    else:
+                        status_str = student_accounts[0].status
+
+                    fee_accounts_list = [
+                        {
+                            'id': acc.id,
+                            'plan_name': acc.plan_name,
+                            'plan_code': acc.plan_code,
+                            'total_due': float(Decimal(str(acc.total_due or '0.00'))),
+                            'total_paid': float(Decimal(str(acc.total_paid or '0.00'))),
+                            'balance_due': float(Decimal(str(acc.balance_due or '0.00'))),
+                            'status': acc.status,
+                        }
+                        for acc in student_accounts
+                    ]
                 else:
                     total_fee_dec = Decimal('0.00')
                     paid_dec = Decimal('0.00')
                     balance_dec = Decimal('0.00')
                     fee_account_id = None
                     status_str = 'NO_ACCOUNT'
+                    fee_accounts_list = []
 
                 div = s.campus.code if (s.campus and s.campus.code) else (s.campus.name if s.campus else '')
                 results.append({
@@ -720,6 +742,8 @@ class FeeStudentsAPIView(APIView):
                     'total_paid': float(paid_dec),
                     'balance_due': float(balance_dec),
                     'fee_account_id': fee_account_id,
+                    'fee_accounts': fee_accounts_list,
+                    'account_count': len(student_accounts),
                     'latest_receipt_number': receipt_map.get(s.id),
                     'status': status_str,
                 })

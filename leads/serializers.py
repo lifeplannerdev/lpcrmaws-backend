@@ -556,12 +556,19 @@ class FollowUpSerializer(serializers.ModelSerializer):
         lead_name = instance.lead.name if instance.lead else None
         lead_phone = instance.lead.phone if instance.lead else None
         student_name = instance.processing_student.name if instance.processing_student else None
-        student_phone = instance.processing_student.phone if instance.processing_student else None
+        student_phone = (
+            getattr(instance.processing_student, 'mobile_number', None)
+            or getattr(instance.processing_student, 'phone', None)
+        ) if instance.processing_student else None
 
         if not data.get('name'):
             data['name'] = lead_name or student_name or ''
         if not data.get('phone_number'):
             data['phone_number'] = lead_phone or student_phone or ''
+
+        # Provide aliases for compatibility
+        data['followup_date'] = data.get('follow_up_date')
+        data['followup_time'] = data.get('follow_up_time')
         return data
 
         

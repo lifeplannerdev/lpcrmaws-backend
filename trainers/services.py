@@ -5,11 +5,20 @@ from django.db.models import Sum
 
 HEAD_TO_PREFIX = {
     'PROCESSING': 'processing_fee',
+    'REGISTRATION': 'processing_fee',
     'ADMISSION': 'fee_admission',
     'LANGUAGE': 'fee_language',
     'VISA': 'fee_visa',
     'MINISTRY': 'fee_ministry',
 }
+
+HEAD_PREFIX_CONFIG = [
+    (['PROCESSING', 'REGISTRATION'], 'processing_fee'),
+    (['ADMISSION'], 'fee_admission'),
+    (['LANGUAGE'], 'fee_language'),
+    (['VISA'], 'fee_visa'),
+    (['MINISTRY'], 'fee_ministry'),
+]
 
 
 def recalculate_processing_student_fees(student):
@@ -29,8 +38,8 @@ def recalculate_processing_student_fees(student):
     payments = ProcessingFeePayment.objects.filter(student=student)
     update_fields = []
 
-    for head, prefix in HEAD_TO_PREFIX.items():
-        head_payments = payments.filter(fee_head=head)
+    for heads, prefix in HEAD_PREFIX_CONFIG:
+        head_payments = payments.filter(fee_head__in=heads)
         if head_payments.exists():
             paid_sum = head_payments.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
             amount_due = getattr(student, f'{prefix}_amount', None) or Decimal('0.00')
@@ -49,6 +58,15 @@ def recalculate_processing_student_fees(student):
 
             setattr(student, f'{prefix}_status', new_status)
             update_fields.append(f'{prefix}_status')
+        else:
+            # If all payments for this head were removed, reset paid to 0 and status to PENDING
+            current_paid = getattr(student, f'{prefix}_paid', None)
+            if current_paid is not None and current_paid > Decimal('0.00'):
+                setattr(student, f'{prefix}_paid', Decimal('0.00'))
+                update_fields.append(f'{prefix}_paid')
+                amount_due = getattr(student, f'{prefix}_amount', None) or Decimal('0.00')
+                setattr(student, f'{prefix}_status', 'PENDING' if amount_due > 0 else 'PENDING')
+                update_fields.append(f'{prefix}_status')
 
     # Handle REGISTRATION fee head payments
     reg_payments = payments.filter(fee_head='REGISTRATION')

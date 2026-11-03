@@ -657,6 +657,10 @@ class ProcessingStudent(models.Model):
     name = models.CharField(max_length=200)
     mobile_number = models.CharField(max_length=20)
     whatsapp_number = models.CharField(max_length=20, blank=True, null=True)
+
+    @property
+    def phone(self):
+        return self.mobile_number
     email = models.EmailField(blank=True, null=True)
     parent_contact = models.CharField(max_length=200, blank=True, null=True, help_text="Contact number of parents (1 & 2)")
     program_applied = models.CharField(max_length=200, blank=True, null=True)
@@ -815,6 +819,17 @@ class ProcessingFeePayment(models.Model):
 
     def delete(self, *args, **kwargs):
         student = self.student
+        try:
+            from django.utils import timezone
+            from fees.models import FeeReceipt
+            FeeReceipt.objects.filter(processing_payment=self).exclude(status='VOID').update(
+                status='VOID',
+                payment_status_badge='VOID',
+                void_reason='Linked fee payment record was deleted',
+                voided_at=timezone.now(),
+            )
+        except Exception:
+            pass
         super().delete(*args, **kwargs)
         if student:
             from .services import recalculate_processing_student_fees

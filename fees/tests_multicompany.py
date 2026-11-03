@@ -658,3 +658,80 @@ class MultiCompanyFeePermissionsAndReceiptTests(APITestCase):
         aarav_rec = next(s for s in res_fds.data['results'] if s['student_name'] == 'Aarav Menon')
         self.assertNotEqual(aarav_rec['latest_receipt_number'], 'LP/26-27/0099')
         self.assertNotEqual(aarav_rec['latest_receipt_number'], 'FLAG/26-27/0088')
+
+    def test_processing_payment_deletion_voids_receipt(self):
+        """Deleting an LP ProcessingFeePayment automatically marks any linked FeeReceipt as VOID."""
+        self.client.force_authenticate(user=self.lp_user)
+        # Issue receipt from payment
+        receipt_url = reverse('fee-receipt-from-processing-payment', kwargs={'payment_id': self.processing_payment.id})
+        res = self.client.post(receipt_url, {}, format='json')
+        self.assertEqual(res.status_code, 201)
+        receipt_id = res.data['id']
+        receipt = FeeReceipt.objects.get(id=receipt_id)
+        self.assertEqual(receipt.status, 'ISSUED')
+
+        # Delete payment
+        del_url = reverse('processing-student-payment-detail', kwargs={'pk': self.processing_payment.id})
+        del_res = self.client.delete(del_url)
+        self.assertEqual(del_res.status_code, 204)
+
+        receipt.refresh_from_db()
+        self.assertEqual(receipt.status, 'VOID')
+        self.assertIn('deleted', receipt.void_reason.lower())
+
+    def test_processing_receipt_void_reverses_payment(self):
+        """Voiding an LP FeeReceipt reverses (deletes) the linked payment and updates student dues."""
+        self.client.force_authenticate(user=self.lp_user)
+        # Create payment
+        payment_url = reverse('processing-student-payments', kwargs={'student_pk': self.processing_student.id})
+        p_res = self.client.post(
+            payment_url,
+            {
+                'fee_head': 'ADMISSION',
+                'amount': '15000.00',
+                'payment_method': 'UPI',
+                'reference': 'TXN-ADM-001',
+            },
+            format='json',
+        )
+        self.assertEqual(p_res.status_code, 201)
+        payment_id = p_res.data['id']
+        self.processing_student.refresh_from_db()
+        self.assertEqual(self.processing_student.fee_admission_paid, Decimal('15000.00'))
+
+        # Issue receipt
+        receipt_url = reverse('fee-receipt-from-processing-payment', kwargs={'payment_id': payment_id})
+        r_res = self.client.post(receipt_url, {}, format='json')
+        self.assertEqual(r_res.status_code, 201)
+        receipt_id = r_res.data['id']
+
+        # Void receipt
+        void_url = reverse('fee-receipt-void', kwargs={'pk': receipt_id})
+        void_res = self.client.post(void_url, {'void_reason': 'Student cancelled admission'}, format='json')
+        self.assertEqual(void_res.status_code, 200)
+
+        # Verify payment was removed and student dues recalculated
+        from trainers.models import ProcessingFeePayment
+        self.assertFalse(ProcessingFeePayment.objects.filter(id=payment_id).exists())
+        self.processing_student.refresh_from_db()
+        self.assertEqual(self.processing_student.fee_admission_paid, Decimal('0.00'))
+
+    def test_processing_payment_normalization_and_registration_head(self):
+        """Payment creation accepts legacy aliases and REGISTRATION head syncs processing_fee."""
+        self.client.force_authenticate(user=self.lp_user)
+        payment_url = reverse('processing-student-payments', kwargs={'student_pk': self.processing_student.id})
+        res = self.client.post(
+            payment_url,
+            {
+                'fee_head': 'REGISTRATION',
+                'paid_amount': '10000.00',
+                'mode_of_pay': 'BANK_TRANSFER',
+                'pay_date': '2026-11-03T10:00:00Z',
+                'transaction_reference': 'UTR998877',
+            },
+            format='json',
+        )
+        self.assertEqual(res.status_code, 201)
+        self.assertEqual(Decimal(str(res.data['amount'])), Decimal('10000.00'))
+        self.assertEqual(res.data['payment_method'], 'BANK_TRANSFER')
+        self.assertEqual(res.data['reference'], 'UTR998877')

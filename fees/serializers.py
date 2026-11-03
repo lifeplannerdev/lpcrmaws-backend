@@ -1173,6 +1173,37 @@ class FeeReceiptSerializer(serializers.ModelSerializer):
             validated_data['created_by'] = user
             validated_data['updated_by'] = user
 
+            if company == 'LP' and processing_student and not processing_payment and validated_data.get('document_type') != 'PROFORMA':
+                from trainers.models import ProcessingFeePayment
+                fee_head = 'PROCESSING'
+                line_titles = ' '.join([str(item.get('title', '')) for item in (validated_data.get('line_items') or [])]).upper()
+                inst_label = str(validated_data.get('installment_label') or '').upper()
+                combined_hint = f"{line_titles} {inst_label}"
+                if 'REGISTR' in combined_hint or 'APP' in combined_hint:
+                    fee_head = 'REGISTRATION'
+                elif 'ADMISSION' in combined_hint or 'OFFER' in combined_hint or 'AUSBILDUNG' in combined_hint:
+                    fee_head = 'ADMISSION'
+                elif 'LANG' in combined_hint:
+                    fee_head = 'LANGUAGE'
+                elif 'VISA' in combined_hint:
+                    fee_head = 'VISA'
+                elif 'MINISTR' in combined_hint:
+                    fee_head = 'MINISTRY'
+                elif 'OTHER' in combined_hint:
+                    fee_head = 'OTHER'
+
+                payment_obj = ProcessingFeePayment.objects.create(
+                    student=processing_student,
+                    fee_head=fee_head,
+                    amount=validated_data.get('total_amount') or validated_data.get('subtotal_amount') or Decimal('0.00'),
+                    payment_method=validated_data.get('payment_method') or 'UPI',
+                    payment_date=validated_data.get('payment_date') or validated_data.get('issue_date') or timezone.now(),
+                    reference=validated_data.get('payment_reference') or '',
+                    notes=validated_data.get('notes') or f"Auto-recorded payment for receipt {validated_data.get('receipt_number', '')}".strip(),
+                    created_by=user,
+                )
+                validated_data['processing_payment'] = payment_obj
+
             rev = self._build_revision_snapshot(validated_data, user, action='CREATED', version=1)
             validated_data['snapshot_data'] = {'revisions': [rev]}
 

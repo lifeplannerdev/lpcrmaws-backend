@@ -802,6 +802,12 @@ class FeeReceiptVoidAPIView(APIView):
             receipt.snapshot_data = snap
             receipt.save()
 
+            if receipt.company == 'LP' and receipt.processing_payment:
+                pay = receipt.processing_payment
+                receipt.processing_payment = None
+                receipt.save(update_fields=['processing_payment'])
+                pay.delete()
+
             ActivityLog.objects.create(
                 user=request.user,
                 company=receipt.company,

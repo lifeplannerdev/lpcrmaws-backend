@@ -1574,6 +1574,15 @@ class ProcessingFeePaymentListCreateAPIView(APIView):
         if student_pk:
             data['student'] = student_pk
 
+        if 'amount' not in data and 'paid_amount' in data:
+            data['amount'] = data['paid_amount']
+        if 'payment_method' not in data and 'mode_of_pay' in data:
+            data['payment_method'] = data['mode_of_pay']
+        if 'payment_date' not in data and 'pay_date' in data:
+            data['payment_date'] = data['pay_date']
+        if 'reference' not in data and 'transaction_reference' in data:
+            data['reference'] = data['transaction_reference']
+
         serializer = ProcessingFeePaymentSerializer(data=data, context={'request': request})
         if serializer.is_valid():
             payment = serializer.save()
