@@ -15,6 +15,8 @@ FDS_BRANCH_CHOICES = [
 
 CLASS_CATEGORY_CHOICES = [
     ('DANCE', 'Dance'),
+    ('DANCE-classical', 'Dance - Classical'),
+    ('DANCE-semi_classical', 'Dance - Semi Classical'),
     ('ZUMBA', 'Zumba'),
     ('YOGA', 'Yoga'),
 ]
@@ -58,6 +60,8 @@ PAYMENT_STATUS_CHOICES = [
 class FdsFeeStructure(models.Model):
     FEE_CATEGORY_CHOICES = [
         ('DANCE', 'Dance'),
+        ('DANCE-classical', 'Dance - Classical'),
+        ('DANCE-semi_classical', 'Dance - Semi Classical'),
         ('ZUMBA', 'Zumba'),
         ('YOGA', 'Yoga'),
         ('MONTHLY', 'Monthly Fee'),
@@ -124,7 +128,7 @@ class FdsBatch(models.Model):
 
     name = models.CharField(max_length=150)
     batch_type = models.CharField(max_length=20, choices=BATCH_TYPE_CHOICES, default='REGULAR')
-    class_category = models.CharField(max_length=10, choices=CLASS_CATEGORY_CHOICES, default='DANCE')
+    class_category = models.CharField(max_length=50, choices=CLASS_CATEGORY_CHOICES, default='DANCE')
     schedule_days = models.CharField(
         max_length=100,
         blank=True,
@@ -196,7 +200,7 @@ class FdsEnquiry(models.Model):
     name = models.CharField(max_length=200)
     location = models.CharField(max_length=200, blank=True, null=True)
     age = models.PositiveIntegerField(null=True, blank=True)
-    class_interest = models.CharField(max_length=10, choices=CLASS_INTEREST_CHOICES, default='DANCE')
+    class_interest = models.CharField(max_length=50, choices=CLASS_INTEREST_CHOICES, default='DANCE')
     source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default='WALK_IN')
     phone = models.CharField(max_length=20, blank=True, null=True)
     whatsapp_no = models.CharField(max_length=20, blank=True, null=True)
@@ -252,7 +256,7 @@ class FdsTrial(models.Model):
     age = models.PositiveIntegerField(null=True, blank=True)
     phone = models.CharField(max_length=20, blank=True, null=True)
     location = models.CharField(max_length=200, blank=True, null=True)
-    class_category = models.CharField(max_length=10, choices=CLASS_CATEGORY_CHOICES, default='DANCE')
+    class_category = models.CharField(max_length=50, choices=CLASS_CATEGORY_CHOICES, default='DANCE')
     branch = models.CharField(max_length=20, choices=FDS_BRANCH_CHOICES, default='KOTTAYAM')
     fee_quoted = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     feedback = models.TextField(blank=True, null=True)
@@ -476,7 +480,7 @@ class FdsAttendance(models.Model):
     class_start_time = models.TimeField(null=True, blank=True)
     class_end_time = models.TimeField(null=True, blank=True)
     class_category = models.CharField(
-        max_length=10, choices=CLASS_CATEGORY_CHOICES,
+        max_length=50, choices=CLASS_CATEGORY_CHOICES,
         help_text="Denormalized from batch for fast filtering"
     )
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='PRESENT')
@@ -771,8 +775,8 @@ class FdsStudentFeeAccount(models.Model):
         # 2. Check if this is a recurring monthly studio account
         is_monthly = self.plan_type in ['MONTHLY', 'PACKAGE'] or (
             self.student and (
-                self.student.class_category in ['DANCE', 'ZUMBA', 'YOGA', 'MONTHLY'] or
-                (self.active_package and self.active_package.category in ['DANCE', 'ZUMBA', 'YOGA', 'MONTHLY'])
+                self.student.class_category in ['DANCE', 'DANCE-classical', 'DANCE-semi_classical', 'ZUMBA', 'YOGA', 'MONTHLY'] or
+                (self.active_package and self.active_package.category in ['DANCE', 'DANCE-classical', 'DANCE-semi_classical', 'ZUMBA', 'YOGA', 'MONTHLY'])
             )
         )
 

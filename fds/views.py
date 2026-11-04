@@ -350,6 +350,8 @@ class FdsEnquiryViewSet(viewsets.ModelViewSet):
             'lost': qs.filter(status='LOST').count(),
             'by_class': {
                 'dance': qs.filter(class_interest='DANCE').count(),
+                'dance_classical': qs.filter(class_interest='DANCE-classical').count(),
+                'dance_semi_classical': qs.filter(class_interest='DANCE-semi_classical').count(),
                 'zumba': qs.filter(class_interest='ZUMBA').count(),
                 'yoga': qs.filter(class_interest='YOGA').count(),
             },
@@ -570,6 +572,8 @@ class FdsTrialViewSet(viewsets.ModelViewSet):
             'avg_rating': avg_rating,
             'by_class': {
                 'dance': qs.filter(class_category='DANCE').count(),
+                'dance_classical': qs.filter(class_category='DANCE-classical').count(),
+                'dance_semi_classical': qs.filter(class_category='DANCE-semi_classical').count(),
                 'zumba': qs.filter(class_category='ZUMBA').count(),
                 'yoga': qs.filter(class_category='YOGA').count(),
             },
@@ -1710,6 +1714,8 @@ class FdsDashboardView(APIView):
                 'total_active': students.count(),
                 'by_category': {
                     'dance': students.filter(batch__class_category='DANCE').count(),
+                    'dance_classical': students.filter(batch__class_category='DANCE-classical').count(),
+                    'dance_semi_classical': students.filter(batch__class_category='DANCE-semi_classical').count(),
                     'zumba': students.filter(batch__class_category='ZUMBA').count(),
                     'yoga': students.filter(batch__class_category='YOGA').count(),
                 },
@@ -1719,6 +1725,8 @@ class FdsDashboardView(APIView):
                 'total_active': batches.count(),
                 'by_category': {
                     'dance': batches.filter(class_category='DANCE').count(),
+                    'dance_classical': batches.filter(class_category='DANCE-classical').count(),
+                    'dance_semi_classical': batches.filter(class_category='DANCE-semi_classical').count(),
                     'zumba': batches.filter(class_category='ZUMBA').count(),
                     'yoga': batches.filter(class_category='YOGA').count(),
                 },
@@ -1844,6 +1852,8 @@ class FdsAnalysisView(APIView):
         }
         students_by_category = {
             'dance': active_students.filter(batch__class_category='DANCE').count(),
+            'dance_classical': active_students.filter(batch__class_category='DANCE-classical').count(),
+            'dance_semi_classical': active_students.filter(batch__class_category='DANCE-semi_classical').count(),
             'zumba': active_students.filter(batch__class_category='ZUMBA').count(),
             'yoga':  active_students.filter(batch__class_category='YOGA').count(),
         }
@@ -1883,6 +1893,8 @@ class FdsAnalysisView(APIView):
         }
         batches_by_category = {
             'dance': active_batches.filter(class_category='DANCE').count(),
+            'dance_classical': active_batches.filter(class_category='DANCE-classical').count(),
+            'dance_semi_classical': active_batches.filter(class_category='DANCE-semi_classical').count(),
             'zumba': active_batches.filter(class_category='ZUMBA').count(),
             'yoga':  active_batches.filter(class_category='YOGA').count(),
         }
@@ -1906,6 +1918,8 @@ class FdsAnalysisView(APIView):
         }
         enq_by_class = {
             'dance': enquiries_qs.filter(class_interest='DANCE').count(),
+            'dance_classical': enquiries_qs.filter(class_interest='DANCE-classical').count(),
+            'dance_semi_classical': enquiries_qs.filter(class_interest='DANCE-semi_classical').count(),
             'zumba': enquiries_qs.filter(class_interest='ZUMBA').count(),
             'yoga':  enquiries_qs.filter(class_interest='YOGA').count(),
         }
@@ -1933,6 +1947,8 @@ class FdsAnalysisView(APIView):
         ) if trial_completed > 0 else 0
         trial_by_category = {
             'dance': trials_qs.filter(class_category='DANCE').count(),
+            'dance_classical': trials_qs.filter(class_category='DANCE-classical').count(),
+            'dance_semi_classical': trials_qs.filter(class_category='DANCE-semi_classical').count(),
             'zumba': trials_qs.filter(class_category='ZUMBA').count(),
             'yoga':  trials_qs.filter(class_category='YOGA').count(),
         }
