@@ -145,17 +145,23 @@ def process_voxbay_call_log(obj, agent_user=None):
             update_fields = ['voxbay_status']
             
             if existing_lead.assigned_to != agent_user and existing_lead.sub_assigned_to != agent_user:
-                # Assign to the new agent as sub_assigned_to so they have access
-                existing_lead.sub_assigned_to = agent_user
-                existing_lead.sub_assigned_date = timezone.now()
-                update_fields.extend(['sub_assigned_to', 'sub_assigned_date'])
+                if not existing_lead.assigned_to:
+                    existing_lead.assigned_to = agent_user
+                    existing_lead.assigned_date = timezone.now()
+                    update_fields.extend(['assigned_to', 'assigned_date'])
+                    assign_type = 'PRIMARY'
+                else:
+                    existing_lead.sub_assigned_to = agent_user
+                    existing_lead.sub_assigned_date = timezone.now()
+                    update_fields.extend(['sub_assigned_to', 'sub_assigned_date'])
+                    assign_type = 'SUB'
                 
                 LeadAssignment.objects.create(
                     lead=existing_lead,
                     assigned_to=agent_user,
                     assigned_by=None,
-                    assignment_type='SUB',
-                    notes=f"Auto-sub-assigned: Call handled by {agent_user.username}"
+                    assignment_type=assign_type,
+                    notes=f"Auto-assigned ({assign_type}): Call handled by {agent_user.username}"
                 )
                 
             existing_lead.save(update_fields=update_fields)
@@ -289,9 +295,10 @@ def process_voxbay_call_log(obj, agent_user=None):
                     notes="Auto-assigned on Unanswered Outgoing Voxbay Call"
                 )
             elif existing_lead.assigned_to != agent_user and existing_lead.sub_assigned_to != agent_user and agent_user:
-                existing_lead.sub_assigned_to = agent_user
-                existing_lead.sub_assigned_date = timezone.now()
-                update_fields.extend(['sub_assigned_to', 'sub_assigned_date'])
+                if not existing_lead.sub_assigned_to:
+                    existing_lead.sub_assigned_to = agent_user
+                    existing_lead.sub_assigned_date = timezone.now()
+                    update_fields.extend(['sub_assigned_to', 'sub_assigned_date'])
                 LeadAssignment.objects.create(
                     lead=existing_lead,
                     assigned_to=agent_user,

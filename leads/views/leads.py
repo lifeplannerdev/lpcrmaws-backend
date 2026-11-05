@@ -47,6 +47,52 @@ def clean_value(val):
         return None
     return val
 
+def get_accessible_leads_qs(user, base_qs=None):
+    """
+    Agent Swarm Permission:
+    Grants access to any lead where the user is:
+    1. Primary assigned (assigned_to)
+    2. Sub-assigned (sub_assigned_to)
+    3. Part of the assignment swarm history (LeadAssignment)
+    4. Follow-up owner / handler (FollowUp)
+    5. Has dialed or received calls with the lead via Voxbay
+    Full access users bypass filters.
+    """
+    if base_qs is None:
+        base_qs = Lead.objects.all()
+    if is_full_access(user):
+        return base_qs
+
+    perm_filter = (
+        models.Q(assigned_to=user) |
+        models.Q(sub_assigned_to=user) |
+        models.Q(assignment_history__assigned_to=user) |
+        models.Q(followups__assigned_to=user)
+    )
+
+    user_exts = [str(x) for x in [getattr(user, 'voxbay_extension', None), getattr(user, 'voxbay_number', None), getattr(user, 'phone', None)] if x]
+    if user_exts:
+        from telephony.models import VoxbayCallLog
+        import re
+        call_logs = VoxbayCallLog.objects.filter(
+            models.Q(extension__in=user_exts) | models.Q(agent_number__in=user_exts)
+        ).values_list('destination', 'caller_number')
+        called_digits = set()
+        for dest, caller in call_logs:
+            for num in [dest, caller]:
+                if num:
+                    d = re.sub(r'\D', '', str(num))
+                    if len(d) >= 10:
+                        called_digits.add(d[-10:])
+        if called_digits:
+            called_phone_q = models.Q()
+            for d in called_digits:
+                called_phone_q |= models.Q(phone__endswith=d)
+            perm_filter |= called_phone_q
+
+    return base_qs.filter(perm_filter).distinct()
+
+
 # ── Pagination
 class LeadPagination(PageNumberPagination):
     page_size = 20
@@ -85,13 +131,7 @@ class LeadListView(generics.ListAPIView):
             'sub_assigned_to', 'sub_assigned_by',
         )
 
-        if is_full_access(user):
-            perm_qs = base_qs.all()
-        else:
-            perm_qs = base_qs.filter(
-                models.Q(assigned_to=user) |
-                models.Q(sub_assigned_to=user)
-            )
+        perm_qs = get_accessible_leads_qs(user, base_qs)
         
         from django.utils import timezone
         if self.request.query_params.get('daily_agenda') == 'true':
@@ -385,13 +425,7 @@ class LeadDetailView(generics.RetrieveUpdateDestroyAPIView):
             'assigned_to', 'assigned_by',
             'sub_assigned_to', 'sub_assigned_by',
         )
-        from accounts.permissions import has_dynamic_permission
-        if is_full_access(user):
-            return base_qs.all()
-        return base_qs.filter(
-            models.Q(assigned_to=user) |
-            models.Q(sub_assigned_to=user)
-        )
+        return get_accessible_leads_qs(user, base_qs)
 
     def update(self, request, *args, **kwargs):
         partial  = kwargs.pop('partial', False)
@@ -489,17 +523,7 @@ class UpdateLeadView(APIView):
     permission_classes = [CanAccessLeads]
 
     def patch(self, request, pk):
-        lead = get_object_or_404(Lead, id=pk)
-
-        if (
-            lead.assigned_to != request.user
-            and lead.sub_assigned_to != request.user
-            and not is_full_access(request.user)
-        ):
-            return Response(
-                {'error': 'Permission denied'},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+        lead = get_object_or_404(get_accessible_leads_qs(request.user), id=pk)
 
         old_status = lead.status
 
