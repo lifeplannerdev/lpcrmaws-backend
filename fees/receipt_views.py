@@ -676,13 +676,16 @@ class FeeReceiptFromProcessingPaymentAPIView(APIView):
         )
         settings_obj = get_or_create_receipt_settings('LP')
         issuer_snap = build_issuer_snapshot(settings_obj, company='LP')
+        head_display = payment.get_fee_head_display()
+        item_title = head_display if payment.fee_head == 'MINISTRY' else f"Processing Fee - {head_display}"
+        inst_label = head_display if payment.fee_head == 'MINISTRY' else f"{head_display} Fee"
         fin = calculate_receipt_financials(
             subtotal_amount=payment.amount,
             tax_mode=settings_obj.default_gst_mode or 'NONE',
             gst_rate=settings_obj.default_gst_rate,
             default_sac=settings_obj.sac_code or '999293',
-            fallback_title=f"Processing Fee - {payment.get_fee_head_display()}",
-            fallback_period=f"{payment.get_fee_head_display()} Fee",
+            fallback_title=item_title,
+            fallback_period=inst_label,
         )
         return Response({
             'id': existing.id if (existing and is_preview_req) else None,
@@ -717,7 +720,7 @@ class FeeReceiptFromProcessingPaymentAPIView(APIView):
             'payment_method': payment.payment_method,
             'payment_reference': payment.reference or '',
             'payment_date': payment.payment_date,
-            'installment_label': f"{payment.get_fee_head_display()} Fee",
+            'installment_label': inst_label,
             'payment_status_badge': 'PAID',
             'ledger_total_fee': str(ledger_meta.get('ledger_total_fee', '0.00')),
             'ledger_discount': str(ledger_meta.get('ledger_discount', '0.00')),
@@ -1023,8 +1026,26 @@ class FeeReceiptCalculatePreviewAPIView(APIView):
                 payment=fds_payment
             )
         elif processing_student or processing_payment:
+            inferred_head = getattr(processing_payment, 'fee_head', None)
+            if not inferred_head:
+                line_titles = ' '.join([str(item.get('title', '')) for item in (data.get('line_items') or [])]).upper()
+                inst_label = str(data.get('installment_label') or '').upper()
+                hint = f"{line_titles} {inst_label}"
+                if 'REGISTR' in hint or 'APP' in hint:
+                    inferred_head = 'REGISTRATION'
+                elif 'ADMISSION' in hint or 'OFFER' in hint or 'AUSBILDUNG' in hint:
+                    inferred_head = 'ADMISSION'
+                elif 'LANG' in hint:
+                    inferred_head = 'LANGUAGE'
+                elif 'VISA' in hint:
+                    inferred_head = 'VISA'
+                elif any(k in hint for k in ('MINISTR', 'GCC', 'WELCOME', 'VU')):
+                    inferred_head = 'MINISTRY'
+                else:
+                    inferred_head = 'PROCESSING'
             ledger_meta = extract_processing_student_ledger_snapshot(
                 student=processing_student,
+                fee_head=inferred_head,
                 payment=processing_payment
             )
         else:

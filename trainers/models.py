@@ -792,7 +792,7 @@ class ProcessingFeePayment(models.Model):
         ('ADMISSION', 'Admission Fee'),
         ('LANGUAGE', 'Language Confirmation Fee'),
         ('VISA', 'Visa Approval Fee'),
-        ('MINISTRY', 'Ministry Letter Fee'),
+        ('MINISTRY', 'GCC VU WELCOME LETTER'),
         ('OTHER', 'Other / Ad-hoc Fee'),
     ]
 

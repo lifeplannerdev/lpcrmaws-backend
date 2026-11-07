@@ -1058,8 +1058,26 @@ class FeeReceiptSerializer(serializers.ModelSerializer):
                 payment=fds_payment,
             )
         elif processing_student or processing_payment:
+            inferred_head = getattr(processing_payment, 'fee_head', None)
+            if not inferred_head:
+                line_titles = ' '.join([str(item.get('title', '')) for item in (validated_data.get('line_items') or [])]).upper()
+                inst_label = str(validated_data.get('installment_label') or '').upper()
+                hint = f"{line_titles} {inst_label}"
+                if 'REGISTR' in hint or 'APP' in hint:
+                    inferred_head = 'REGISTRATION'
+                elif 'ADMISSION' in hint or 'OFFER' in hint or 'AUSBILDUNG' in hint:
+                    inferred_head = 'ADMISSION'
+                elif 'LANG' in hint:
+                    inferred_head = 'LANGUAGE'
+                elif 'VISA' in hint:
+                    inferred_head = 'VISA'
+                elif any(k in hint for k in ('MINISTR', 'GCC', 'WELCOME', 'VU')):
+                    inferred_head = 'MINISTRY'
+                else:
+                    inferred_head = 'PROCESSING'
             ledger_defaults = extract_processing_student_ledger_snapshot(
                 student=processing_student,
+                fee_head=inferred_head,
                 payment=processing_payment,
             )
         else:
@@ -1226,7 +1244,7 @@ class FeeReceiptSerializer(serializers.ModelSerializer):
                     fee_head = 'LANGUAGE'
                 elif 'VISA' in combined_hint:
                     fee_head = 'VISA'
-                elif 'MINISTR' in combined_hint:
+                elif any(k in combined_hint for k in ('MINISTR', 'GCC', 'WELCOME', 'VU')):
                     fee_head = 'MINISTRY'
                 elif 'OTHER' in combined_hint:
                     fee_head = 'OTHER'
