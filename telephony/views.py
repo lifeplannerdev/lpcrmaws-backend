@@ -312,40 +312,39 @@ def process_voxbay_call_log(obj, agent_user=None):
             answered_exists = VoxbayCallLog.objects.filter(call_uuid=obj.call_uuid, call_status__in=['ANSWER', 'ANSWERED']).exists()
             if not answered_exists:
                 lead_handler = agent_user or existing_lead.sub_assigned_to or existing_lead.assigned_to
-                if not lead_handler:
-                    from accounts.models import User
-                    lead_handler = User.objects.filter(is_superuser=True).first() or User.objects.filter(is_active=True).first()
-                duration_str = f"{obj.duration}s" if obj.duration else "0s"
-                call_status_str = obj.call_status or ('Answered' if obj.duration and obj.duration > 0 else 'Missed')
-                summary_lines = [
-                    f"Unanswered {direction_text} Call ({call_status_str})",
-                    f"Duration: {duration_str}"
-                ]
-                if obj.recording_url:
-                    summary_lines.append(f"Recording: {obj.recording_url}")
-                if obj.call_uuid:
-                    summary_lines.append(f"Call UUID: {obj.call_uuid}")
-                unanswered_summary_text = "\n".join(summary_lines)
+                # If no agent or counselor is matched, mark unassigned and DO NOT create a follow-up
+                if lead_handler and lead_handler.is_active and lead_handler.username != 'admin':
+                    duration_str = f"{obj.duration}s" if obj.duration else "0s"
+                    call_status_str = obj.call_status or ('Answered' if obj.duration and obj.duration > 0 else 'Missed')
+                    summary_lines = [
+                        f"Unanswered {direction_text} Call ({call_status_str})",
+                        f"Duration: {duration_str}"
+                    ]
+                    if obj.recording_url:
+                        summary_lines.append(f"Recording: {obj.recording_url}")
+                    if obj.call_uuid:
+                        summary_lines.append(f"Call UUID: {obj.call_uuid}")
+                    unanswered_summary_text = "\n".join(summary_lines)
 
-                existing_fu = None
-                if obj.call_uuid:
-                    existing_fu = FollowUp.objects.filter(lead=existing_lead, notes__contains=str(obj.call_uuid)).first()
-                if existing_fu:
-                    if obj.call_uuid and str(obj.call_uuid) not in (existing_fu.notes or ''):
-                        existing_fu.notes = f"{existing_fu.notes.strip()}\nCall UUID: {obj.call_uuid}"
-                        existing_fu.save(update_fields=['notes'])
-                elif lead_handler:
-                    FollowUp.objects.create(
-                        lead=existing_lead,
-                        name=existing_lead.name if existing_lead else None,
-                        phone_number=existing_lead.phone if existing_lead else (lead_number or ''),
-                        assigned_to=lead_handler,
-                        follow_up_date=timezone.now().date(),
-                        followup_type='call',
-                        status='contacted',
-                        priority='low',
-                        notes=unanswered_summary_text,
-                    )
+                    existing_fu = None
+                    if obj.call_uuid:
+                        existing_fu = FollowUp.objects.filter(lead=existing_lead, notes__contains=str(obj.call_uuid)).first()
+                    if existing_fu:
+                        if obj.call_uuid and str(obj.call_uuid) not in (existing_fu.notes or ''):
+                            existing_fu.notes = f"{existing_fu.notes.strip()}\nCall UUID: {obj.call_uuid}"
+                            existing_fu.save(update_fields=['notes'])
+                    else:
+                        FollowUp.objects.create(
+                            lead=existing_lead,
+                            name=existing_lead.name if existing_lead else None,
+                            phone_number=existing_lead.phone if existing_lead else (lead_number or ''),
+                            assigned_to=lead_handler,
+                            follow_up_date=timezone.now().date(),
+                            followup_type='call',
+                            status='contacted',
+                            priority='low',
+                            notes=unanswered_summary_text,
+                        )
 
 
 

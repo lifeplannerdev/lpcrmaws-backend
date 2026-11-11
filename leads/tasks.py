@@ -168,8 +168,8 @@ def process_voxbay_webhook(webhook_log_id, payload):
                 lead = Lead.objects.filter(phone__endswith=lead_number[-10:]).first()
                 
             if lead:
-                assignee = lead.current_handler or User.objects.filter(is_superuser=True).first()
-                if assignee:
+                assignee = lead.current_handler
+                if assignee and assignee.is_active and assignee.username != 'admin':
                     notes = f"Auto-scheduled from Voxbay {call_direction_text.lower()} call log. Call status: {call_status}"
                     if call_duration:
                         notes += f", Duration: {call_duration}s"

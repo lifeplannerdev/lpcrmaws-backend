@@ -237,6 +237,20 @@ class FollowUpListCreateAPIView(APIView):
                 existing_followup.priority = data.get('priority')
             if data.get('name') and not existing_followup.name:
                 existing_followup.name = data.get('name')
+
+            # Automatically reassign follow-up to active handler or lead owner
+            if data.get('assigned_to'):
+                from accounts.models import User
+                new_assignee = User.objects.filter(pk=data.get('assigned_to'), is_active=True).first()
+                if new_assignee:
+                    existing_followup.assigned_to = new_assignee
+            elif request.user and request.user.is_authenticated and not request.user.is_superuser and request.user.username != 'admin':
+                existing_followup.assigned_to = request.user
+            elif existing_followup.lead and existing_followup.lead.assigned_to and existing_followup.lead.assigned_to.is_active:
+                existing_followup.assigned_to = existing_followup.lead.assigned_to
+            elif not existing_followup.assigned_to or existing_followup.assigned_to.username == 'admin':
+                if request.user and request.user.is_authenticated:
+                    existing_followup.assigned_to = request.user
                 
             existing_followup.save()
 
@@ -259,7 +273,14 @@ class FollowUpListCreateAPIView(APIView):
         data['notes'] = final_notes
         serializer = FollowUpSerializer(data=data)
         if serializer.is_valid():
-            new_followup = serializer.save(assigned_to=request.user)
+            # If request.user is admin and the lead is assigned to a counselor, assign to that counselor
+            assigned_user = request.user
+            if (request.user.is_superuser or request.user.username == 'admin') and lead_id:
+                lead_obj = Lead.objects.filter(pk=lead_id).select_related('assigned_to').first()
+                if lead_obj and lead_obj.assigned_to and lead_obj.assigned_to.is_active and lead_obj.assigned_to.username != 'admin':
+                    assigned_user = lead_obj.assigned_to
+
+            new_followup = serializer.save(assigned_to=assigned_user)
 
             # Auto-resolve any pending follow-ups for this lead if status is completed/contacted/not_interested
             if lead_id and new_followup.status in ['contacted', 'completed', 'not_interested']:
@@ -318,6 +339,15 @@ class FollowUpDetailAPIView(APIView):
         serializer = FollowUpSerializer(followup, data=data, partial=True)
 
         if serializer.is_valid():
+            # If follow-up was assigned to admin or unassigned, auto-reassign to acting user or lead owner
+            if followup.assigned_to and followup.assigned_to.username == 'admin':
+                if not request.user.is_superuser and request.user.username != 'admin':
+                    serializer.validated_data['assigned_to'] = request.user
+                elif followup.lead and followup.lead.assigned_to and followup.lead.assigned_to.is_active:
+                    serializer.validated_data['assigned_to'] = followup.lead.assigned_to
+            elif not followup.assigned_to and request.user and request.user.is_authenticated:
+                serializer.validated_data['assigned_to'] = request.user
+
             saved_followup = serializer.save()
             # If status updated to completed/contacted/not_interested, auto-resolve other pending followups for this lead
             if saved_followup.lead_id and saved_followup.status in ['contacted', 'completed', 'not_interested']:
