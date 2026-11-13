@@ -157,9 +157,27 @@ class FeePaymentSerializer(serializers.ModelSerializer):
 
     def _generate_receipt_number(self, account):
         prefix = f"{account.company}-{account.student_id}"
-        last = FeePayment.objects.filter(account=account).order_by('-id').first()
-        next_seq = 1 if not last else last.id + 1
-        return f"{prefix}-{next_seq}"
+        # Serialize concurrent payment creations for the same student across multiple fee accounts.
+        list(StudentFeeAccount.objects.select_for_update().filter(student_id=account.student_id).values_list('id', flat=True))
+        existing_numbers = set(
+            FeePayment.objects.filter(
+                receipt_number__startswith=f"{prefix}-"
+            ).values_list('receipt_number', flat=True)
+        )
+        max_seq = 0
+        prefix_len = len(prefix) + 1
+        for num in existing_numbers:
+            suffix = num[prefix_len:]
+            if suffix.isdigit():
+                val = int(suffix)
+                if val > max_seq:
+                    max_seq = val
+        next_seq = max_seq + 1
+        candidate = f"{prefix}-{next_seq}"
+        while candidate in existing_numbers or FeePayment.objects.filter(receipt_number=candidate).exists():
+            next_seq += 1
+            candidate = f"{prefix}-{next_seq}"
+        return candidate
 
 
 
