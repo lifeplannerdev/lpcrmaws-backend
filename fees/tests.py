@@ -125,6 +125,45 @@ class FeeAccessTests(APITestCase):
         self.assertEqual(str(self.account.balance_due), '800.00')
         self.assertEqual(str(self.installment.paid_amount), '200.00')
 
+    def test_multiple_accounts_for_same_student_generate_unique_receipt_numbers(self):
+        self.client.force_authenticate(user=self.accounts_user)
+        first_res = self.client.post(
+            reverse('fee-payment-list-create', kwargs={'account_pk': self.account.id}),
+            {
+                'account': self.account.id,
+                'amount': '200.00',
+                'payment_method': 'UPI',
+                'payment_date': '2026-06-04T10:00:00Z',
+                'receipt_number': '',
+            },
+            format='json',
+        )
+        self.assertEqual(first_res.status_code, 201)
+
+        second_account = StudentFeeAccount.objects.create(
+            company='FLAG',
+            student=self.student,
+            template=self.template,
+            plan_name='Regular Batch',
+            plan_type='PACKAGE',
+            total_due='29500.00',
+            balance_due='29500.00',
+            status='ACTIVE',
+        )
+        second_res = self.client.post(
+            reverse('fee-payment-list-create', kwargs={'account_pk': second_account.id}),
+            {
+                'account': second_account.id,
+                'amount': '29500.00',
+                'payment_method': 'UPI',
+                'payment_date': '2026-06-05T10:00:00Z',
+                'receipt_number': '',
+            },
+            format='json',
+        )
+        self.assertEqual(second_res.status_code, 201)
+        self.assertNotEqual(first_res.data['receipt_number'], second_res.data['receipt_number'])
+
     def test_fee_catalog_is_readable_for_trainer_visibility(self):
         self.client.force_authenticate(user=self.trainer_user)
         response = self.client.get(reverse('fee-catalog-list-create'), {'company': 'FLAG', 'active': 'true'})
