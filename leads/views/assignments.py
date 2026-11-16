@@ -121,27 +121,8 @@ class LeadAssignView(APIView):
             transfer_msg += f" (Note: {notes.strip()})"
         new_remarks = f"{prev_remarks}\n\n{transfer_msg}".strip() if prev_remarks else transfer_msg
         lead.remarks = new_remarks
-
-        batch_label = request.data.get('batch_label', '')
-        title, source_summary = _build_batch_title_and_source(
-            batch_label=batch_label,
-            total_leads=1,
-            prev_owners=[old_name] if old_name and old_name != 'Unassigned' else [],
-            now=now,
-            actor_name=actor_name,
-        )
-        batch = LeadAssignmentBatch.objects.create(
-            company=lead.company or assignee.company or 'LP',
-            title=title,
-            assigned_to=assignee,
-            assigned_by=request.user,
-            assignment_type=assignment_type,
-            followup_strategy='keep',
-            notes=notes or '',
-            source_summary=source_summary,
-            total_leads_count=1,
-        )
-        lead.current_assignment_batch = batch
+        # Single-lead transfers move a lead out of any prior Command Centre batch without creating a noisy 1-lead batch.
+        lead.current_assignment_batch = None
         lead.save()
 
         RemarkHistory.objects.create(
@@ -154,7 +135,6 @@ class LeadAssignView(APIView):
         FollowUp.objects.filter(lead=lead, status='pending').update(assigned_to=assignee)
 
         LeadAssignment.objects.create(
-            batch=batch,
             lead=lead,
             assigned_to=assignee,
             assigned_by=request.user,
@@ -343,9 +323,13 @@ class BulkLeadAssignView(APIView):
             actor_name=actor_name,
         )
 
+        req_source_type = request.data.get('source_type')
+        batch_source_type = req_source_type if req_source_type in ('COMMAND_CENTRE', 'BULK_REASSIGN') else 'COMMAND_CENTRE'
+
         with transaction.atomic():
             assignment_batch = LeadAssignmentBatch.objects.create(
                 company=batch_company,
+                source_type=batch_source_type,
                 title=title,
                 assigned_to=assignee,
                 assigned_by=user,
@@ -1037,7 +1021,10 @@ class AssignmentBatchListView(generics.ListAPIView):
         user = self.request.user
         today = timezone.localtime(timezone.now()).date()
 
-        qs = LeadAssignmentBatch.objects.select_related('assigned_to', 'assigned_by')
+        qs = LeadAssignmentBatch.objects.select_related('assigned_to', 'assigned_by').filter(
+            source_type__in=['COMMAND_CENTRE', 'BULK_REASSIGN'],
+            assigned_by__isnull=False,
+        )
 
         if not has_dynamic_permission(user, 'staff:access_flag'):
             if getattr(user, 'company', None):
@@ -1049,6 +1036,8 @@ class AssignmentBatchListView(generics.ListAPIView):
             assigned_to_param = self.request.query_params.get('assigned_to')
             if assigned_to_param and assigned_to_param != 'all':
                 qs = qs.filter(assigned_to_id=assigned_to_param)
+            elif self.request.query_params.get('include_inactive_staff', 'false').lower() != 'true':
+                qs = qs.filter(assigned_to__is_active=True)
 
         company_param = self.request.query_params.get('company')
         if company_param:

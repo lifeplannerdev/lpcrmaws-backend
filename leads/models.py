@@ -231,11 +231,21 @@ class LeadAssignmentBatch(models.Model):
         ('SUB', 'Sub Assignment'),
         ('REASSIGNMENT', 'Reassignment'),
     ]
+    SOURCE_TYPE_CHOICES = [
+        ('COMMAND_CENTRE', 'Lead Command Centre'),
+        ('BULK_REASSIGN', 'Bulk Reassign'),
+    ]
 
     company = models.CharField(
         max_length=10,
         choices=[('LP', 'LP'), ('FLAG', 'FLAG'), ('FDS', 'FDS')],
         default='LP',
+        db_index=True,
+    )
+    source_type = models.CharField(
+        max_length=30,
+        choices=SOURCE_TYPE_CHOICES,
+        default='COMMAND_CENTRE',
         db_index=True,
     )
     title = models.CharField(max_length=255)
