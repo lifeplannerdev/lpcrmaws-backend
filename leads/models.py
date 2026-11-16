@@ -128,6 +128,14 @@ class Lead(models.Model):
         help_text="Manager who sub-assigned to junior"
     )
     sub_assigned_date = models.DateTimeField(null=True, blank=True)
+    current_assignment_batch = models.ForeignKey(
+        'LeadAssignmentBatch',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='active_leads',
+        help_text="Most recent assignment batch that placed this lead with its current assignee"
+    )
     
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
@@ -216,6 +224,52 @@ class Lead(models.Model):
                 self.processing_executive is not None)
 
 
+class LeadAssignmentBatch(models.Model):
+    """Groups leads assigned/transferred together in a single action so staff see distinct assignment lots."""
+    ASSIGNMENT_TYPE_CHOICES = [
+        ('PRIMARY', 'Primary Assignment'),
+        ('SUB', 'Sub Assignment'),
+        ('REASSIGNMENT', 'Reassignment'),
+    ]
+
+    company = models.CharField(
+        max_length=10,
+        choices=[('LP', 'LP'), ('FLAG', 'FLAG'), ('FDS', 'FDS')],
+        default='LP',
+        db_index=True,
+    )
+    title = models.CharField(max_length=255)
+    assigned_to = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='received_assignment_batches',
+    )
+    assigned_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='created_assignment_batches',
+    )
+    assignment_type = models.CharField(max_length=20, choices=ASSIGNMENT_TYPE_CHOICES, default='PRIMARY')
+    followup_strategy = models.CharField(max_length=30, default='keep', blank=True)
+    notes = models.TextField(blank=True, default='')
+    source_summary = models.CharField(max_length=255, blank=True, default='')
+    total_leads_count = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['assigned_to', '-created_at']),
+            models.Index(fields=['company', '-created_at']),
+        ]
+
+    def __str__(self):
+        return f"{self.title} ({self.total_leads_count} leads)"
+
+
 class LeadAssignment(models.Model):
     """Track all lead assignments and reassignments"""
     ASSIGNMENT_TYPE_CHOICES = [
@@ -224,6 +278,13 @@ class LeadAssignment(models.Model):
         ('REASSIGNMENT', 'Reassignment'),
     ]
     
+    batch = models.ForeignKey(
+        LeadAssignmentBatch,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='assignments',
+    )
     lead = models.ForeignKey(Lead, on_delete=models.CASCADE, related_name='assignment_history')
     assigned_to = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='received_assignments')
     assigned_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='made_assignments')

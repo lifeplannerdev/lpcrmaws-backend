@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from accounts.models import User
+from accounts.permissions import has_dynamic_permission
 from django.utils import timezone
 from .permissions import FULL_ACCESS_ROLES, MANAGER_ROLES, EXECUTIVE_ROLES
 from .models import (
@@ -7,6 +8,7 @@ from .models import (
     ProcessingUpdate, 
     RemarkHistory, 
     LeadAssignment,
+    LeadAssignmentBatch,
     FollowUp, 
     FollowUpHistory,
     LeadConversionDetail,
@@ -156,10 +158,59 @@ class LeadAssignmentSerializer(serializers.ModelSerializer):
     class Meta:
         model  = LeadAssignment
         fields = [
-            'id', 'lead', 'assigned_to', 'assigned_by',
+            'id', 'batch', 'lead', 'assigned_to', 'assigned_by',
             'assignment_type', 'notes', 'timestamp',
         ]
         read_only_fields = ['timestamp']
+
+
+class LeadAssignmentBatchSerializer(serializers.ModelSerializer):
+    assigned_to = UserSimpleSerializer(read_only=True)
+    assigned_by = UserSimpleSerializer(read_only=True)
+    total_assigned_count = serializers.SerializerMethodField()
+    active_count = serializers.SerializerMethodField()
+    reassigned_out_count = serializers.SerializerMethodField()
+    new_count = serializers.SerializerMethodField()
+    contacted_count = serializers.SerializerMethodField()
+    converted_count = serializers.SerializerMethodField()
+    overdue_followups_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = LeadAssignmentBatch
+        fields = [
+            'id', 'company', 'title', 'assigned_to', 'assigned_by',
+            'assignment_type', 'followup_strategy', 'notes', 'source_summary',
+            'total_leads_count', 'created_at',
+            'total_assigned_count', 'active_count', 'reassigned_out_count',
+            'new_count', 'contacted_count', 'converted_count', 'overdue_followups_count',
+        ]
+
+    def get_total_assigned_count(self, obj):
+        val = getattr(obj, 'total_assigned_count', None)
+        return val if val is not None else obj.total_leads_count
+
+    def get_active_count(self, obj):
+        val = getattr(obj, 'active_count', None)
+        if val is not None:
+            return val
+        return obj.active_leads.count()
+
+    def get_reassigned_out_count(self, obj):
+        total = self.get_total_assigned_count(obj)
+        active = self.get_active_count(obj)
+        return max(0, total - active)
+
+    def get_new_count(self, obj):
+        return getattr(obj, 'new_count', 0) or 0
+
+    def get_contacted_count(self, obj):
+        return getattr(obj, 'contacted_count', 0) or 0
+
+    def get_converted_count(self, obj):
+        return getattr(obj, 'converted_count', 0) or 0
+
+    def get_overdue_followups_count(self, obj):
+        return getattr(obj, 'overdue_followups_count', 0) or 0
 
 
 # Lead Assign Serializer (validate + route assign/sub-assign requests)
@@ -250,6 +301,8 @@ class LeadListSerializer(serializers.ModelSerializer):
     assignment_source = serializers.SerializerMethodField()
     next_follow_up_date = serializers.DateField(read_only=True, allow_null=True)
     last_follow_up_date = serializers.DateField(read_only=True, allow_null=True)
+    current_assignment_batch_id = serializers.IntegerField(read_only=True, allow_null=True)
+    is_reassigned_out = serializers.SerializerMethodField()
 
     class Meta:
         model  = Lead
@@ -261,10 +314,17 @@ class LeadListSerializer(serializers.ModelSerializer):
             'processing_status', 'processing_student',
             'assigned_to', 'assigned_by', 'assigned_date',
             'sub_assigned_to', 'sub_assigned_by', 'sub_assigned_date',
+            'current_assignment_batch_id', 'is_reassigned_out',
             'current_handler', 'created_at', 'updated_at',
             'agenda_type', 'company', 'assignment_source', 'voxbay_status',
             'next_follow_up_date', 'last_follow_up_date',
         ]
+
+    def get_is_reassigned_out(self, obj):
+        batch_id = self.context.get('assignment_batch_id')
+        if batch_id is None:
+            return False
+        return obj.current_assignment_batch_id != batch_id
 
     def get_assignment_source(self, obj):
         if obj.custom_source == 'MISSED CALL':

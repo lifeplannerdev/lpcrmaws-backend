@@ -22,7 +22,7 @@ from utils import notify_lead_assigned
 from leads.email_utils import send_conversion_email
 from leads.models import (
     Lead, ProcessingUpdate, RemarkHistory, 
-    LeadAssignment, FollowUp, FollowUpHistory, LeadConversionDetail, WebhookLog
+    LeadAssignment, LeadAssignmentBatch, FollowUp, FollowUpHistory, LeadConversionDetail, WebhookLog
 )
 from leads.permissions import (
     is_full_access, is_full_access_or_manager,
@@ -33,7 +33,7 @@ from leads.permissions import (
 from leads.serializers import (
     LeadListSerializer, LeadDetailSerializer, LeadCreateSerializer,
     ProcessingUpdateSerializer, LeadAssignSerializer,
-    LeadAssignmentSerializer, LeadUpdateSerializer,
+    LeadAssignmentSerializer, LeadAssignmentBatchSerializer, LeadUpdateSerializer,
     BulkLeadCreateSerializer, FollowUpSerializer,
     LeadConversionDetailSerializer, WebhookLogSerializer,
 )
@@ -45,6 +45,28 @@ def clean_value(val):
     if isinstance(val, float) and math.isnan(val):
         return None
     return val
+
+
+def _build_batch_title_and_source(batch_label, total_leads, prev_owners, now, actor_name):
+    """Build a human-readable batch title and source summary for an assignment lot."""
+    owners_list = [o for o in prev_owners if o]
+    if len(owners_list) == 1:
+        source_summary = f"From {owners_list[0]}"
+    elif len(owners_list) > 1:
+        preview = ", ".join(owners_list[:2])
+        extra = f" +{len(owners_list) - 2} more" if len(owners_list) > 2 else ""
+        source_summary = f"From {preview}{extra}"
+    else:
+        source_summary = f"Assigned by {actor_name}"
+
+    cleaned_label = (batch_label or '').strip()
+    if cleaned_label:
+        return cleaned_label[:255], source_summary[:255]
+
+    ts_label = timezone.localtime(now).strftime('%d %b, %I:%M %p')
+    noun = 'lead' if total_leads == 1 else 'leads'
+    auto_title = f"{total_leads} {noun} ({source_summary}) · {ts_label}"
+    return auto_title[:255], source_summary[:255]
 
 # ── Pagination
 class LeadPagination(PageNumberPagination):
@@ -100,6 +122,26 @@ class LeadAssignView(APIView):
         new_remarks = f"{prev_remarks}\n\n{transfer_msg}".strip() if prev_remarks else transfer_msg
         lead.remarks = new_remarks
 
+        batch_label = request.data.get('batch_label', '')
+        title, source_summary = _build_batch_title_and_source(
+            batch_label=batch_label,
+            total_leads=1,
+            prev_owners=[old_name] if old_name and old_name != 'Unassigned' else [],
+            now=now,
+            actor_name=actor_name,
+        )
+        batch = LeadAssignmentBatch.objects.create(
+            company=lead.company or assignee.company or 'LP',
+            title=title,
+            assigned_to=assignee,
+            assigned_by=request.user,
+            assignment_type=assignment_type,
+            followup_strategy='keep',
+            notes=notes or '',
+            source_summary=source_summary,
+            total_leads_count=1,
+        )
+        lead.current_assignment_batch = batch
         lead.save()
 
         RemarkHistory.objects.create(
@@ -112,6 +154,7 @@ class LeadAssignView(APIView):
         FollowUp.objects.filter(lead=lead, status='pending').update(assigned_to=assignee)
 
         LeadAssignment.objects.create(
+            batch=batch,
             lead=lead,
             assigned_to=assignee,
             assigned_by=request.user,
@@ -275,8 +318,44 @@ class BulkLeadAssignView(APIView):
         today = timezone.localtime(now).date()
         BATCH_SIZE = 1000
         sample_leads_for_pusher = []
+        batch_label = request.data.get('batch_label', '')
+        actor_name = user.get_full_name() or user.username
+
+        # Inspect sample source owners for automatic batch title
+        sample_owner_qs = Lead.objects.filter(id__in=all_lead_ids[:50]).select_related('assigned_to', 'sub_assigned_to')
+        prev_owners = []
+        seen_owners = set()
+        batch_company = assignee.company or user.company or 'LP'
+        for s_lead in sample_owner_qs:
+            if s_lead.company:
+                batch_company = s_lead.company
+            prev_u = s_lead.sub_assigned_to if assignment_type == 'SUB' else s_lead.assigned_to
+            o_name = (prev_u.get_full_name() or prev_u.username) if prev_u else 'Unassigned'
+            if o_name not in seen_owners:
+                seen_owners.add(o_name)
+                prev_owners.append(o_name)
+
+        title, source_summary = _build_batch_title_and_source(
+            batch_label=batch_label,
+            total_leads=total_leads,
+            prev_owners=prev_owners,
+            now=now,
+            actor_name=actor_name,
+        )
 
         with transaction.atomic():
+            assignment_batch = LeadAssignmentBatch.objects.create(
+                company=batch_company,
+                title=title,
+                assigned_to=assignee,
+                assigned_by=user,
+                assignment_type=assignment_type,
+                followup_strategy=strategy,
+                notes=notes or '',
+                source_summary=source_summary,
+                total_leads_count=total_leads,
+            )
+
             for batch_start in range(0, total_leads, BATCH_SIZE):
                 batch_ids = all_lead_ids[batch_start:batch_start + BATCH_SIZE]
 
@@ -287,7 +366,6 @@ class BulkLeadAssignView(APIView):
                 )
 
                 now_str = timezone.localtime(now).strftime("%d/%m/%Y %H:%M")
-                actor_name = user.get_full_name() or user.username
                 assignee_name = assignee.get_full_name() or assignee.username
 
                 leads_to_update = []
@@ -313,6 +391,7 @@ class BulkLeadAssignView(APIView):
 
                     new_remarks = f"{prev_remarks}\n\n{transfer_msg}".strip() if prev_remarks else transfer_msg
                     lead.remarks = new_remarks
+                    lead.current_assignment_batch = assignment_batch
 
                     if assignment_type == 'SUB':
                         lead.sub_assigned_to = assignee
@@ -336,6 +415,7 @@ class BulkLeadAssignView(APIView):
                     ))
 
                     assignments_to_create.append(LeadAssignment(
+                        batch=assignment_batch,
                         lead_id=lead.id,
                         assigned_to=assignee,
                         assigned_by=user,
@@ -352,12 +432,12 @@ class BulkLeadAssignView(APIView):
 
                 # 1. Bulk update Lead ownership and remarks
                 if assignment_type == 'SUB':
-                    update_fields = ['sub_assigned_to', 'sub_assigned_by', 'sub_assigned_date', 'remarks']
+                    update_fields = ['sub_assigned_to', 'sub_assigned_by', 'sub_assigned_date', 'remarks', 'current_assignment_batch']
                 else:
                     update_fields = [
                         'assigned_to', 'assigned_by', 'assigned_date',
                         'sub_assigned_to', 'sub_assigned_by', 'sub_assigned_date',
-                        'remarks'
+                        'remarks', 'current_assignment_batch'
                     ]
                 Lead.objects.bulk_update(leads_to_update, update_fields, batch_size=BATCH_SIZE)
 
@@ -469,10 +549,11 @@ class BulkLeadAssignView(APIView):
                 pass
 
         return Response({
-            'message':       f'Successfully assigned {total_leads} leads',
-            'success_count': total_leads,
-            'failed_count':  0,
-            'failed_leads':  [],
+            'message':          f'Successfully assigned {total_leads} leads',
+            'success_count':    total_leads,
+            'failed_count':     0,
+            'failed_leads':     [],
+            'assignment_batch': LeadAssignmentBatchSerializer(assignment_batch).data,
         }, status=status.HTTP_200_OK)
 
 
@@ -944,5 +1025,149 @@ class BulkRescheduleFollowUpsView(APIView):
             'from_date': from_date_str,
             'to_date': to_date_str,
         }, status=status.HTTP_200_OK)
+
+
+class AssignmentBatchListView(generics.ListAPIView):
+    """List assignment batches visible to the current user, with live active/progress counts."""
+    permission_classes = [CanAccessLeads]
+    serializer_class = LeadAssignmentBatchSerializer
+    pagination_class = LeadPagination
+
+    def get_queryset(self):
+        user = self.request.user
+        today = timezone.localtime(timezone.now()).date()
+
+        qs = LeadAssignmentBatch.objects.select_related('assigned_to', 'assigned_by')
+
+        if not has_dynamic_permission(user, 'staff:access_flag'):
+            if getattr(user, 'company', None):
+                qs = qs.filter(company=user.company)
+
+        if not is_full_access(user):
+            qs = qs.filter(assigned_to=user)
+        else:
+            assigned_to_param = self.request.query_params.get('assigned_to')
+            if assigned_to_param and assigned_to_param != 'all':
+                qs = qs.filter(assigned_to_id=assigned_to_param)
+
+        company_param = self.request.query_params.get('company')
+        if company_param:
+            qs = qs.filter(company__iexact=company_param)
+
+        search_param = (self.request.query_params.get('search') or '').strip()
+        if search_param:
+            qs = qs.filter(
+                DQ(title__icontains=search_param) |
+                DQ(notes__icontains=search_param) |
+                DQ(source_summary__icontains=search_param) |
+                DQ(assigned_by__first_name__icontains=search_param) |
+                DQ(assigned_by__last_name__icontains=search_param) |
+                DQ(assigned_to__first_name__icontains=search_param) |
+                DQ(assigned_to__last_name__icontains=search_param)
+            )
+
+        qs = qs.annotate(
+            active_count=Count('active_leads', distinct=True),
+            new_count=Count(
+                'active_leads',
+                filter=DQ(active_leads__status__in=['ENQUIRY', 'JOB_ENQUIRY', 'B2B']),
+                distinct=True,
+            ),
+            contacted_count=Count(
+                'active_leads',
+                filter=DQ(active_leads__status__in=['COLD', 'WARM', 'HOT', 'CONTACTED', 'QUALIFIED']),
+                distinct=True,
+            ),
+            converted_count=Count(
+                'active_leads',
+                filter=DQ(active_leads__status__in=['CONVERTED', 'REGISTERED']),
+                distinct=True,
+            ),
+            overdue_followups_count=Count(
+                'active_leads',
+                filter=DQ(
+                    active_leads__followups__status='pending',
+                    active_leads__followups__follow_up_date__lt=today,
+                ),
+                distinct=True,
+            ),
+        )
+
+        include_empty = self.request.query_params.get('include_empty', 'true').lower() == 'true'
+        if not include_empty:
+            qs = qs.filter(active_count__gt=0)
+
+        return qs.order_by('-created_at')
+
+
+class AssignmentBatchLeadsView(generics.ListAPIView):
+    """List leads belonging to a specific assignment batch with full follow-up annotations."""
+    permission_classes = [CanAccessLeads]
+    serializer_class = LeadListSerializer
+    pagination_class = LeadPagination
+
+    def _get_batch(self):
+        if not hasattr(self, '_cached_batch'):
+            batch = get_object_or_404(LeadAssignmentBatch, pk=self.kwargs['batch_id'])
+            user = self.request.user
+            if not has_dynamic_permission(user, 'staff:access_flag') and getattr(user, 'company', None):
+                if batch.company != user.company:
+                    raise PermissionDenied("You do not have permission to view this assignment batch.")
+            if not is_full_access(user) and batch.assigned_to_id != user.id:
+                raise PermissionDenied("You do not have permission to view another staff member's assignment batch.")
+            self._cached_batch = batch
+        return self._cached_batch
+
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        ctx['assignment_batch_id'] = self._get_batch().id
+        return ctx
+
+    def get_queryset(self):
+        batch = self._get_batch()
+        include_reassigned = self.request.query_params.get('include_reassigned_out', 'false').lower() == 'true'
+
+        if include_reassigned:
+            qs = Lead.objects.filter(assignment_history__batch=batch)
+        else:
+            qs = Lead.objects.filter(current_assignment_batch=batch)
+
+        status_param = self.request.query_params.get('status')
+        if status_param and status_param != 'all':
+            qs = qs.filter(status__iexact=status_param)
+
+        priority_param = self.request.query_params.get('priority')
+        if priority_param and priority_param != 'all':
+            qs = qs.filter(priority__iexact=priority_param)
+
+        search_param = (self.request.query_params.get('search') or '').strip()
+        if search_param:
+            qs = qs.filter(
+                DQ(name__icontains=search_param) |
+                DQ(phone__icontains=search_param) |
+                DQ(email__icontains=search_param) |
+                DQ(remarks__icontains=search_param)
+            )
+
+        from django.db.models import Subquery, OuterRef
+        next_fu_sub = FollowUp.objects.filter(
+            lead=OuterRef('pk'),
+            status='pending',
+        ).order_by('follow_up_date', 'follow_up_time').values('follow_up_date')[:1]
+
+        last_fu_sub = FollowUp.objects.filter(
+            lead=OuterRef('pk'),
+            status__in=['contacted', 'completed'],
+        ).order_by('-follow_up_date', '-follow_up_time').values('follow_up_date')[:1]
+
+        return (
+            qs.select_related('assigned_to', 'assigned_by', 'sub_assigned_to', 'sub_assigned_by')
+            .distinct()
+            .annotate(
+                next_follow_up_date=Subquery(next_fu_sub),
+                last_follow_up_date=Subquery(last_fu_sub),
+            )
+            .order_by('-priority', '-assigned_date', '-created_at')
+        )
 
 
