@@ -178,7 +178,7 @@ class LeadAssignmentBatchSerializer(serializers.ModelSerializer):
     class Meta:
         model = LeadAssignmentBatch
         fields = [
-            'id', 'company', 'title', 'assigned_to', 'assigned_by',
+            'id', 'company', 'source_type', 'title', 'assigned_to', 'assigned_by',
             'assignment_type', 'followup_strategy', 'notes', 'source_summary',
             'total_leads_count', 'created_at',
             'total_assigned_count', 'active_count', 'reassigned_out_count',

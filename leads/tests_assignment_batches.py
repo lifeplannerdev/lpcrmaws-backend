@@ -143,13 +143,22 @@ class LeadAssignmentBatchTests(APITestCase):
         )
         self.assertEqual(single_res.status_code, status.HTTP_200_OK)
 
+        # Single-lead assign moves lead out WITHOUT creating a noisy 1-lead batch
         self.client.force_authenticate(user=self.staff_a)
         batches_res = self.client.get('/api/leads/assignment-batches/')
         batches = batches_res.data['results'] if 'results' in batches_res.data else batches_res.data
+        self.assertEqual(len(batches), 1)
         b1 = next(b for b in batches if b['id'] == batch1_id)
         self.assertEqual(b1['total_assigned_count'], 3)
         self.assertEqual(b1['active_count'], 2)
         self.assertEqual(b1['reassigned_out_count'], 1)
+
+        self.client.force_authenticate(user=self.staff_b)
+        b_batches = self.client.get('/api/leads/assignment-batches/')
+        b_list = b_batches.data['results'] if 'results' in b_batches.data else b_batches.data
+        self.assertEqual(len(b_list), 0)
+
+        self.client.force_authenticate(user=self.staff_a)
 
         active_leads_res = self.client.get(f'/api/leads/assignment-batches/{batch1_id}/leads/')
         active_leads = active_leads_res.data['results'] if 'results' in active_leads_res.data else active_leads_res.data
@@ -189,3 +198,18 @@ class LeadAssignmentBatchTests(APITestCase):
         list_flag = self.client.get('/api/leads/assignment-batches/')
         batches_flag = list_flag.data['results'] if 'results' in list_flag.data else list_flag.data
         self.assertEqual(len(batches_flag), 0)
+
+    def test_system_call_batches_are_excluded_from_assignment_batches_list(self):
+        LeadAssignmentBatch.objects.create(
+            company='LP',
+            source_type='COMMAND_CENTRE',
+            title='System Auto Call',
+            assigned_to=self.staff_a,
+            assigned_by=None,
+            notes='Auto-assigned to last rang agent on Missed Voxbay Call',
+            total_leads_count=1,
+        )
+        self.client.force_authenticate(user=self.staff_a)
+        res = self.client.get('/api/leads/assignment-batches/')
+        rows = res.data['results'] if 'results' in res.data else res.data
+        self.assertEqual(len(rows), 0)
