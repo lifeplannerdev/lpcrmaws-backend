@@ -34,6 +34,8 @@ from .views import (
     BulkLeadCloseView,
     EmployeeFollowUpSummaryView,
     BulkRescheduleFollowUpsView,
+    AssignmentBatchListView,
+    AssignmentBatchLeadsView,
 )
 from .analytics import UserPerformanceAnalyticsAPIView
 from .webhooks import meta_webhook, voxbay_webhook, meta_process_webhook
@@ -57,6 +59,8 @@ urlpatterns = [
     path('leads/unassign/', UnassignLeadView.as_view(), name='lead-unassign'),
     path('leads/my-team/', MyTeamLeadsView.as_view(), name='my-team-leads'),
     path('leads/available-users/', AvailableUsersForAssignmentView.as_view(), name='available-users'),
+    path('leads/assignment-batches/', AssignmentBatchListView.as_view(), name='assignment-batch-list'),
+    path('leads/assignment-batches/<int:batch_id>/leads/', AssignmentBatchLeadsView.as_view(), name='assignment-batch-leads'),
 
     # ── Lead detail (pk) — must come after all /leads/static-paths/
     path('leads/<int:pk>/', LeadDetailView.as_view(), name='lead-detail'),
