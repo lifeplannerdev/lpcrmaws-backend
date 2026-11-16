@@ -73,7 +73,7 @@ class AcademicBatchViewSet(viewsets.ModelViewSet):
     filterset_fields = ['status', 'campus', 'trainer']
 
     def get_queryset(self):
-        qs = super().get_queryset()
+        qs = super().get_queryset().select_related('campus', 'package', 'trainer')
         if is_flag_trainer(self.request.user):
             qs = qs.filter(trainer=self.request.user)
         return qs
@@ -296,7 +296,9 @@ class StudentViewSet(viewsets.ModelViewSet):
     }
 
     def get_queryset(self):
-        qs = super().get_queryset()
+        qs = super().get_queryset().select_related(
+            'batch', 'campus', 'academic_package', 'grade_batch__grade', 'trainer'
+        )
         if is_flag_trainer(self.request.user):
             qs = qs.filter(trainer=self.request.user)
         return qs
