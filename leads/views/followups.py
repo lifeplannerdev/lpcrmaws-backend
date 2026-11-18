@@ -63,7 +63,7 @@ class FollowUpListCreateAPIView(APIView):
         processing_student_id = request.query_params.get('processing_student')
 
         if is_full_access(user):
-            queryset = FollowUp.objects.all()
+            queryset = FollowUp.objects.exclude(assigned_to__is_superuser=True)
             if not include_inactive:
                 queryset = queryset.filter(assigned_to__is_active=True)
         elif processing_student_id and (
@@ -237,8 +237,22 @@ class FollowUpListCreateAPIView(APIView):
                 existing_followup.priority = data.get('priority')
             if data.get('name') and not existing_followup.name:
                 existing_followup.name = data.get('name')
-                
+
+            if (
+                existing_followup.assigned_to
+                and existing_followup.assigned_to.is_superuser
+                and request.user
+                and request.user.is_authenticated
+                and not request.user.is_superuser
+            ):
+                existing_followup.assigned_to = request.user
+
             existing_followup.save()
+            existing_followup.refresh_from_db()
+
+            if existing_followup.lead and request.user and request.user.is_authenticated and not request.user.is_superuser:
+                from leads.assignment_utils import transfer_admin_owned_records
+                transfer_admin_owned_records(existing_followup.lead, request.user)
 
             # Auto-resolve any other pending follow-ups for this lead if status is completed/contacted/not_interested
             if lead_id and existing_followup.status in ['contacted', 'completed', 'not_interested']:
@@ -260,6 +274,10 @@ class FollowUpListCreateAPIView(APIView):
         serializer = FollowUpSerializer(data=data)
         if serializer.is_valid():
             new_followup = serializer.save(assigned_to=request.user)
+
+            if new_followup.lead and request.user and request.user.is_authenticated and not request.user.is_superuser:
+                from leads.assignment_utils import transfer_admin_owned_records
+                transfer_admin_owned_records(new_followup.lead, request.user)
 
             # Auto-resolve any pending follow-ups for this lead if status is completed/contacted/not_interested
             if lead_id and new_followup.status in ['contacted', 'completed', 'not_interested']:
@@ -427,11 +445,13 @@ class FollowUpAlertsAPIView(APIView):
 
         include_inactive = request.query_params.get('include_inactive') == 'true'
 
-        # Base queryset: only pending and not closed/converted
+        # Base queryset: only pending, not closed/converted, and never show admin (superuser) follow-ups
         base_qs = FollowUp.objects.filter(
             status='pending'
         ).exclude(
             lead__status__in=['CLOSED', 'CONVERTED']
+        ).exclude(
+            assigned_to__is_superuser=True
         ).select_related(
             'lead', 'assigned_to', 'processing_student'
         )

@@ -61,8 +61,8 @@ def process_meta_webhook(webhook_log_id, payload):
                                     existing_lead.remarks = f"{existing_remarks}\nRe-inquired via Ad: {ad_name} ({campaign_name})"
                                     existing_lead.save()
                                     
-                                    assignee = existing_lead.current_handler or User.objects.filter(is_superuser=True).first()
-                                    if assignee:
+                                    assignee = existing_lead.current_handler
+                                    if assignee and not assignee.is_superuser:
                                         FollowUp.objects.create(
                                             lead=existing_lead,
                                             phone_number=existing_lead.phone,
@@ -89,22 +89,7 @@ def process_meta_webhook(webhook_log_id, payload):
                                         raw_form_data=lead_data
                                     )
                                     
-                                    admin_user = User.objects.filter(is_superuser=True).first()
-                                    if admin_user:
-                                        new_lead.assigned_to = admin_user
-                                        new_lead.save()
-                                        
-                                        FollowUp.objects.create(
-                                            lead=new_lead,
-                                            phone_number=new_lead.phone,
-                                            name=new_lead.name,
-                                            follow_up_date=timezone.now().date(),
-                                            followup_type='call',
-                                            notes="Initial call for new Meta Lead",
-                                            priority='high',
-                                            status='pending',
-                                            assigned_to=admin_user
-                                        )
+                                    # Leave new Meta leads unassigned rather than assigning to superuser/admin
 
         if log:
             log.processed = True
@@ -168,8 +153,8 @@ def process_voxbay_webhook(webhook_log_id, payload):
                 lead = Lead.objects.filter(phone__endswith=lead_number[-10:]).first()
                 
             if lead:
-                assignee = lead.current_handler or User.objects.filter(is_superuser=True).first()
-                if assignee:
+                assignee = lead.current_handler
+                if assignee and not assignee.is_superuser:
                     notes = f"Auto-scheduled from Voxbay {call_direction_text.lower()} call log. Call status: {call_status}"
                     if call_duration:
                         notes += f", Duration: {call_duration}s"

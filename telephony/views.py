@@ -312,9 +312,8 @@ def process_voxbay_call_log(obj, agent_user=None):
             answered_exists = VoxbayCallLog.objects.filter(call_uuid=obj.call_uuid, call_status__in=['ANSWER', 'ANSWERED']).exists()
             if not answered_exists:
                 lead_handler = agent_user or existing_lead.sub_assigned_to or existing_lead.assigned_to
-                if not lead_handler:
-                    from accounts.models import User
-                    lead_handler = User.objects.filter(is_superuser=True).first() or User.objects.filter(is_active=True).first()
+                if lead_handler and lead_handler.is_superuser:
+                    lead_handler = None
                 duration_str = f"{obj.duration}s" if obj.duration else "0s"
                 call_status_str = obj.call_status or ('Answered' if obj.duration and obj.duration > 0 else 'Missed')
                 summary_lines = [

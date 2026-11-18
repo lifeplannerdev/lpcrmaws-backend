@@ -410,7 +410,14 @@ class LeadDetailSerializer(serializers.ModelSerializer):
         if new_status is not None and not new_status.strip():
             raise serializers.ValidationError({'status': 'Status cannot be empty.'})
 
-        return super().update(instance, validated_data)
+        updated_lead = super().update(instance, validated_data)
+
+        if request and request.user and request.user.is_authenticated and not request.user.is_superuser:
+            if 'remarks' in validated_data or 'status' in validated_data:
+                from leads.assignment_utils import transfer_admin_owned_records
+                transfer_admin_owned_records(updated_lead, request.user)
+
+        return updated_lead
 
 
 # Processing Update Serializer
