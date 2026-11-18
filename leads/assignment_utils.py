@@ -94,7 +94,7 @@ def resolve_counselor_from_context(lead=None, notes='', User=None, RemarkHistory
                 assigned_to__is_superuser=False,
             )
             .select_related('assigned_to')
-            .order_by('-assigned_at', '-id')
+            .order_by('-timestamp', '-id')
             .first()
         )
         if assignment:
