@@ -342,7 +342,7 @@ class AssignedStudentRecordViewSet(AssignedTrackerBaseViewSet):
     search_fields = [
         'name', 'phone', 'email_address', 'place',
         'qualification', 'preferred_country', 'preferred_program',
-        'intake', 'aps_status', 'ielts_status', 'german_status',
+        'intake', 'aps_status', 'ielts_status', 'german_status', 'source',
     ]
     field_labels = {
         'sl_no': 'SL NO',
@@ -358,6 +358,7 @@ class AssignedStudentRecordViewSet(AssignedTrackerBaseViewSet):
         'aps_status': 'APS STATUS',
         'ielts_status': 'IELTS STATUS',
         'german_status': 'GERMAN STATUS',
+        'source': 'SOURCE',
         'assigned_to': 'Assigned To',
     }
 

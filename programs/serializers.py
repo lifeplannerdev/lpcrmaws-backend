@@ -109,7 +109,7 @@ class AssignedStudentRecordSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'sl_no', 'name', 'age', 'phone', 'email_address',
             'place', 'qualification', 'preferred_country', 'preferred_program',
-            'intake', 'aps_status', 'ielts_status', 'german_status',
+            'intake', 'aps_status', 'ielts_status', 'german_status', 'source',
             'assigned_to', 'assigned_to_name', 'created_by', 'created_by_name',
             'created_at', 'updated_at',
         ]

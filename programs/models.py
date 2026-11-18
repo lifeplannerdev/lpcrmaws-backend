@@ -104,6 +104,15 @@ class AssignedProgramChangeLog(models.Model):
 
 class AssignedStudentRecord(models.Model):
     """Tracks Assigned Students Database sheet rows with exact G-Sheet columns."""
+    SOURCE_CHOICES = [
+        ('whatsapp', 'WhatsApp'),
+        ('insta', 'Insta'),
+        ('facebook', 'Facebook'),
+        ('chatgpt', 'ChatGPT'),
+        ('voxbay', 'Voxbay'),
+        ('walkin', 'Walk-in'),
+    ]
+
     sl_no = models.PositiveIntegerField(null=True, blank=True)
     name = models.CharField(max_length=255)
     age = models.CharField(max_length=30, blank=True, default='')
@@ -117,6 +126,7 @@ class AssignedStudentRecord(models.Model):
     aps_status = models.CharField(max_length=120, blank=True, default='')
     ielts_status = models.CharField(max_length=120, blank=True, default='')
     german_status = models.CharField(max_length=120, blank=True, default='')
+    source = models.CharField(max_length=30, choices=SOURCE_CHOICES, blank=True, default='')
     assigned_to = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
