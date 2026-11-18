@@ -280,5 +280,5 @@ class AssignedProgramsStudentsTrackerTests(APITestCase):
 
         list_data = self.client.get('/api/assigned-students-db/').data
         remaining = list_data['results'] if isinstance(list_data, dict) else list_data
-        self.assertEqual([r['sl_no'] for r in remaining], [1, 2, 3, 4])
-        self.assertEqual([r['name'] for r in remaining], ['Student 1', 'Student 2', 'Student 4', 'Student 5'])
+        self.assertEqual([r['sl_no'] for r in remaining], [4, 3, 2, 1])
+        self.assertEqual([r['name'] for r in remaining], ['Student 5', 'Student 4', 'Student 2', 'Student 1'])

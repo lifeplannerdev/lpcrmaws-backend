@@ -331,7 +331,7 @@ class AssignedTrackerBaseViewSet(viewsets.ModelViewSet):
 
 
 class AssignedProgramViewSet(AssignedTrackerBaseViewSet):
-    queryset = AssignedProgram.objects.all().order_by('sl_no', 'id')
+    queryset = AssignedProgram.objects.all().order_by('-sl_no', '-id')
     serializer_class = AssignedProgramSerializer
     log_model = AssignedProgramChangeLog
     log_serializer_class = AssignedProgramChangeLogSerializer
@@ -350,7 +350,7 @@ class AssignedProgramViewSet(AssignedTrackerBaseViewSet):
 
 
 class AssignedStudentRecordViewSet(AssignedTrackerBaseViewSet):
-    queryset = AssignedStudentRecord.objects.all().order_by('sl_no', 'id')
+    queryset = AssignedStudentRecord.objects.all().order_by('-sl_no', '-id')
     serializer_class = AssignedStudentRecordSerializer
     log_model = AssignedStudentChangeLog
     log_serializer_class = AssignedStudentChangeLogSerializer
