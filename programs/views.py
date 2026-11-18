@@ -138,6 +138,22 @@ class AssignedTrackerBaseViewSet(viewsets.ModelViewSet):
         max_sl = self.queryset.aggregate(m=Max('sl_no'))['m'] or 0
         return max_sl + 1
 
+    def _resequence_sl_no(self):
+        model = self.queryset.model
+        rows = list(model.objects.order_by('sl_no', 'id'))
+        to_update = []
+        for idx, row in enumerate(rows, start=1):
+            if row.sl_no != idx:
+                row.sl_no = idx
+                to_update.append(row)
+        if to_update:
+            model.objects.bulk_update(to_update, ['sl_no'])
+
+    def perform_destroy(self, instance):
+        with transaction.atomic():
+            instance.delete()
+            self._resequence_sl_no()
+
     def _log_entries(self, instance, entries):
         if not entries:
             return

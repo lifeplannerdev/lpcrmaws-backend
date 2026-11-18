@@ -260,3 +260,25 @@ class AssignedProgramsStudentsTrackerTests(APITestCase):
         # Manager can delete
         del_res = self.client.delete(f'/api/assigned-students-db/{created_ids[0]}/')
         self.assertEqual(del_res.status_code, status.HTTP_204_NO_CONTENT)
+
+    def test_auto_sl_no_and_resequence_on_delete(self):
+        self.client.force_authenticate(user=self.manager)
+        created_ids = []
+        for idx in range(5):
+            res = self.client.post(
+                '/api/assigned-students-db/',
+                {'name': f'Student {idx + 1}'},
+                format='json',
+            )
+            self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+            self.assertEqual(res.data['sl_no'], idx + 1)
+            created_ids.append(res.data['id'])
+
+        # Delete the 3rd row (sl_no=3)
+        del_res = self.client.delete(f'/api/assigned-students-db/{created_ids[2]}/')
+        self.assertEqual(del_res.status_code, status.HTTP_204_NO_CONTENT)
+
+        list_data = self.client.get('/api/assigned-students-db/').data
+        remaining = list_data['results'] if isinstance(list_data, dict) else list_data
+        self.assertEqual([r['sl_no'] for r in remaining], [1, 2, 3, 4])
+        self.assertEqual([r['name'] for r in remaining], ['Student 1', 'Student 2', 'Student 4', 'Student 5'])
