@@ -96,3 +96,47 @@ class AdminFollowUpTransferTests(TestCase):
             notes='[18/11/2026 10:11] Navya Rajgopal: Akhila from TVM 29Yrs Old Btech'
         )
         self.assertEqual(resolved, self.navya)
+
+    def test_alerts_only_include_followups_within_two_days(self):
+        today = timezone.localtime(timezone.now()).date()
+        lead = Lead.objects.create(
+            name='Rajitha',
+            phone='919744644950',
+            assigned_to=self.navya,
+        )
+        due_today = FollowUp.objects.create(
+            lead=lead,
+            phone_number='919744644950',
+            name='Due Today',
+            follow_up_date=today,
+            followup_type='call',
+            status='pending',
+            assigned_to=self.navya,
+        )
+        due_two_days = FollowUp.objects.create(
+            lead=lead,
+            phone_number='919744644950',
+            name='Due In Two Days',
+            follow_up_date=today + timezone.timedelta(days=2),
+            followup_type='call',
+            status='pending',
+            assigned_to=self.navya,
+        )
+        FollowUp.objects.create(
+            lead=lead,
+            phone_number='919744644950',
+            name='Far Future',
+            follow_up_date=today + timezone.timedelta(days=50),
+            followup_type='call',
+            status='pending',
+            assigned_to=self.navya,
+        )
+
+        self.client.force_authenticate(user=self.navya)
+        res = self.client.get('/api/followups/alerts/')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data['counts']['total_active'], 2)
+        self.assertEqual(res.data['counts']['today'], 1)
+        self.assertEqual(res.data['counts']['upcoming'], 1)
+        self.assertEqual([r['id'] for r in res.data['today']], [due_today.id])
+        self.assertEqual([r['id'] for r in res.data['upcoming']], [due_two_days.id])

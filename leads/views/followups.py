@@ -442,12 +442,14 @@ class FollowUpAlertsAPIView(APIView):
         now_dt = timezone.localtime(timezone.now())
         today = now_dt.date()
         tomorrow = today + timezone.timedelta(days=1)
+        two_days_cutoff = today + timezone.timedelta(days=2)
 
         include_inactive = request.query_params.get('include_inactive') == 'true'
 
-        # Base queryset: only pending, not closed/converted, and never show admin (superuser) follow-ups
+        # Base queryset: only pending, due within 2 days (or overdue), not closed/converted, and never show admin follow-ups
         base_qs = FollowUp.objects.filter(
-            status='pending'
+            status='pending',
+            follow_up_date__lte=two_days_cutoff,
         ).exclude(
             lead__status__in=['CLOSED', 'CONVERTED']
         ).exclude(
