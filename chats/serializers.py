@@ -17,21 +17,38 @@ class UserSerializer(serializers.ModelSerializer):
         return first_role.name if first_role else (obj.team or "")
 
 
-class MessageSerializer(serializers.ModelSerializer):
-    sender = UserSerializer()
+def _get_message_file_url(obj, context):
+    if obj.file:
+        request = context.get("request")
+        if request:
+            return request.build_absolute_uri(obj.file.url)
+        return obj.file.url
+    return None
+
+
+class ReplyToMessageSerializer(serializers.ModelSerializer):
+    sender = UserSerializer(read_only=True)
     file = serializers.SerializerMethodField()
 
     class Meta:
         model = Message
-        fields = ["id", "client_id", "sender", "text", "file", "delivered_to", "read_by", "created_at"]
+        fields = ["id", "sender", "text", "file", "created_at"]
 
     def get_file(self, obj):
-        if obj.file:
-            request = self.context.get('request')
-            if request:
-                return request.build_absolute_uri(obj.file.url)
-            return obj.file.url
-        return None
+        return _get_message_file_url(obj, self.context)
+
+
+class MessageSerializer(serializers.ModelSerializer):
+    sender = UserSerializer()
+    file = serializers.SerializerMethodField()
+    reply_to = ReplyToMessageSerializer(read_only=True)
+
+    class Meta:
+        model = Message
+        fields = ["id", "client_id", "sender", "text", "file", "reply_to", "delivered_to", "read_by", "created_at"]
+
+    def get_file(self, obj):
+        return _get_message_file_url(obj, self.context)
 
 
 class ConversationSerializer(serializers.ModelSerializer):
@@ -49,4 +66,4 @@ class ConversationSerializer(serializers.ModelSerializer):
             return None
         # Get the latest from already-fetched queryset (sorted in view)
         last = prefetched[0]
-        return MessageSerializer(last).data
+        return MessageSerializer(last, context=self.context).data

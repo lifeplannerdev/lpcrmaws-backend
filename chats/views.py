@@ -25,7 +25,10 @@ class ConversationListView(APIView):
             participants=request.user
         ).prefetch_related(
             "participants",
-            Prefetch("messages", queryset=Message.objects.order_by("-created_at"))
+            Prefetch(
+                "messages",
+                queryset=Message.objects.select_related("sender", "reply_to", "reply_to__sender").order_by("-created_at"),
+            ),
         ).order_by("-created_at")
 
         serializer = ConversationSerializer(qs, many=True, context={'request': request})
@@ -45,7 +48,11 @@ class MessageListView(APIView):
 
         messages = Message.objects.filter(
             conversation=conversation
-        ).select_related("sender").order_by("created_at")
+        ).select_related(
+            "sender", "reply_to", "reply_to__sender"
+        ).prefetch_related(
+            "sender__db_roles", "reply_to__sender__db_roles", "delivered_to", "read_by"
+        ).order_by("created_at")
 
         serializer = MessageSerializer(messages, many=True, context={'request': request})
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -60,6 +67,9 @@ class SendMessageView(APIView):
         text = request.data.get("text", "").strip()
         file = request.FILES.get("file")
         client_id = request.data.get("client_id")
+        reply_to_id = request.data.get("reply_to")
+        if reply_to_id in (None, "", "null", "undefined"):
+            reply_to_id = None
 
         if not conversation_id or not str(conversation_id).isdigit():
             return Response(
@@ -79,16 +89,38 @@ class SendMessageView(APIView):
             participants=request.user
         )
 
+        reply_to_msg = None
+        if reply_to_id is not None:
+            if not str(reply_to_id).isdigit():
+                return Response(
+                    {"error": "Invalid reply_to message ID"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            reply_to_msg = Message.objects.filter(
+                id=int(reply_to_id),
+                conversation=conversation,
+            ).first()
+            if not reply_to_msg:
+                return Response(
+                    {"error": "Replied message not found in this conversation"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
         message = Message.objects.create(
             conversation=conversation,
             sender=request.user,
             text=text or None,
             file=file,
+            reply_to=reply_to_msg,
             client_id=client_id
         )
 
-        # Re-fetch with sender to avoid N+1
-        message = Message.objects.select_related("sender").get(id=message.id)
+        # Re-fetch with sender and reply_to relations to avoid N+1
+        message = Message.objects.select_related(
+            "sender", "reply_to", "reply_to__sender"
+        ).prefetch_related(
+            "sender__db_roles", "reply_to__sender__db_roles", "delivered_to", "read_by"
+        ).get(id=message.id)
 
         serialized_message = MessageSerializer(message, context={'request': request}).data
 

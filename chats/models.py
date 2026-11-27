@@ -30,6 +30,13 @@ class Message(models.Model):
     text = models.TextField(blank=True, null=True)
 
     file = models.FileField(upload_to='chats/messages/', blank=True, null=True, verbose_name='file')
+    reply_to = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="replies",
+    )
 
     client_id = models.CharField(max_length=255, blank=True, null=True)
     delivered_to = models.ManyToManyField(User, related_name="delivered_messages", blank=True)

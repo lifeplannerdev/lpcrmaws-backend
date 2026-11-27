@@ -327,6 +327,11 @@ def notify_penalty_issued(penalty):
 def notify_new_message(conversation_id, message_data):
     payload = dict(message_data)
     payload["conversation_id"] = conversation_id
+    if isinstance(payload.get("reply_to"), dict):
+        reply_copy = dict(payload["reply_to"])
+        if isinstance(reply_copy.get("text"), str) and len(reply_copy["text"]) > 500:
+            reply_copy["text"] = reply_copy["text"][:500] + "…"
+        payload["reply_to"] = reply_copy
 
     trigger_pusher.delay(
         channel=f"private-chat-{conversation_id}",
