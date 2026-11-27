@@ -89,6 +89,7 @@ class Student(models.Model):
     trainer = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='assigned_students')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
     joined_date = models.DateField(default=timezone.now)
+    end_date = models.DateField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     
     class Meta:
@@ -111,6 +112,10 @@ class Student(models.Model):
     @property
     def current_grade(self):
         return self.grade_batch.grade if self.grade_batch else None
+
+    @property
+    def effective_end_date(self):
+        return self.end_date or (self.batch.end_date if self.batch else None)
         
     @property
     def fee_account(self):
