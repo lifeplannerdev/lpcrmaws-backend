@@ -61,6 +61,8 @@ class StudentSerializer(serializers.ModelSerializer):
     batch_name = serializers.CharField(source='batch.name', read_only=True)
     batch_start_date = serializers.DateField(source='batch.start_date', read_only=True, allow_null=True)
     batch_end_date = serializers.DateField(source='batch.end_date', read_only=True, allow_null=True)
+    end_date = serializers.DateField(required=False, allow_null=True)
+    effective_end_date = serializers.DateField(read_only=True, allow_null=True)
     grade_batch_id = serializers.IntegerField(source='grade_batch.id', read_only=True)
     current_grade = serializers.CharField(source='grade_batch.grade.code', read_only=True)
     package_name = serializers.CharField(source='academic_package.name', read_only=True)
@@ -75,6 +77,26 @@ class StudentSerializer(serializers.ModelSerializer):
         if trainer:
             return trainer.get_full_name().strip() or trainer.username
         return None
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        instance = getattr(self, 'instance', None)
+        old_status = instance.status if instance else None
+        new_status = attrs.get('status', old_status or 'active')
+        new_end_date = attrs.get('end_date', instance.end_date if instance else None)
+
+        if new_status == 'exited':
+            status_or_date_in_payload = (
+                instance is None
+                or old_status != 'exited'
+                or 'status' in attrs
+                or 'end_date' in attrs
+            )
+            if status_or_date_in_payload and not new_end_date:
+                raise serializers.ValidationError({
+                    'end_date': 'Actual end date is required when marking a student as exited.'
+                })
+        return attrs
 
     class Meta:
         model = Student

@@ -322,9 +322,39 @@ class StudentViewSet(viewsets.ModelViewSet):
                 grade_batch=student.grade_batch,
                 action='enrolled',
                 from_date=student.joined_date or timezone.now().date(),
+                to_date=student.end_date if student.status == 'exited' else None,
                 reason='Initial enrollment',
                 done_by=self.request.user
             )
+
+    def perform_update(self, serializer):
+        instance = serializer.instance
+        previous_status = instance.status
+        previous_batch = instance.batch
+        previous_grade_batch = instance.grade_batch
+        student = serializer.save()
+
+        if previous_status != 'exited' and student.status == 'exited':
+            exit_date = student.end_date or timezone.now().date()
+            prev_history = StudentBatchHistory.objects.filter(
+                student=student, to_date__isnull=True
+            ).order_by('-from_date').first()
+            if prev_history:
+                prev_history.to_date = exit_date
+                prev_history.save(update_fields=['to_date'])
+
+            history_batch = student.batch or previous_batch
+            if history_batch:
+                StudentBatchHistory.objects.create(
+                    student=student,
+                    batch=history_batch,
+                    grade_batch=student.grade_batch or previous_grade_batch,
+                    action='exited',
+                    from_date=exit_date,
+                    to_date=exit_date,
+                    reason='Marked as exited',
+                    done_by=self.request.user,
+                )
 
     @action(detail=True, methods=['post'])
     def promote(self, request, pk=None):
